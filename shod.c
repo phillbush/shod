@@ -981,6 +981,20 @@ getdialogfor(Window win)
 	return NULL;
 }
 
+/* increment number of clients */
+static void
+clientsincr(void)
+{
+	wm.nclients++;
+}
+
+/* decrement number of clients */
+static void
+clientsdecr(void)
+{
+	wm.nclients--;
+}
+
 /* get focused fullscreen window in given monitor and desktop */
 static struct Container *
 getfullscreen(struct Monitor *mon, struct Desktop *desk)
@@ -2186,6 +2200,7 @@ dialogdel(struct Dialog *d)
 	icccmdeletestate(d->win);
 	XReparentWindow(dpy, d->win, root, 0, 0);
 	XDestroyWindow(dpy, d->frame);
+	clientsdecr();
 	free(d);
 }
 
@@ -2224,6 +2239,7 @@ tabdel(struct Tab *t)
 	XReparentWindow(dpy, t->win, root, 0, 0);
 	XDestroyWindow(dpy, t->title);
 	XDestroyWindow(dpy, t->frame);
+	clientsdecr();
 	free(t->name);
 	free(t->class);
 	free(t);
@@ -2563,6 +2579,7 @@ tabnew(Window win, int ignoreunmap)
 	XReparentWindow(dpy, t->win, t->frame, 0, 0);
 	XMapWindow(dpy, t->win);
 	icccmwmstate(win, NormalState);
+	clientsincr();
 	return t;
 }
 
@@ -2702,6 +2719,7 @@ dialognew(Window win, int maxw, int maxh, int ignoreunmap)
 	                         CWEventMask, &clientswa);
 	XReparentWindow(dpy, d->win, d->frame, 0, 0);
 	XMapWindow(dpy, d->win);
+	clientsincr();
 	return d;
 }
 
@@ -3222,13 +3240,11 @@ manage(Window win, XWindowAttributes *wa, int ignoreunmap)
 	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_PROMPT]) {
 		manageprompt(win, wa->width, wa->height);
 	} else if (t != NULL) {
-		wm.nclients++;
 		d = dialognew(win, wa->width, wa->height, ignoreunmap);
 		tabadddialog(t, d);
 		ewmhsetclients();
 		ewmhsetclientsstacking();
 	} else {
-		wm.nclients++;
 		userplaced = isuserplaced(win);
 		t = tabnew(win, ignoreunmap);
 		tabupdatetitle(t);
