@@ -223,12 +223,15 @@ struct Row {
 	struct Column *col;                     /* pointer to parent column */
 	struct Tab *tabs;                       /* list of tabs */
 	struct Tab *seltab;                     /* pointer to selected tab */
+	Window bar;                             /* title bar frame */
 	Window bl;                              /* left button */
 	Window br;                              /* right button */
+	Pixmap pixbar;                          /* pixmap for the title bar */
 	Pixmap pixbl;                           /* pixmap for left button */
 	Pixmap pixbr;                           /* pixmap for right button */
 	int ntabs;                              /* number of tabs */
 	int y, h;                               /* row geometry */
+	int pw;
 };
 
 /* column of tiled container */
@@ -785,8 +788,7 @@ inittheme(void)
 	    (xa.width / 3) % 2 == 1 && (xa.height / 3) % 2 == 1 &&
 	    xa.x_hotspot < ((xa.width / 3) - 1) / 2) {
 		size = xa.width / 3;
-		visual.border = xa.x_hotspot;
-		visual.division = 2 * (visual.border / 2);
+		visual.division = visual.border = xa.x_hotspot;
 		visual.button = visual.tab = xa.y_hotspot;
 		visual.corner = visual.border + visual.tab;
 		visual.edge = (size - 1) / 2 - visual.corner;
@@ -866,7 +868,7 @@ getwin(Window win)
 		}
 		for (col = c->cols; col != NULL; col = col->next) {
 			for (row = col->rows; row != NULL; row = row->next) {
-				if (win == row->bl || win == row->br) {
+				if (win == row->bar || win == row->bl || win == row->br) {
 					res.c = c;
 					res.row = row;
 					return res;
@@ -1638,7 +1640,7 @@ tabdecorate(struct Tab *t, int pressed)
 	int x, y;
 
 	style = tabgetstyle(t);
-	if (t->row != NULL && t != t->row->seltab)
+	if (t->row != NULL && t != t->row->col->c->selcol->selrow->seltab)
 		decor = &visual.decor[style][TAB_UNFOCUSED];
 	else if (t->row != NULL && pressed)
 		decor = &visual.decor[style][TAB_PRESSED];
@@ -1702,7 +1704,7 @@ buttondecorate(struct Row *row, int button, int pressed)
 	struct Decor *decor;    /* decoration */
 	int style;              /* decoration style, used as index in the decor array */
 
-	style = containergetstyle(row->col->c);
+	style = (row->seltab) ? tabgetstyle(row->seltab) : UNFOCUSED;
 	decor = pressed ? &visual.decor[style][PRESSED] : &visual.decor[style][UNPRESSED];
 
 	if (button == BUTTON_LEFT) {
@@ -1735,8 +1737,6 @@ containerdecorate(struct Container *c, int recursive, enum Octant o)
 	style = containergetstyle(c);
 	decor = &visual.decor[style][UNPRESSED];
 	decorp = &visual.decor[style][PRESSED];
-	val.fill_style = FillTiled;
-	XChangeGC(dpy, gc, GCFillStyle, &val);
 	w = c->w - visual.corner * 2;
 	h = c->h - visual.corner * 2;
 
@@ -1749,6 +1749,8 @@ containerdecorate(struct Container *c, int recursive, enum Octant o)
 	c->pw = c->w;
 	c->ph = c->h;
 
+	val.fill_style = FillTiled;
+	XChangeGC(dpy, gc, GCFillStyle, &val);
 	if (c->b > 0) {
 	
 		/* draw borders */
@@ -1841,11 +1843,41 @@ containerdecorate(struct Container *c, int recursive, enum Octant o)
 	}
 
 	for (col = c->cols; col != NULL; col = col->next) {
+		if (col->next) {
+			val.fill_style = FillTiled;
+			val.tile = decor->e;
+			val.ts_x_origin = col->x + col->w;
+			val.ts_y_origin = 0;
+			XChangeGC(dpy, gc, GCFillStyle | GCTile | GCTileStipYOrigin | GCTileStipXOrigin , &val);
+			XFillRectangle(dpy, c->pix, gc, col->x + col->w, c->b, visual.division, c->h - 2 * c->b);
+		}
 		for (row = col->rows; row != NULL; row = row->next) {
-			if (o == 0) {
-				buttondecorate(row, BUTTON_LEFT, 0);
-				buttondecorate(row, BUTTON_RIGHT, 0);
+			if (row->next) {
+				val.fill_style = FillTiled;
+				val.tile = decor->s;
+				val.ts_x_origin = 0;
+				val.ts_y_origin = row->y + row->h;
+				XChangeGC(dpy, gc, GCFillStyle | GCTile | GCTileStipYOrigin | GCTileStipXOrigin , &val);
+				XFillRectangle(dpy, c->pix, gc, col->x, row->y + row->h, col->w, visual.division);
 			}
+
+
+			/* (re)create titlebar pixmap */
+			if (row->pw != col->w || row->pixbar == None) {
+				if (row->pixbar != None)
+					XFreePixmap(dpy, row->pixbar);
+				row->pixbar = XCreatePixmap(dpy, row->bar, col->w, visual.tab, depth);
+			}
+			row->pw = col->w;
+
+			val.foreground = decor->bg;
+			val.fill_style = FillSolid;
+			XChangeGC(dpy, gc, GCFillStyle | GCForeground, &val);
+			XFillRectangle(dpy, row->pixbar, gc, 0, 0, c->w, visual.tab);
+			XCopyArea(dpy, row->pixbar, row->bar, gc, 0, 0, col->w, visual.tab, 0, 0);
+
+			buttondecorate(row, BUTTON_LEFT, 0);
+			buttondecorate(row, BUTTON_RIGHT, 0);
 			if (recursive) {
 				for (t = row->tabs; t != NULL; t = t->next) {
 					tabdecorate(t, 0);
@@ -1970,7 +2002,7 @@ tabmoveresize(struct Tab *t)
 
 /* commit container size and position */
 static void
-containermoveresize(struct Container *c)
+containermoveresize(struct Container *c, int decorate)
 {
 	struct Column *col;
 	struct Row *row;
@@ -1982,14 +2014,15 @@ containermoveresize(struct Container *c)
 	XMoveResizeWindow(dpy, c->curswin, 0, 0, c->w, c->h);
 	for (col = c->cols; col != NULL; col = col->next) {
 		for (row = col->rows; row != NULL; row = row->next) {
-			XMoveWindow(dpy, row->bl, col->x, row->y);
-			XMoveWindow(dpy, row->br, col->x + col->w - visual.button, row->y);
+			XMoveResizeWindow(dpy, row->bar, col->x, row->y, col->w, visual.tab);
+			XMoveWindow(dpy, row->bl, 0, 0);
+			XMoveWindow(dpy, row->br, col->w - visual.button, 0);
 			for (t = row->tabs; t != NULL; t = t->next) {
 				tabmoveresize(t);
 			}
 		}
 	}
-	if (c->pw != c->w || c->ph != c->h) {
+	if (decorate || c->pw != c->w || c->ph != c->h) {
 		containerdecorate(c, 0, 0);
 	}
 }
@@ -2009,7 +2042,7 @@ containerconfigure(struct Container *c, unsigned int valuemask, XWindowChanges *
 	if (valuemask & CWHeight)
 		c->nh = wc->height;
 	containercalccols(c, 1);
-	containermoveresize(c);
+	containermoveresize(c, 0);
 }
 
 /* remove container from the raise list */
@@ -2116,7 +2149,7 @@ containerminimize(struct Container *c, int minimize, int focus)
 	} else if (minimize != ADD && c->isminimized) {
 		c->isminimized = 0;
 		containersendtodesk(c, wm.selmon->seldesk, 1, 0);
-		containermoveresize(c);
+		containermoveresize(c, 0);
 		/* no need to call clienthide(c, 0) here for containersendtodesk already calls it */
 	}
 }
@@ -2176,7 +2209,7 @@ containerincrmove(struct Container *c, int x, int y)
 	c->ny += y;
 	c->x = c->nx;
 	c->y = c->ny;
-	containermoveresize(c);
+	containermoveresize(c, 0);
 	if (!c->issticky) {
 		monto = getmon(c->nx + c->nw / 2, c->ny + c->nh / 2);
 		if (monto != NULL && monto != c->mon) {
@@ -2208,9 +2241,12 @@ dialogdel(struct Dialog *d)
 static void
 tabdetach(struct Tab *t, int x, int y)
 {
-	if (t->row->seltab == t)
-		t->row->seltab = (t->prev != NULL) ? t->prev : t->next;
-	t->row->ntabs--;
+	struct Row *row;
+
+	row = t->row;
+	if (row->seltab == t)
+		row->seltab = (t->prev != NULL) ? t->prev : t->next;
+	row->ntabs--;
 	t->ignoreunmap = IGNOREUNMAP;
 	XReparentWindow(dpy, t->title, root, x, y);
 	if (t->next)
@@ -2218,10 +2254,11 @@ tabdetach(struct Tab *t, int x, int y)
 	if (t->prev)
 		t->prev->next = t->next;
 	else
-		t->row->tabs = t->next;
+		row->tabs = t->next;
 	t->next = NULL;
 	t->prev = NULL;
-	rowcalctabs(t->row);
+	t->row = NULL;
+	rowcalctabs(row);
 }
 
 /* delete tab */
@@ -2270,8 +2307,11 @@ rowdel(struct Row *row)
 	while (row->tabs)
 		tabdel(row->tabs);
 	rowdetach(row);
+	XDestroyWindow(dpy, row->bar);
 	XDestroyWindow(dpy, row->bl);
 	XDestroyWindow(dpy, row->br);
+	if (row->pixbar != None)
+		XFreePixmap(dpy, row->pixbar);
 	XFreePixmap(dpy, row->pixbl);
 	XFreePixmap(dpy, row->pixbr);
 	free(row);
@@ -2330,25 +2370,21 @@ containerdel(struct Container *c)
 
 /* add column to container */
 static void
-containeraddcol(struct Container *c, struct Column *col, int pos)
+containeraddcol(struct Container *c, struct Column *col, struct Column *prev)
 {
 	struct Container *oldc;
-	struct Column *tmp, *prev;
-	int i;
 
 	oldc = col->c;
 	col->c = c;
 	c->selcol = col;
 	c->ncols++;
-	if (pos == 0 || c->cols == NULL) {
+	if (prev == NULL || c->cols == NULL) {
 		col->prev = NULL;
 		col->next = c->cols;
 		if (c->cols != NULL)
 			c->cols->prev = col;
 		c->cols = col;
 	} else {
-		for (i = 0, prev = tmp = c->cols; tmp != NULL && (pos < 0 || i < pos); tmp = tmp->next, i++)
-			prev = tmp;
 		if (prev->next != NULL)
 			prev->next->prev = col;
 		col->next = prev->next;
@@ -2380,27 +2416,23 @@ colnew(void)
 
 /* add row to column */
 static void
-coladdrow(struct Column *col, struct Row *row, int pos)
+coladdrow(struct Column *col, struct Row *row, struct Row *prev)
 {
 	struct Container *c;
 	struct Column *oldcol;
-	struct Row *tmp, *prev;
-	int i;
 
 	c = col->c;
 	oldcol = row->col;
 	row->col = col;
 	col->selrow = row;
 	col->nrows++;
-	if (pos == 0 || col->rows == NULL) {
+	if (prev == NULL || col->rows == NULL) {
 		row->prev = NULL;
 		row->next = col->rows;
 		if (col->rows != NULL)
 			col->rows->prev = row;
 		col->rows = row;
 	} else {
-		for (i = 0, prev = tmp = col->rows; tmp && (pos < 0 || i < pos); tmp = tmp->next, i++)
-			prev = tmp;
 		if (prev->next)
 			prev->next->prev = row;
 		row->next = prev->next;
@@ -2408,10 +2440,8 @@ coladdrow(struct Column *col, struct Row *row, int pos)
 		prev->next = row;
 	}
 	colcalcrows(col, 0);    /* set row->y, row->h, etc */
-	XReparentWindow(dpy, row->bl, c->frame, col->x, row->y);
-	XMapWindow(dpy, row->bl);
-	XReparentWindow(dpy, row->br, c->frame, col->x + col->w - visual.button, row->y);
-	XMapWindow(dpy, row->br);
+	XReparentWindow(dpy, row->bar, c->frame, col->x, row->y);
+	XMapWindow(dpy, row->bar);
 	if (oldcol != NULL && oldcol->nrows == 0) {
 		coldel(oldcol);
 	}
@@ -2431,27 +2461,32 @@ rownew(void)
 	row->ntabs = 0;
 	row->y = 0;
 	row->h = 0;
-	row->bl = XCreateWindow(dpy, root, 0, 0, visual.button, visual.button, 0,
+	row->pw = 0;
+	row->bar = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
+	                         CopyFromParent, CopyFromParent, CopyFromParent,
+	                         CWEventMask, &clientswa);
+	row->bl = XCreateWindow(dpy, row->bar, 0, 0, visual.button, visual.button, 0,
 	                        CopyFromParent, CopyFromParent, CopyFromParent,
 	                        CWEventMask, &clientswa);
 	row->pixbl = XCreatePixmap(dpy, row->bl, visual.button, visual.button, depth);
-	row->br = XCreateWindow(dpy, root, 0, 0, visual.button, visual.button, 0,
+	row->br = XCreateWindow(dpy, row->bar, 0, 0, visual.button, visual.button, 0,
 	                        CopyFromParent, CopyFromParent, CopyFromParent,
 	                        CWEventMask, &clientswa);
 	row->pixbr = XCreatePixmap(dpy, row->bl, visual.button, visual.button, depth);
+	row->pixbar = None;
+	XMapWindow(dpy, row->bl);
+	XMapWindow(dpy, row->br);
 	XDefineCursor(dpy, row->br, visual.cursors[CURSOR_PIRATE]);
 	return row;
 }
 
 /* add tab to row */
 static void
-rowaddtab(struct Row *row, struct Tab *t, int pos)
+rowaddtab(struct Row *row, struct Tab *t, struct Tab *prev)
 {
 	struct Container *c;
 	struct Column *col;
 	struct Row *oldrow;
-	struct Tab *tmp, *prev;
-	int i;
 
 	c = row->col->c;
 	col = row->col;
@@ -2459,15 +2494,13 @@ rowaddtab(struct Row *row, struct Tab *t, int pos)
 	t->row = row;
 	row->seltab = t;
 	row->ntabs++;
-	if (pos == 0 || row->tabs == NULL) {
+	if (prev == NULL || row->tabs == NULL) {
 		t->prev = NULL;
 		t->next = row->tabs;
 		if (row->tabs != NULL)
 			row->tabs->prev = t;
 		row->tabs = t;
 	} else {
-		for (i = 0, prev = tmp = row->tabs; tmp && (pos < 0 || i < pos); tmp = tmp->next, i++)
-			prev = tmp;
 		if (prev->next)
 			prev->next->prev = t;
 		t->next = prev->next;
@@ -2519,7 +2552,7 @@ deskfocus(struct Desktop *desk)
 		 * hide containers of previous current desktop */
 		for (c = wm.c; c != NULL; c = c->next) {
 			if (c->desk == desk) {
-				containermoveresize(c);
+				containermoveresize(c, 0);
 				containerhide(c, 0);
 			} else if (c->desk == desk->mon->seldesk) {
 				containerhide(c, 1);
@@ -2624,8 +2657,6 @@ tabfocus(struct Tab *t, int gotodesk)
 		ewmhsetactivewindow(None);
 	} else {
 		c = t->row->col->c;
-		if (wm.focused && wm.focused->selcol->selrow->seltab == t)
-			return;         /* tab is already focused */
 		if (!c->isfullscreen && getfullscreen(c->mon, c->desk) != NULL)
 			return;         /* we should not focus a client below a fullscreen client */
 		wm.focused = c;
@@ -2679,23 +2710,91 @@ tabupdateclass(struct Tab *t)
 	}
 }
 
-/* add dialog window into tab */
-static void
-tabadddialog(struct Tab *t, struct Dialog *d)
+/* try to attach tab in a client of specified client list */
+static int
+tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 {
 	struct Container *c;
+	struct Column *col, *ncol;
+	struct Row *row, *nrow;
+	struct Tab *t, *next;
 
-	c = t->row->col->c;
-	d->t = t;
-	XReparentWindow(dpy, d->frame, t->frame, 0, 0);
-	if (t->ds)
-		t->ds->prev = d;
-	d->next = t->ds;
-	t->ds = d;
-	icccmwmstate(d->win, NormalState);
-	dialogcalcsize(d);
-	dialogmoveresize(d);
-	XMapRaised(dpy, d->frame);
+	for (c = list; c != NULL; c = c->rnext) {
+		if (xroot < c->x || xroot >= c->x + c->w || yroot < c->y || yroot >= c->y + c->h)
+			continue;
+		if (xroot - c->x < c->b) {
+			nrow = rownew();
+			ncol = colnew();
+			containeraddcol(c, ncol, NULL);
+			coladdrow(ncol, nrow, NULL);
+			rowaddtab(nrow, det, NULL);
+			containercalccols(c, 1);
+			goto done;
+		}
+		for (col = c->cols; col != NULL; col = col->next) {
+			if (xroot - c->x >= col->x + col->w && xroot - c->x < col->x + col->w + visual.division) {
+				nrow = rownew();
+				ncol = colnew();
+				containeraddcol(c, ncol, col);
+				coladdrow(ncol, nrow, NULL);
+				rowaddtab(nrow, det, NULL);
+				containercalccols(c, 1);
+				goto done;
+			} else if (xroot - c->x >= col->x && xroot - c->x < col->x + col->w) {
+				if (yroot - c->y < c->b) {
+					nrow = rownew();
+					coladdrow(col, nrow, NULL);
+					rowaddtab(nrow, det, NULL);
+					colcalcrows(col, 1);
+					goto done;
+				}
+				for (row = col->rows; row != NULL; row = row->next) {
+					if (yroot - c->y >= row->y + row->h && yroot - c->y < row->y + row->h + visual.division) {
+						nrow = rownew();
+						coladdrow(col, nrow, row);
+						rowaddtab(nrow, det, NULL);
+						colcalcrows(col, 1);
+						goto done;
+					}
+					for (next = t = row->tabs; t != NULL; t = t->next) {
+						next = t;
+						if (xroot - c->x + col->x < col->x + t->x + t->w / 2) {
+							rowaddtab(row, det, t->prev);
+							rowcalctabs(row);
+							goto done;
+						}
+					}
+					if (next != NULL) {
+						rowaddtab(row, det, next);
+						rowcalctabs(row);
+						goto done;
+					}
+				}
+			}
+		}
+	}
+	return 0;
+done:
+	tabfocus(det, 0);
+	XMapSubwindows(dpy, c->frame);
+	ewmhsetclientsstacking();
+	containermoveresize(c, 1);
+	return 1;
+}
+
+/* attach tab into row; return 1 if succeeded, zero otherwise */
+static int
+tabattach(struct Tab *t, int xroot, int yroot)
+{
+	if (tryattach(wm.fulllist, t, xroot, yroot))
+		return 1;
+	if (tryattach(wm.abovelist, t, xroot, yroot))
+		return 1;
+	if (tryattach(wm.centerlist, t, xroot, yroot))
+		return 1;
+	if (tryattach(wm.belowlist, t, xroot, yroot))
+		return 1;
+	return 0;
 }
 
 /* create new dialog */
@@ -2855,7 +2954,7 @@ monupdate(void)
 		if (!c->isminimized && c->mon == NULL) {
 			focus = c;
 			containersendtodesk(c, wm.selmon->seldesk, 1, 0);
-			containermoveresize(c);
+			containermoveresize(c, 0);
 		}
 	}
 	if (focus != NULL)              /* if a contained changed desktop, focus it */
@@ -3129,6 +3228,7 @@ decorate(struct Winres *res)
 		XCopyArea(dpy, res->t->pixtitle, res->t->title, gc, 0, 0, res->t->w, visual.tab, 0, 0);
 		XCopyArea(dpy, res->t->pix, res->t->frame, gc, 0, 0, res->t->winw, res->t->winh, 0, 0);
 	} else if (res->row != NULL) {
+		XCopyArea(dpy, res->row->pixbar, res->row->bar, gc, 0, 0, res->row->pw, visual.tab, 0, 0);
 		XCopyArea(dpy, res->row->pixbl, res->row->bl, gc, 0, 0, visual.button, visual.button, 0, 0);
 		XCopyArea(dpy, res->row->pixbr, res->row->br, gc, 0, 0, visual.button, visual.button, 0, 0);
 	} else if (res->c != NULL) {
@@ -3136,6 +3236,27 @@ decorate(struct Winres *res)
 		fullh = res->c->h;
 		XCopyArea(dpy, res->c->pix, res->c->frame, gc, 0, 0, fullw, fullh, 0, 0);
 	}
+}
+
+/* add dialog window into tab */
+static void
+managedialog(struct Tab *t, struct Dialog *d)
+{
+	struct Container *c;
+
+	c = t->row->col->c;
+	d->t = t;
+	XReparentWindow(dpy, d->frame, t->frame, 0, 0);
+	if (t->ds)
+		t->ds->prev = d;
+	d->next = t->ds;
+	t->ds = d;
+	icccmwmstate(d->win, NormalState);
+	dialogcalcsize(d);
+	dialogmoveresize(d);
+	XMapRaised(dpy, d->frame);
+	ewmhsetclients();
+	ewmhsetclientsstacking();
 }
 
 /* map prompt, give it focus, wait for it to close, then revert focus to previously focused window */
@@ -3214,14 +3335,34 @@ managenotif(Window win, int w, int h)
 	notifplace();
 }
 
+/* create container for tab */
+static void
+managecontainer(struct Container *c, struct Tab *t, struct Desktop *desk, int userplaced)
+{
+	struct Column *col;
+	struct Row *row;
+
+	row = rownew();
+	col = colnew();
+	containeraddcol(c, col, NULL);
+	coladdrow(col, row, NULL);
+	rowaddtab(row, t, NULL);
+	containersendtodesk(c, desk, 1, userplaced);
+	tabfocus(t, 0);
+	containermoveresize(c, 0);
+	containerhide(c, 0);
+	XMapSubwindows(dpy, c->frame);
+	XMapWindow(dpy, c->frame);
+	ewmhsetclients();
+	ewmhsetclientsstacking();
+}
+
 /* call one of the manage- functions */
 static void
 manage(Window win, XWindowAttributes *wa, int ignoreunmap)
 {
 	struct Winres res;
 	struct Tab *t;
-	struct Row *row;
-	struct Column *col;
 	struct Container *c;
 	struct Dialog *d;
 	Atom prop;
@@ -3241,28 +3382,14 @@ manage(Window win, XWindowAttributes *wa, int ignoreunmap)
 		manageprompt(win, wa->width, wa->height);
 	} else if (t != NULL) {
 		d = dialognew(win, wa->width, wa->height, ignoreunmap);
-		tabadddialog(t, d);
-		ewmhsetclients();
-		ewmhsetclientsstacking();
+		managedialog(t, d);
 	} else {
 		userplaced = isuserplaced(win);
 		t = tabnew(win, ignoreunmap);
 		tabupdatetitle(t);
 		tabupdateclass(t);
-		row = rownew();
-		col = colnew();
 		c = containernew(wa->x, wa->y, wa->width, wa->height);
-		containeraddcol(c, col, 0);
-		coladdrow(col, row, 0);
-		rowaddtab(row, t, 0);
-		containersendtodesk(c, wm.selmon->seldesk, 1, userplaced);
-		tabfocus(t, 0);
-		containermoveresize(c);
-		containerhide(c, 0);
-		XMapSubwindows(dpy, c->frame);
-		XMapWindow(dpy, c->frame);
-		ewmhsetclients();
-		ewmhsetclientsstacking();
+		managecontainer(c, t, wm.selmon->seldesk, userplaced);
 	}
 }
 
@@ -3295,7 +3422,8 @@ unmanage(struct Tab *t)
 		}
 	}
 	if (moveresize) {
-		containermoveresize(c);
+		containercalccols(c, 1);
+		containermoveresize(c, 1);
 	}
 	if (focus != NULL) {
 		tabfocus(focus->selcol->selrow->seltab, 0);
@@ -3399,6 +3527,73 @@ outlinedraw(int x, int y, int w, int h)
 	val.function = GXcopy;
 	val.subwindow_mode = ClipByChildren;
 	XChangeGC(dpy, gc, GCFunction | GCSubwindowMode, &val);
+}
+
+/* detach tab from window with mouse */
+static void
+mouseretab(struct Tab *t, int xroot, int yroot, int x, int y)
+{
+	struct Monitor *mon;
+	struct Container *c, *newc;
+	struct Column *col;
+	struct Row *row;
+	struct Winres res;
+	XEvent ev;
+	int drow, dcol, dc;
+
+	row = t->row;
+	col = row->col;
+	c = col->c;
+	drow = (row->ntabs == 1);
+	dcol = (drow && col->nrows == 1);
+	dc = (dcol && c->ncols == 1);
+	tabdetach(t, xroot - x, yroot - y);
+	containermoveresize(c, 0);
+	XGrabPointer(dpy, t->title, False,
+	             ButtonReleaseMask | PointerMotionMask,
+	             GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
+	while (!XMaskEvent(dpy, ButtonReleaseMask | PointerMotionMask | ExposureMask, &ev)) {
+		switch (ev.type) {
+		case Expose:
+			if (ev.xexpose.count == 0) {
+				if (ev.xexpose.window == t->title) {
+					XCopyArea(dpy, t->pixtitle, t->title, gc, 0, 0, t->w, visual.tab, 0, 0);
+				} else {
+					res = getwin(ev.xexpose.window);
+					decorate(&res);
+				}
+			}
+			break;
+		case MotionNotify:
+			XMoveWindow(dpy, t->title, ev.xmotion.x_root - x, ev.xmotion.y_root - y);
+			break;
+		case ButtonRelease:
+			xroot = ev.xbutton.x_root;
+			yroot = ev.xbutton.y_root;
+			XUnmapWindow(dpy, t->title);
+			goto done;
+			break;
+		}
+	}
+done:
+	if (!tabattach(t, xroot, yroot)) {
+		mon = getmon(xroot - x, yroot - y);
+		if (mon == NULL)
+			mon = wm.selmon;
+		newc = containernew(xroot - x, yroot - y, t->winw, t->winh);
+		managecontainer(newc, t, mon->seldesk, 1);
+	}
+	if (dc) {
+		containerdel(c);
+	} else if (dcol) {
+		coldel(col);
+		containercalccols(c, 1);
+		containermoveresize(c, 1);
+	} else if (drow) {
+		rowdel(row);
+		containercalccols(c, 1);
+		containermoveresize(c, 1);
+	}
 }
 
 /* resize container with mouse */
@@ -3511,7 +3706,7 @@ mouseresize(struct Container *c, int xroot, int yroot, enum Octant o)
 done:
 	outlinedraw(0, 0, 0, 0);
 	containercalccols(c, 1);
-	containermoveresize(c);
+	containermoveresize(c, 1);
 	XUngrabPointer(dpy, CurrentTime);
 }
 
@@ -3664,7 +3859,7 @@ xeventbuttonpress(XEvent *e)
 
 	/* do action performed by mouse on non-maximized windows */
 	if (ev->window == t->title && ev->button == Button3) {
-		// TODO: mouseretab
+		mouseretab(t, ev->x_root, ev->y_root, ev->x, ev->y);
 	} else if (res.row != NULL && ev->window == res.row->bl && ev->button == Button1) {
 		buttondecorate(res.row, BUTTON_LEFT, 1);
 		mousererow(res.row);
@@ -3685,7 +3880,7 @@ xeventbuttonpress(XEvent *e)
 		           (ev->window == c->frame && ev->button == Button1)) {
 			containerdecorate(c, 0, o);
 			mouseresize(c, ev->x_root, ev->y_root, o);
-			containerdecorate(c, 0, 0);
+			/* no need to call containerdecorate(c, 0, 0) here */
 		} else if (ev->window == t->title && ev->button == Button1) {
 			tabdecorate(t, 1);
 			mousemove(c, ev->x_root, ev->y_root);
