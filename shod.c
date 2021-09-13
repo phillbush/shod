@@ -1968,6 +1968,8 @@ containermoveresize(struct Container *c)
 	XMoveResizeWindow(dpy, c->curswin, 0, 0, c->w, c->h);
 	for (col = c->cols; col != NULL; col = col->next) {
 		for (row = col->rows; row != NULL; row = row->next) {
+			XMoveWindow(dpy, row->bl, col->x, row->y);
+			XMoveWindow(dpy, row->br, col->x + col->w - visual.button, row->y);
 			for (t = row->tabs; t != NULL; t = t->next) {
 				tabmoveresize(t);
 			}
