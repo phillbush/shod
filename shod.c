@@ -3957,7 +3957,7 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 			           ((y < 0 && rdiv->h + y > visual.center) ||
 			            (y > 0 && rdiv->next->h - y > visual.center))) {
 				dy = y;
-				horzlinedraw(c->x + rdiv->col->x, c->y + rdiv->y + visual.division / 2 + y, rdiv->col->w);
+				horzlinedraw(c->x + rdiv->col->x, c->y + rdiv->y + rdiv->h + visual.division / 2 + y, rdiv->col->w);
 			}
 			break;
 		}
@@ -3974,10 +3974,10 @@ done:
 		}
 	} else if (rdiv != NULL) {
 		horzlinedraw(0, 0, 0);
-		if (dx < 0) {
+		if (dy < 0) {
 			rdiv->h += dy;
 			rdiv->next->h -= dy;
-		} else if (dx > 0) {
+		} else if (dy > 0) {
 			rdiv->next->h -= dy;
 			rdiv->h += dy;
 		}
