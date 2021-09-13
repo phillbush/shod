@@ -81,6 +81,8 @@ enum {
 	CURSOR_S,
 	CURSOR_W,
 	CURSOR_E,
+	CURSOR_V,
+	CURSOR_H,
 	CURSOR_PIRATE,
 	CURSOR_LAST
 };
@@ -636,6 +638,8 @@ initcursors(void)
 	visual.cursors[CURSOR_S] = XCreateFontCursor(dpy, XC_bottom_side);
 	visual.cursors[CURSOR_W] = XCreateFontCursor(dpy, XC_left_side);
 	visual.cursors[CURSOR_E] = XCreateFontCursor(dpy, XC_right_side);
+	visual.cursors[CURSOR_V] = XCreateFontCursor(dpy, XC_sb_v_double_arrow);
+	visual.cursors[CURSOR_H] = XCreateFontCursor(dpy, XC_sb_h_double_arrow);
 	visual.cursors[CURSOR_PIRATE] = XCreateFontCursor(dpy, XC_pirate);
 }
 
@@ -1026,13 +1030,8 @@ getnextfocused(struct Desktop *desk)
 
 /* get pointer position within a container */
 static enum Octant
-getoctant(struct Container *c, Window win, int srcx, int srcy)
+getoctant(struct Container *c, int x, int y)
 {
-	Window dw;
-	int x, y;
-
-	if (XTranslateCoordinates(dpy, win, c->frame, srcx, srcy, &x, &y, &dw) != True)
-		return 0;
 	if (c == NULL || c->isminimized)
 		return 0;
 	if ((y < c->b && x <= visual.corner) || (x < c->b && y <= visual.corner)) {
@@ -1051,21 +1050,33 @@ getoctant(struct Container *c, Window win, int srcx, int srcy)
 		return W;
 	} else if (x >= c->w - c->b) {
 		return E;
-	} else {
-		if (x >= c->w / 2 && y >= c->h / 2) {
-			return SE;
-		}
-		if (x >= c->w / 2 && y <= c->h / 2) {
-			return NE;
-		}
-		if (x <= c->w / 2 && y >= c->h / 2) {
-			return SW;
-		}
-		if (x <= c->w / 2 && y <= c->h / 2) {
-			return NW;
-		}
 	}
 	return 0;
+}
+
+/* get row or column next to division the pointer is on */
+static void
+getdivisions(struct Container *c, struct Column **cdiv, struct Row **rdiv, int x, int y)
+{
+	struct Column *col;
+	struct Row *row;
+
+	*cdiv = NULL;
+	*rdiv = NULL;
+	for (col = c->cols; col != NULL; col = col->next) {
+		if (col->next != NULL && x >= col->x + col->w && x < col->x + col->w + visual.division) {
+			*cdiv = col;
+			return;
+		}
+		if (x >= col->x && x < col->x + col->w) {
+			for (row = col->rows; row != NULL; row = row->next) {
+				if (row->next != NULL && y >= row->y + row->h && y < row->y + row->h + visual.division) {
+					*rdiv = row;
+					return;
+				}
+			}
+		}
+	}
 }
 
 /* check whether window was placed by the user */
@@ -1723,7 +1734,7 @@ buttondecorate(struct Row *row, int button, int pressed)
 
 /* draw decoration on container frame */
 static void
-containerdecorate(struct Container *c, int recursive, enum Octant o)
+containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, int recursive, enum Octant o)
 {
 	struct Decor *decor;    /* unpressed decoration */
 	struct Decor *decorp;   /* pressed decoration */
@@ -1846,18 +1857,18 @@ containerdecorate(struct Container *c, int recursive, enum Octant o)
 	}
 
 	for (col = c->cols; col != NULL; col = col->next) {
-		if (col->next) {
+		if (col->next != NULL) {
 			val.fill_style = FillTiled;
-			val.tile = decor->e;
+			val.tile = (col == cdiv) ? decorp->e : decor->e;
 			val.ts_x_origin = col->x + col->w;
 			val.ts_y_origin = 0;
 			XChangeGC(dpy, gc, GCFillStyle | GCTile | GCTileStipYOrigin | GCTileStipXOrigin , &val);
 			XFillRectangle(dpy, c->pix, gc, col->x + col->w, c->b, visual.division, c->h - 2 * c->b);
 		}
 		for (row = col->rows; row != NULL; row = row->next) {
-			if (row->next) {
+			if (row->next != NULL) {
 				val.fill_style = FillTiled;
-				val.tile = decor->s;
+				val.tile = (row == rdiv) ? decorp->s : decor->s;
 				val.ts_x_origin = 0;
 				val.ts_y_origin = row->y + row->h;
 				XChangeGC(dpy, gc, GCFillStyle | GCTile | GCTileStipYOrigin | GCTileStipXOrigin , &val);
@@ -2032,7 +2043,7 @@ containermoveresize(struct Container *c, int decorate)
 		}
 	}
 	if (decorate || c->pw != c->w || c->ph != c->h) {
-		containerdecorate(c, 0, 0);
+		containerdecorate(c, NULL, NULL, 0, 0);
 	}
 }
 
@@ -2661,7 +2672,7 @@ tabfocus(struct Tab *t, int gotodesk)
 	if (t == NULL) {
 		wm.focused = NULL;
 		if (wm.prevfocused)
-			containerdecorate(wm.prevfocused, 1, 0);
+			containerdecorate(wm.prevfocused, NULL, NULL, 1, 0);
 		XSetInputFocus(dpy, wm.focuswin, RevertToParent, CurrentTime);
 		ewmhsetactivewindow(None);
 	} else {
@@ -2684,9 +2695,9 @@ tabfocus(struct Tab *t, int gotodesk)
 		if (t->isurgent)
 			tabclearurgency(t);
 		if (wm.prevfocused)
-			containerdecorate(wm.prevfocused, 1, 0);
+			containerdecorate(wm.prevfocused, NULL, NULL, 1, 0);
 		containeraddfocus(c);
-		containerdecorate(c, 1, 0);
+		containerdecorate(c, NULL, NULL, 1, 0);
 		containerminimize(c, 0, 0);
 		containerraise(c);
 		if (gotodesk) {
@@ -3484,7 +3495,7 @@ mapfocuswin(void)
 	XMapWindow(dpy, wm.focuswin);
 }
 
-/* draw outline while resizing */
+/* draw outline */
 static void
 outlinedraw(int x, int y, int w, int h)
 {
@@ -3539,6 +3550,54 @@ outlinedraw(int x, int y, int w, int h)
 	oldy = y;
 	oldw = w;
 	oldh = h;
+	val.function = GXcopy;
+	val.subwindow_mode = ClipByChildren;
+	XChangeGC(dpy, gc, GCFunction | GCSubwindowMode, &val);
+}
+
+/* draw vertical line */
+static void
+vertlinedraw(int x, int y, int h)
+{
+	static int oldx, oldy, oldh;
+	XGCValues val;
+
+	val.function = GXinvert;
+	val.subwindow_mode = IncludeInferiors;
+	val.foreground = 1;
+	val.fill_style = FillSolid;
+	XChangeGC(dpy, gc, GCFunction | GCSubwindowMode | GCForeground | GCFillStyle, &val);
+	if (oldh != 0)
+		XFillRectangle(dpy, root, gc, oldx, oldy, 1, oldh);
+	if (h != 0)
+		XFillRectangle(dpy, root, gc, x, y, 1, h);
+	oldx = x;
+	oldy = y;
+	oldh = h;
+	val.function = GXcopy;
+	val.subwindow_mode = ClipByChildren;
+	XChangeGC(dpy, gc, GCFunction | GCSubwindowMode, &val);
+}
+
+/* draw horizontal line */
+static void
+horzlinedraw(int x, int y, int w)
+{
+	static int oldx, oldy, oldw;
+	XGCValues val;
+
+	val.function = GXinvert;
+	val.subwindow_mode = IncludeInferiors;
+	val.foreground = 1;
+	val.fill_style = FillSolid;
+	XChangeGC(dpy, gc, GCFunction | GCSubwindowMode | GCForeground | GCFillStyle, &val);
+	if (oldw != 0)
+		XFillRectangle(dpy, root, gc, oldx, oldy, oldw, 1);
+	if (w != 0)
+		XFillRectangle(dpy, root, gc, x, y, w, 1);
+	oldx = x;
+	oldy = y;
+	oldw = w;
 	val.function = GXcopy;
 	val.subwindow_mode = ClipByChildren;
 	XChangeGC(dpy, gc, GCFunction | GCSubwindowMode, &val);
@@ -3856,6 +3915,78 @@ done:
 	XUngrabPointer(dpy, CurrentTime);
 }
 
+/* resize tiles by dragging division with mouse */
+static void
+mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroot, int yroot)
+{
+	struct Winres res;
+	XEvent ev;
+	Cursor curs;
+	int x, y;
+	int dx, dy;
+
+	if (cdiv != NULL && cdiv->next != NULL)
+		curs = visual.cursors[CURSOR_H];
+	else if (rdiv != NULL && rdiv->next != NULL)
+		curs = visual.cursors[CURSOR_V];
+	else
+		return;
+	dx = dy = x = y = 0;
+	XGrabPointer(dpy, c->frame, False, ButtonReleaseMask | PointerMotionMask,
+	             GrabModeAsync, GrabModeAsync, None, curs, CurrentTime);
+	while (!XMaskEvent(dpy, ButtonReleaseMask | PointerMotionMask | ExposureMask, &ev)) {
+		switch (ev.type) {
+		case Expose:
+			if (ev.xexpose.count == 0) {
+				res = getwin(ev.xexpose.window);
+				decorate(&res);
+			}
+			break;
+		case ButtonRelease:
+			goto done;
+			break;
+		case MotionNotify:
+			x = ev.xmotion.x_root - xroot;
+			y = ev.xmotion.y_root - yroot;
+			if ((cdiv != NULL) &&
+			    ((x < 0 && cdiv->w + x > visual.center) ||
+			     (x > 0 && cdiv->next->w - x > visual.center))) {
+				dx = x;
+				vertlinedraw(c->x + cdiv->x + cdiv->w + visual.division / 2 + x, c->y + c->b, c->h - 2 * c->b);
+			} else if ((rdiv != NULL) &&
+			           ((y < 0 && rdiv->h + y > visual.center) ||
+			            (y > 0 && rdiv->next->h - y > visual.center))) {
+				dy = y;
+				horzlinedraw(c->x + rdiv->col->x, c->y + rdiv->y + visual.division / 2 + y, rdiv->col->w);
+			}
+			break;
+		}
+	}
+done:
+	if (cdiv != NULL) {
+		vertlinedraw(0, 0, 0);
+		if (dx < 0) {
+			cdiv->w += dx;
+			cdiv->next->w -= dx;
+		} else if (dx > 0) {
+			cdiv->next->w -= dx;
+			cdiv->w += dx;
+		}
+	} else if (rdiv != NULL) {
+		horzlinedraw(0, 0, 0);
+		if (dx < 0) {
+			rdiv->h += dy;
+			rdiv->next->h -= dy;
+		} else if (dx > 0) {
+			rdiv->next->h -= dy;
+			rdiv->h += dy;
+		}
+	}
+	containercalccols(c, 1);
+	containermoveresize(c, 1);
+	XUngrabPointer(dpy, CurrentTime);
+}
+
 /* handle mouse operation, focusing and raising */
 static void
 xeventbuttonpress(XEvent *e)
@@ -3863,9 +3994,13 @@ xeventbuttonpress(XEvent *e)
 	struct Winres res;
 	struct Monitor *mon;
 	struct Container *c;
+	struct Column *cdiv;
+	struct Row *rdiv;
 	struct Tab *t;
 	enum Octant o;
 	XButtonPressedEvent *ev;
+	Window dw;
+	int x, y;
 
 	ev = &e->xbutton;
 	res = getwin(ev->window);
@@ -3917,24 +4052,47 @@ xeventbuttonpress(XEvent *e)
 	} else if (res.row != NULL && ev->window == res.row->bl && ev->button == Button1) {
 		buttondecorate(res.row, BUTTON_LEFT, 1);
 		mousererow(res.row);
-		/* no need to call buttondecorate(res.row, BUTTON_LEFT, 0) here */
+		/* no need to call buttondecorate here */
 	} else if (res.row != NULL && ev->window == res.row->br && ev->button == Button1) {
 		buttondecorate(res.row, BUTTON_RIGHT, 1);
 		mouseclose(res.row);
 		buttondecorate(res.row, BUTTON_RIGHT, 0);
 	} else if (!c->isfullscreen && !c->isminimized && !c->ismaximized) {
-		o = getoctant(c, ev->window, ev->x, ev->y);
+		if (XTranslateCoordinates(dpy, ev->window, c->frame, ev->x, ev->y, &x, &y, &dw) != True)
+			goto done;
+		o = getoctant(c, x, y);
 		if (ev->state == config.modifier && ev->button == Button1) {
 			mousemove(c, ev->x_root, ev->y_root);
 		} else if (ev->window == c->frame && ev->button == Button3) {
-			containerdecorate(c, 0, o);
+			containerdecorate(c, NULL, NULL, 0, o);
 			mousemove(c, ev->x_root, ev->y_root);
-			containerdecorate(c, 0, 0);
+			containerdecorate(c, NULL, NULL, 0, 0);
 		} else if ((ev->state == config.modifier && ev->button == Button3) ||
-		           (ev->window == c->frame && ev->button == Button1)) {
-			containerdecorate(c, 0, o);
+		           (o != C && ev->window == c->frame && ev->button == Button1)) {
+			if (o == C) {
+				if (x >= c->w / 2 && y >= c->h / 2) {
+					o = SE;
+				}
+				if (x >= c->w / 2 && y <= c->h / 2) {
+					o = NE;
+				}
+				if (x <= c->w / 2 && y >= c->h / 2) {
+					o = SW;
+				}
+				if (x <= c->w / 2 && y <= c->h / 2) {
+					o = NW;
+				}
+			}
+			containerdecorate(c, NULL, NULL, 0, o);
 			mouseresize(c, ev->x_root, ev->y_root, o);
-			/* no need to call containerdecorate(c, 0, 0) here */
+			/* no need to call containerdecorate here */
+		} else if (o == C && ev->window == c->frame && ev->button == Button1) {
+			getdivisions(c, &cdiv, &rdiv, x, y);
+			if (cdiv != NULL || rdiv != NULL) {
+				containerdecorate(c, cdiv, rdiv, 0, 0);
+				mouseretile(c, cdiv, rdiv, ev->x_root, ev->y_root);
+				/* no need to call containerdecorate here */
+			}
 		} else if (ev->window == t->title && ev->button == Button1) {
 			tabdecorate(t, 1);
 			mousemove(c, ev->x_root, ev->y_root);
@@ -4082,6 +4240,8 @@ xeventmotionnotify(XEvent *e)
 {
 	XMotionEvent *ev;
 	struct Container *c;
+	struct Column *cdiv;
+	struct Row *rdiv;
 	struct Winres res;
 	enum Octant o;
 
@@ -4090,7 +4250,7 @@ xeventmotionnotify(XEvent *e)
 	if (res.c == NULL || ev->subwindow != res.c->curswin)
 		return;
 	c = res.c;
-	o = getoctant(c, ev->window, ev->x, ev->y);
+	o = getoctant(c, ev->x, ev->y);
 	switch (o) {
 	case NW:
 		XDefineCursor(dpy, c->curswin, visual.cursors[CURSOR_NW]);
@@ -4117,7 +4277,13 @@ xeventmotionnotify(XEvent *e)
 		XDefineCursor(dpy, c->curswin, visual.cursors[CURSOR_E]);
 		break;
 	default:
-		XDefineCursor(dpy, c->curswin, visual.cursors[CURSOR_NORMAL]);
+		getdivisions(c, &cdiv, &rdiv, ev->x, ev->y);
+		if (cdiv != NULL)
+			XDefineCursor(dpy, c->curswin, visual.cursors[CURSOR_H]);
+		else if (rdiv != NULL)
+			XDefineCursor(dpy, c->curswin, visual.cursors[CURSOR_V]);
+		else
+			XDefineCursor(dpy, c->curswin, visual.cursors[CURSOR_NORMAL]);
 		break;
 	}
 }
