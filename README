@@ -1,21 +1,28 @@
-┌──────────────┬──────────────┬─────────────────────────────┐
-├──────────────┴──────────────┼─────────────────────────────┤
-│                             │                             │
-│                             │                             │
-│                             │                             │
-│                             │                             │
-│                             │                             │
-│                             │                             │
-│                             │                             │
-│                             │                             │
-│                             ├─────────┬─────────┬─────────┤
-│                             ├─────────┴─────────┴─────────┤
-│                             │                             │
-│                             │                             │
-│                             │                             │
-│                             │                             │
-│                             │                             │
-│                             │                             │
-│                             │                             │
-│                             │                             │
-└─────────────────────────────┴─────────────────────────────┘
+                             ┌───────────────────────┐
+                             │                       │
+                             │                       │
+                       ┌─────┼─────┬───────────┐     │
+                       ├─────┴─────┼───────────┤     │
+                       │           │           │     │
+                 ┌─────┤           │           │     │
+                 │     │           │           │     │
+                 │     │           ├───┬───┬───┤     │
+                 │     │           ├───┴───┴───┤     │
+                 │     │           │           ├─────┘
+                 │     │           │           │
+                 │     │           │           │
+                 │     └───────────┴─────┬─────┘
+                 │                       │
+                 │                       │
+                 └───────────────────────┘
+
+shod2 was inspired by the following window managers.  I'd like to thank
+their authors for their work that helped me writing shod2.
+• notion: https://github.com/raboof/notion
+• wmii:   https://github.com/0intro/wmii
+
+shod2 was developed based on code of the following window managers.  I'd
+like to thank their authors for their work that helped me understanding
+how a X Window Manager works.
+• dwm:      https://dwm.suckless.org
+• katriawm: https://www.uninformativ.de/git/katriawm/file/README.html
