@@ -3597,8 +3597,6 @@ xeventbuttonpress(XEvent *e)
 		goto done;
 	}
 
-	//octant = frameoctant(c, ev->window, ev->x, ev->y);
-
 	/* focus client */
 	if ((wm.focused == NULL || t != wm.focused->selcol->selrow->seltab) &&
 	    ((ev->window == t->title && ev->button == Button1) ||
