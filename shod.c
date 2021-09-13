@@ -27,6 +27,7 @@
 #define NOTIFGAP        3
 #define IGNOREUNMAP     6       /* number of unmap notifies to ignore while scanning existing clients */
 #define NAMEMAXLEN      1024    /* maximum length of window's name */
+#define DROPPIXELS      30      /* number of pixels from the border where a tab can be dropped in */
 
 /* title bar buttons */
 enum {
@@ -1405,18 +1406,21 @@ colcalcrows(struct Column *col, int recursive)
 	/* check if rows sum up the height of the container */
 	sumh = 0;
 	for (row = col->rows; row != NULL; row = row->next) {
+		if (row->h <= visual.tab) {
+			sumh = 0;
+			break;
+		}
 		sumh += row->h;
 	}
-	sumh += (col->nrows - 1) * visual.division;
+	sumh += (col->nrows - 1) * visual.division + 2 * c->b;
 
 	h = col->c->h - 2 * c->b - (col->nrows - 1) * visual.division;
 	y = c->b;
 	for (i = 0, row = col->rows; row != NULL; row = row->next, i++) {
-		if (sumh != c->h) {
+		if (sumh != c->h)
 			row->h = max(1, ((i + 1) * h / col->nrows) - (i * h / col->nrows));
-			row->y = y;
-			y += row->h + visual.division;
-		}
+		row->y = y;
+		y += row->h + visual.division;
 		if (recursive) {
 			rowcalctabs(row);
 		}
@@ -1447,16 +1451,15 @@ containercalccols(struct Container *c, int recursive)
 	for (col = c->cols; col != NULL; col = col->next) {
 		sumw += col->w;
 	}
-	sumw += (c->ncols - 1) * visual.division;
+	sumw += (c->ncols - 1) * visual.division + 2 * c->b;
 
 	w = c->w - 2 * c->b - (c->ncols - 1) * visual.division;
 	x = c->b;
 	for (i = 0, col = c->cols; col != NULL; col = col->next, i++) {
-		if (sumw != c->w) {
+		if (sumw != c->w)
 			col->w = max(1, ((i + 1) * w / c->ncols) - (i * w / c->ncols));
-			col->x = x;
-			x += col->w + visual.division;
-		}
+		col->x = x;
+		x += col->w + visual.division;
 		if (recursive) {
 			colcalcrows(col, 1);
 		}
@@ -1952,14 +1955,17 @@ containerhide(struct Container *c, int hide)
 static void
 dialogmoveresize(struct Dialog *d)
 {
+	struct Container *c;
 	int dx, dy, dw, dh;
 
+	c = d->t->row->col->c;
 	dx = d->x - visual.border;
 	dy = d->y - visual.border;
 	dw = d->w + 2 * visual.border;
 	dh = d->h + 2 * visual.border;
 	XMoveResizeWindow(dpy, d->frame, dx, dy, dw, dh);
 	XMoveResizeWindow(dpy, d->win, visual.border, visual.border, d->w, d->h);
+	winnotify(d->win, c->x + d->t->row->col->x + d->x, c->y + d->t->row->y + d->y, d->w, d->h);
 	if (d->pw != dw || d->ph != dh) {
 		dialogdecorate(d);
 	}
@@ -1982,9 +1988,11 @@ dialogconfigure(struct Dialog *d, unsigned int valuemask, XWindowChanges *wc)
 static void
 tabmoveresize(struct Tab *t)
 {
+	struct Container *c;
 	struct Dialog *d;
 	int x, y, w, h;
 
+	c = t->row->col->c;
 	x = t->row->col->x;
 	y = t->row->y;
 	w = t->row->col->w;
@@ -1994,7 +2002,8 @@ tabmoveresize(struct Tab *t)
 		dialogmoveresize(d);
 	}
 	XResizeWindow(dpy, t->win, t->winw, t->winh);
-	XMoveResizeWindow(dpy, t->title, x + t->x, y, t->w, visual.tab);
+	winnotify(t->win, c->x + x, c->y + y + visual.tab, t->winw, t->winh);
+	XMoveResizeWindow(dpy, t->title, t->x, 0, t->w, visual.tab);
 	if (t->ptw != t->w) {
 		tabdecorate(t, 0);
 	}
@@ -2509,15 +2518,15 @@ rowaddtab(struct Row *row, struct Tab *t, struct Tab *prev)
 	}
 	rowcalctabs(row);               /* set t->x, t->w, etc */
 	if (t->title == None) {
-		t->title = XCreateWindow(dpy, c->frame, col->x + t->x, row->y, t->w, visual.tab, 0,
+		t->title = XCreateWindow(dpy, row->bar, t->x, 0, t->w, visual.tab, 0,
 		                         CopyFromParent, CopyFromParent, CopyFromParent,
 		                         CWEventMask, &clientswa);
-		XMapWindow(dpy, t->title);
 	} else {
-		XReparentWindow(dpy, t->title, c->frame, col->x + t->x, row->y);
+		XReparentWindow(dpy, t->title, row->bar, t->x, 0);
 	}
 	XReparentWindow(dpy, t->frame, c->frame, col->x, row->y + visual.tab);
 	XMapWindow(dpy, t->frame);
+	XMapWindow(dpy, t->title);
 	if (oldrow != NULL) {           /* deal with the row this tab came from */
 		if (oldrow->ntabs == 0) {
 			rowdel(oldrow);
@@ -2722,7 +2731,7 @@ tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 	for (c = list; c != NULL; c = c->rnext) {
 		if (xroot < c->x || xroot >= c->x + c->w || yroot < c->y || yroot >= c->y + c->h)
 			continue;
-		if (xroot - c->x < c->b) {
+		if (xroot - c->x < c->b + DROPPIXELS) {
 			nrow = rownew();
 			ncol = colnew();
 			containeraddcol(c, ncol, NULL);
@@ -2732,7 +2741,8 @@ tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 			goto done;
 		}
 		for (col = c->cols; col != NULL; col = col->next) {
-			if (xroot - c->x >= col->x + col->w && xroot - c->x < col->x + col->w + visual.division) {
+			if (xroot - c->x >= col->x + col->w - DROPPIXELS &&
+			    xroot - c->x < col->x + col->w + visual.division + DROPPIXELS) {
 				nrow = rownew();
 				ncol = colnew();
 				containeraddcol(c, ncol, col);
@@ -2740,7 +2750,8 @@ tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 				rowaddtab(nrow, det, NULL);
 				containercalccols(c, 1);
 				goto done;
-			} else if (xroot - c->x >= col->x && xroot - c->x < col->x + col->w) {
+			} else if (xroot - c->x >= col->x - DROPPIXELS &&
+				   xroot - c->x < col->x + col->w + DROPPIXELS) {
 				if (yroot - c->y < c->b) {
 					nrow = rownew();
 					coladdrow(col, nrow, NULL);
@@ -2749,24 +2760,28 @@ tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 					goto done;
 				}
 				for (row = col->rows; row != NULL; row = row->next) {
-					if (yroot - c->y >= row->y + row->h && yroot - c->y < row->y + row->h + visual.division) {
-						nrow = rownew();
-						coladdrow(col, nrow, row);
-						rowaddtab(nrow, det, NULL);
-						colcalcrows(col, 1);
-						goto done;
-					}
-					for (next = t = row->tabs; t != NULL; t = t->next) {
-						next = t;
-						if (xroot - c->x + col->x < col->x + t->x + t->w / 2) {
-							rowaddtab(row, det, t->prev);
+					if (yroot - c->y >= row->y &&
+					    yroot - c->y < row->y + row->h) {
+						for (next = t = row->tabs; t != NULL; t = t->next) {
+							next = t;
+							if (xroot - c->x + col->x < col->x + t->x + t->w / 2) {
+								rowaddtab(row, det, t->prev);
+								rowcalctabs(row);
+								goto done;
+							}
+						}
+						if (next != NULL) {
+							rowaddtab(row, det, next);
 							rowcalctabs(row);
 							goto done;
 						}
 					}
-					if (next != NULL) {
-						rowaddtab(row, det, next);
-						rowcalctabs(row);
+					if (yroot - c->y >= row->y + row->h - DROPPIXELS &&
+					    yroot - c->y < row->y + row->h + visual.division + DROPPIXELS) {
+						nrow = rownew();
+						coladdrow(col, nrow, row);
+						rowaddtab(nrow, det, NULL);
+						colcalcrows(col, 1);
 						goto done;
 					}
 				}
@@ -3750,12 +3765,20 @@ done:
 static void
 mousererow(struct Row *row)
 {
+	struct Container *c;
+	struct Column *col, *newcol;
+	struct Row *prev, *r;
 	struct Winres res;
 	XEvent ev;
+	int dy, y, sumh;
 
-	XGrabPointer(dpy, row->bl, False, ButtonReleaseMask,
+	c = row->col->c;
+	newcol = NULL;
+	y = 0;
+	XRaiseWindow(dpy, row->bar);
+	XGrabPointer(dpy, row->bar, False, ButtonReleaseMask | PointerMotionMask,
 	             GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
-	while (!XMaskEvent(dpy, ButtonReleaseMask | ExposureMask, &ev)) {
+	while (!XMaskEvent(dpy, ButtonReleaseMask | PointerMotionMask | ExposureMask, &ev)) {
 		switch(ev.type) {
 		case Expose:
 			if (ev.xexpose.count == 0) {
@@ -3763,12 +3786,43 @@ mousererow(struct Row *row)
 				decorate(&res);
 			}
 			break;
+		case MotionNotify:
+			for (col = c->cols; col != NULL; col = col->next) {
+				if (ev.xmotion.x_root >= c->x + col->x &&
+				    ev.xmotion.x_root < c->x + col->x + col->w &&
+				    ev.xmotion.y_root >= c->y + c->b &&
+				    ev.xmotion.y_root < c->y + c->h - c->b - visual.tab) {
+					newcol = col;
+					y = ev.xmotion.y_root - c->y;
+					XMoveWindow(dpy, row->bar, col->x, y);
+				}
+			}
+			break;
 		case ButtonRelease:
-			// TODO
 			goto done;
 		}
 	}
 done:
+	sumh = c->b;
+	prev = NULL;
+	if (row->col->nrows > 1 && newcol != NULL) {
+		for (r = newcol->rows; r != NULL; r = r->next) {
+			sumh += row->h;
+			prev = r;
+			if (y < sumh)
+				break;
+		}
+		if (prev != row && prev != NULL) {
+			rowdetach(row);
+			coladdrow(newcol, row, prev);
+			colcalcrows(newcol, 0);
+		}
+		dy = y - row->y;
+		row->h -= dy;
+		row->prev->h += dy;
+	}
+	containercalccols(c, 1);
+	containermoveresize(c, 1);
 	XUngrabPointer(dpy, CurrentTime);
 }
 
@@ -3863,7 +3917,7 @@ xeventbuttonpress(XEvent *e)
 	} else if (res.row != NULL && ev->window == res.row->bl && ev->button == Button1) {
 		buttondecorate(res.row, BUTTON_LEFT, 1);
 		mousererow(res.row);
-		buttondecorate(res.row, BUTTON_LEFT, 0);
+		/* no need to call buttondecorate(res.row, BUTTON_LEFT, 0) here */
 	} else if (res.row != NULL && ev->window == res.row->br && ev->button == Button1) {
 		buttondecorate(res.row, BUTTON_RIGHT, 1);
 		mouseclose(res.row);
