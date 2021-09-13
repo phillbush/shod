@@ -3551,16 +3551,14 @@ done:
 	XUngrabPointer(dpy, CurrentTime);
 }
 
-/* press button with mouse */
+/* control placement of row with mouse */
 static void
-mousebutton(struct Row *row, int b)
+mousererow(struct Row *row)
 {
 	struct Winres res;
-	Window win;
 	XEvent ev;
 
-	win = (b == BUTTON_RIGHT) ? row->br : row->bl;
-	XGrabPointer(dpy, win, False, ButtonReleaseMask,
+	XGrabPointer(dpy, row->bl, False, ButtonReleaseMask,
 	             GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
 	while (!XMaskEvent(dpy, ButtonReleaseMask | ExposureMask, &ev)) {
 		switch(ev.type) {
@@ -3573,6 +3571,36 @@ mousebutton(struct Row *row, int b)
 		case ButtonRelease:
 			// TODO
 			goto done;
+		}
+	}
+done:
+	XUngrabPointer(dpy, CurrentTime);
+}
+
+/* close tab with mouse */
+static void
+mouseclose(struct Row *row)
+{
+	struct Winres res;
+	XEvent ev;
+
+	XGrabPointer(dpy, row->br, False, ButtonReleaseMask,
+	             GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
+	while (!XMaskEvent(dpy, ButtonReleaseMask | ExposureMask, &ev)) {
+		switch(ev.type) {
+		case Expose:
+			if (ev.xexpose.count == 0) {
+				res = getwin(ev.xexpose.window);
+				decorate(&res);
+			}
+			break;
+		case ButtonRelease:
+			if (ev.xbutton.window == row->br &&
+			    ev.xbutton.x >= 0 && ev.xbutton.x >= 0 &&
+			    ev.xbutton.x < visual.button && ev.xbutton.x < visual.button)
+				windowclose(row->seltab->win);
+			goto done;
+			break;
 		}
 	}
 done:
@@ -3639,11 +3667,11 @@ xeventbuttonpress(XEvent *e)
 		// TODO: mouseretab
 	} else if (res.row != NULL && ev->window == res.row->bl && ev->button == Button1) {
 		buttondecorate(res.row, BUTTON_LEFT, 1);
-		mousebutton(res.row, BUTTON_LEFT);
+		mousererow(res.row);
 		buttondecorate(res.row, BUTTON_LEFT, 0);
 	} else if (res.row != NULL && ev->window == res.row->br && ev->button == Button1) {
 		buttondecorate(res.row, BUTTON_RIGHT, 1);
-		mousebutton(res.row, BUTTON_RIGHT);
+		mouseclose(res.row);
 		buttondecorate(res.row, BUTTON_RIGHT, 0);
 	} else if (!c->isfullscreen && !c->isminimized && !c->ismaximized) {
 		o = getoctant(c, ev->window, ev->x, ev->y);
