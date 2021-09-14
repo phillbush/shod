@@ -227,6 +227,7 @@ struct Row {
 	struct Column *col;                     /* pointer to parent column */
 	struct Tab *tabs;                       /* list of tabs */
 	struct Tab *seltab;                     /* pointer to selected tab */
+	Window frame;                           /* where tab frames are */
 	Window bar;                             /* title bar frame */
 	Window bl;                              /* left button */
 	Window br;                              /* right button */
@@ -244,6 +245,7 @@ struct Column {
 	struct Container *c;                    /* pointer to parent container */
 	struct Row *rows;                       /* list of rows */
 	struct Row *selrow;                     /* pointer to selected row */
+	struct Row *maxrow;                     /* maximized row */
 	int nrows;                              /* number of rows */
 	int x, w;                               /* column geometry */
 };
@@ -1394,8 +1396,11 @@ rowcalctabs(struct Row *row)
 
 	x = visual.button;
 	for (i = 0, t = row->tabs; t != NULL; t = t->next, i++) {
+		if (row == row->col->maxrow)
+			t->winh = max(1, row->col->c->h - 2 * row->col->c->b - row->col->nrows * visual.tab);
+		else
+			t->winh = max(1, row->h - visual.tab);
 		t->winw = row->col->w;
-		t->winh = row->h - visual.tab;
 		t->w = max(1, ((i + 1) * (t->winw - 2 * visual.button) / row->ntabs) - (i * (t->winw - 2 * visual.button) / row->ntabs));
 		t->x = x;
 		x += t->w;
@@ -1859,7 +1864,7 @@ containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, in
 			XFillRectangle(dpy, c->pix, gc, col->x + col->w, c->b, visual.division, c->h - 2 * c->b);
 		}
 		for (row = col->rows; row != NULL; row = row->next) {
-			if (row->next != NULL) {
+			if (col->maxrow == NULL && row->next != NULL) {
 				val.fill_style = FillTiled;
 				val.tile = (row == rdiv) ? decorp->s : decor->s;
 				val.ts_x_origin = 0;
@@ -2015,16 +2020,31 @@ containermoveresize(struct Container *c)
 	struct Row *row;
 	struct Tab *t;
 	struct Dialog *d;
+	int rowy, rowh;
 
 	if (c == NULL)
 		return;
 	XMoveResizeWindow(dpy, c->frame, c->x, c->y, c->w, c->h);
 	XMoveResizeWindow(dpy, c->curswin, 0, 0, c->w, c->h);
 	for (col = c->cols; col != NULL; col = col->next) {
+		rowy = c->b;
+		rowh = max(1, c->h - 2 * c->b - col->nrows * visual.tab);
 		for (row = col->rows; row != NULL; row = row->next) {
-			titlebarmoveresize(row, col->x, row->y, col->w);
+			if (col->maxrow == NULL) {              /* regular row */
+				titlebarmoveresize(row, col->x, row->y, col->w);
+				XMoveResizeWindow(dpy, row->frame, col->x, row->y + visual.tab, col->w, row->h - visual.tab);
+				XMapWindow(dpy, row->frame);
+			} else if (row == col->maxrow) {        /* maximized row */
+				titlebarmoveresize(row, col->x, rowy, col->w);
+				XMoveResizeWindow(dpy, row->frame, col->x, rowy + visual.tab, col->w, rowh);
+				rowy += rowh;
+			} else {                                /* minimized row */
+				titlebarmoveresize(row, col->x, rowy, col->w);
+				XUnmapWindow(dpy, row->frame);
+			}
+			rowy += visual.tab;
 			for (t = row->tabs; t != NULL; t = t->next) {
-				XMoveResizeWindow(dpy, t->frame, col->x, row->y + visual.tab, t->winw, t->winh);
+				XMoveResizeWindow(dpy, t->frame, 0, 0, t->winw, t->winh);
 				for (d = t->ds; d != NULL; d = d->next) {
 					dialogmoveresize(d);
 				}
@@ -2314,6 +2334,8 @@ rowdetach(struct Row *row)
 		row->prev->next = row->next;
 	else
 		row->col->rows = row->next;
+	if (row == row->col->maxrow)
+		row->col->maxrow = NULL;
 	row->next = NULL;
 	row->prev = NULL;
 	colcalcrows(row->col, 0);
@@ -2326,6 +2348,7 @@ rowdel(struct Row *row)
 	while (row->tabs)
 		tabdel(row->tabs);
 	rowdetach(row);
+	XDestroyWindow(dpy, row->frame);
 	XDestroyWindow(dpy, row->bar);
 	XDestroyWindow(dpy, row->bl);
 	XDestroyWindow(dpy, row->br);
@@ -2427,6 +2450,7 @@ colnew(void)
 	col->c = NULL;
 	col->rows = NULL;
 	col->selrow = NULL;
+	col->maxrow = NULL;
 	col->nrows = 0;
 	col->x = 0;
 	col->w = 0;
@@ -2460,7 +2484,9 @@ coladdrow(struct Column *col, struct Row *row, struct Row *prev)
 	}
 	colcalcrows(col, 0);    /* set row->y, row->h, etc */
 	XReparentWindow(dpy, row->bar, c->frame, col->x, row->y);
+	XReparentWindow(dpy, row->frame, c->frame, col->x, row->y);
 	XMapWindow(dpy, row->bar);
+	XMapWindow(dpy, row->frame);
 	if (oldcol != NULL && oldcol->nrows == 0) {
 		coldel(oldcol);
 	}
@@ -2481,6 +2507,9 @@ rownew(void)
 	row->y = 0;
 	row->h = 0;
 	row->pw = 0;
+	row->frame = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
+	                           CopyFromParent, CopyFromParent, CopyFromParent,
+	                           CWEventMask, &clientswa);
 	row->bar = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
 	                         CopyFromParent, CopyFromParent, CopyFromParent,
 	                         CWEventMask, &clientswa);
@@ -2534,7 +2563,7 @@ rowaddtab(struct Row *row, struct Tab *t, struct Tab *prev)
 	} else {
 		XReparentWindow(dpy, t->title, row->bar, t->x, 0);
 	}
-	XReparentWindow(dpy, t->frame, c->frame, col->x, row->y + visual.tab);
+	XReparentWindow(dpy, t->frame, row->frame, 0, 0);
 	XMapWindow(dpy, t->frame);
 	XMapWindow(dpy, t->title);
 	if (oldrow != NULL) {           /* deal with the row this tab came from */
@@ -2675,6 +2704,8 @@ tabfocus(struct Tab *t, int gotodesk)
 		XSetInputFocus(dpy, wm.focuswin, RevertToParent, CurrentTime);
 		ewmhsetactivewindow(None);
 	} else {
+		if (t->row->col->maxrow != NULL && t->row != t->row->col->maxrow)
+			t = t->row->col->maxrow->seltab;
 		c = t->row->col->c;
 		if (!c->isfullscreen && getfullscreen(c->mon, c->desk) != NULL)
 			return;         /* we should not focus a client below a fullscreen client */
@@ -2797,6 +2828,7 @@ tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 				}
 			}
 		}
+		break;
 	}
 	return 0;
 done:
@@ -3741,9 +3773,11 @@ mousererow(struct Row *row)
 	Time lasttime;
 	int dy, y, sumh;
 
-	c = row->col->c;
 	origcol = row->col;
+	if (origcol->maxrow != NULL)
+		return;
 	prevcol = origcol;
+	c = row->col->c;
 	newcol = NULL;
 	y = 0;
 	lasttime = 0;
@@ -3819,6 +3853,7 @@ mouseclose(struct Row *row)
 	struct Winres res;
 	XEvent ev;
 
+	buttondecorate(row, BUTTON_RIGHT, 1);
 	XGrabPointer(dpy, row->br, False, ButtonReleaseMask,
 	             GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
 	while (!XMaskEvent(dpy, ButtonReleaseMask | ExposureMask, &ev)) {
@@ -3839,6 +3874,7 @@ mouseclose(struct Row *row)
 		}
 	}
 done:
+	buttondecorate(row, BUTTON_RIGHT, 0);
 	XUngrabPointer(dpy, CurrentTime);
 }
 
@@ -3855,7 +3891,7 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 
 	if (cdiv != NULL && cdiv->next != NULL)
 		curs = visual.cursors[CURSOR_H];
-	else if (rdiv != NULL && rdiv->next != NULL)
+	else if (rdiv != NULL && rdiv->next != NULL && rdiv->col->maxrow == NULL)
 		curs = visual.cursors[CURSOR_V];
 	else
 		return;
@@ -3927,6 +3963,49 @@ done:
 	XUngrabPointer(dpy, CurrentTime);
 }
 
+/* stack rows in column with mouse */
+static void
+mousestack(struct Row *row)
+{
+	struct Winres res;
+	XEvent ev;
+
+	buttondecorate(row, BUTTON_LEFT, 1);
+	if (row->col->nrows == 1)
+		return;
+	XGrabPointer(dpy, row->bl, False, ButtonReleaseMask,
+	             GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
+	while (!XMaskEvent(dpy, ButtonReleaseMask | ExposureMask, &ev)) {
+		switch(ev.type) {
+		case Expose:
+			if (ev.xexpose.count == 0) {
+				res = getwin(ev.xexpose.window);
+				decorate(&res);
+			}
+			break;
+		case ButtonRelease:
+			if (ev.xbutton.window == row->bl &&
+			    ev.xbutton.x >= 0 && ev.xbutton.x >= 0 &&
+			    ev.xbutton.x < visual.button && ev.xbutton.x < visual.button) {
+				if (row->col->maxrow == NULL) {
+					row->col->maxrow = row;
+					tabfocus(row->seltab, 0);
+				} else {
+					row->col->maxrow = NULL;
+				}
+				rowcalctabs(row);
+				containermoveresize(row->col->c);
+				containerdecorate(row->col->c, NULL, NULL, 0, 0);
+			}
+			goto done;
+			break;
+		}
+	}
+done:
+	buttondecorate(row, BUTTON_LEFT, 0);
+	XUngrabPointer(dpy, CurrentTime);
+}
+
 /* handle mouse operation, focusing and raising */
 static void
 xeventbuttonpress(XEvent *e)
@@ -3989,12 +4068,12 @@ xeventbuttonpress(XEvent *e)
 	/* do action performed by mouse on non-maximized windows */
 	if (ev->window == t->title && ev->button == Button3) {
 		mouseretab(t, ev->x_root, ev->y_root, ev->x, ev->y);
+	} else if (res.row != NULL && ev->window == res.row->bl && ev->button == Button3) {
+		mousestack(res.row);
 	} else if (res.row != NULL && ev->window == res.row->bl && ev->button == Button1) {
 		mousererow(res.row);
 	} else if (res.row != NULL && ev->window == res.row->br && ev->button == Button1) {
-		buttondecorate(res.row, BUTTON_RIGHT, 1);
 		mouseclose(res.row);
-		buttondecorate(res.row, BUTTON_RIGHT, 0);
 	} else if (!c->isfullscreen && !c->isminimized && !c->ismaximized) {
 		if (XTranslateCoordinates(dpy, ev->window, c->frame, ev->x, ev->y, &x, &y, &dw) != True)
 			goto done;
