@@ -154,16 +154,7 @@ enum {
 	_NET_FRAME_EXTENTS,
 
 	/* shod atoms */
-	_SHOD_CONTAINER_FOCUS,
-	_SHOD_WINDOW_FOCUS,
-	_SHOD_RETILE,
-	_SHOD_CONTAINER_GEOMETRY,
-	_SHOD_CONTAINER_LIST,
-	_SHOD_CONTAINER,
-	_SHOD_ATTACH,
-	_SHOD_DETACH,
-	_SHOD_CURRENT_MONITOR,
-	_SHOD_MONITOR,
+	_SHOD_TAB_GROUP,
 
 	ATOM_LAST
 };
@@ -709,16 +700,7 @@ initatoms(void)
 		[_NET_WM_STATE_DEMANDS_ATTENTION]      = "_NET_WM_STATE_DEMANDS_ATTENTION",
 		[_NET_REQUEST_FRAME_EXTENTS]           = "_NET_REQUEST_FRAME_EXTENTS",
 		[_NET_FRAME_EXTENTS]                   = "_NET_FRAME_EXTENTS",
-		[_SHOD_CONTAINER_FOCUS]                = "_SHOD_CONTAINER_FOCUS",
-		[_SHOD_WINDOW_FOCUS]                   = "_SHOD_WINDOW_FOCUS",
-		[_SHOD_RETILE]                         = "_SHOD_RETILE",
-		[_SHOD_CONTAINER_GEOMETRY]             = "_SHOD_CONTAINER_GEOMETRY",
-		[_SHOD_CONTAINER_LIST]                 = "_SHOD_CONTAINER_LIST",
-		[_SHOD_CONTAINER]                      = "_SHOD_CONTAINER",
-		[_SHOD_ATTACH]                         = "_SHOD_ATTACH",
-		[_SHOD_DETACH]                         = "_SHOD_DETACH",
-		[_SHOD_CURRENT_MONITOR]                = "_SHOD_CURRENT_MONITOR",
-		[_SHOD_MONITOR]                        = "_SHOD_MONITOR",
+		[_SHOD_TAB_GROUP]                      = "_SHOD_TAB_GROUP",
 	};
 
 	XInternAtoms(dpy, atomnames, ATOM_LAST, False, atoms);
@@ -1264,7 +1246,7 @@ ewmhsetclientsstacking(void)
 			}
 		}
 	}
-	XChangeProperty(dpy, root, atoms[_NET_CLIENT_LIST], XA_WINDOW, 32, PropModeReplace, (unsigned char *)wins+i, wm.nclients-i);
+	XChangeProperty(dpy, root, atoms[_NET_CLIENT_LIST_STACKING], XA_WINDOW, 32, PropModeReplace, (unsigned char *)wins+i, wm.nclients-i);
 	free(wins);
 }
 
@@ -1352,6 +1334,23 @@ ewmhsetstate(struct Container *c)
 				for (d = t->ds; d != NULL; d = d->next) {
 					XChangeProperty(dpy, d->win, atoms[_NET_WM_STATE], XA_ATOM, 32, PropModeReplace, (unsigned char *)data, n);
 				}
+			}
+		}
+	}
+}
+
+/* set group of windows in client */
+static void
+shodgroup(struct Container *c)
+{
+	struct Column *col;
+	struct Row *row;
+	struct Tab *t;
+
+	for (col = c->cols; col != NULL; col = col->next) {
+		for (row = col->rows; row != NULL; row = row->next) {
+			for (t = row->tabs; t != NULL; t = t->next) {
+				XChangeProperty(dpy, t->win, atoms[_SHOD_TAB_GROUP], XA_WINDOW, 32, PropModeReplace, (unsigned char *)&row->seltab->win, 1);
 			}
 		}
 	}
@@ -2865,7 +2864,7 @@ tabfocus(struct Tab *t, int gotodesk)
 	wm.prevfocused = wm.focused;
 	if (t == NULL) {
 		wm.focused = NULL;
-		if (wm.prevfocused)
+		if (wm.prevfocused != NULL)
 			containerdecorate(wm.prevfocused, NULL, NULL, 1, 0);
 		XSetInputFocus(dpy, wm.focuswin, RevertToParent, CurrentTime);
 		ewmhsetactivewindow(None);
@@ -2899,6 +2898,8 @@ tabfocus(struct Tab *t, int gotodesk)
 		if (gotodesk) {
 			deskfocus(c->issticky ? c->mon->seldesk : c->desk);
 		}
+		shodgroup(c);
+		ewmhsetstate(c);
 	}
 }
 
@@ -3572,11 +3573,11 @@ managecontainer(struct Container *c, struct Tab *t, struct Desktop *desk, int us
 	coladdrow(col, row, NULL);
 	rowaddtab(row, t, NULL);
 	containersendtodesk(c, desk, 1, userplaced);
-	tabfocus(t, 0);
 	containermoveresize(c);
 	containerredecorate(c, NULL, NULL, 0);
 	XMapSubwindows(dpy, c->frame);
 	containerhide(c, 0);
+	tabfocus(t, 0);
 	ewmhsetclients();
 	ewmhsetclientsstacking();
 }
@@ -3649,6 +3650,7 @@ unmanage(struct Tab *t)
 		containercalccols(c, 1);
 		containermoveresize(c);
 		containerredecorate(c, NULL, NULL, 0);
+		shodgroup(c);
 	}
 	if (focus != NULL) {
 		tabfocus(focus->selcol->selrow->seltab, 0);
