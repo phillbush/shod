@@ -1413,17 +1413,6 @@ winisurgent(Window win)
 	return ret;
 }
 
-/* check if container is visible */
-static int
-containerisvisible(struct Container *c)
-{
-	if (c == NULL || c->isminimized)
-		return 0;
-	if (c->issticky || c->desk == c->desk->mon->seldesk)
-		return 1;
-	return 0;
-}
-
 /* get tab decoration style */
 static int
 tabgetstyle(struct Tab *t)
@@ -2245,8 +2234,6 @@ containerraise(struct Container *c)
 static void
 containersendtodesk(struct Container *c, struct Desktop *desk, int place, int userplaced)
 {
-	int visible;
-
 	if (c == NULL || desk == NULL || c->isminimized)
 		return;
 	c->desk = desk;
@@ -2254,8 +2241,6 @@ containersendtodesk(struct Container *c, struct Desktop *desk, int place, int us
 	if (place) {
 		containerplace(c, c->desk, userplaced);
 	}
-	visible = containerisvisible(c);
-	containerhide(c, !visible);
 	containerraise(c);
 	ewmhsetwmdesktop(c);
 }
@@ -2282,7 +2267,7 @@ containerminimize(struct Container *c, int minimize, int focus)
 		c->isminimized = 0;
 		containersendtodesk(c, wm.selmon->seldesk, 1, 0);
 		containermoveresize(c);
-		/* no need to call containerhide(c, 0) here for containersendtodesk already calls it */
+		containerhide(c, 0);
 	} else {
 		return;
 	}
@@ -3590,9 +3575,8 @@ managecontainer(struct Container *c, struct Tab *t, struct Desktop *desk, int us
 	tabfocus(t, 0);
 	containermoveresize(c);
 	containerredecorate(c, NULL, NULL, 0);
-	containerhide(c, 0);
 	XMapSubwindows(dpy, c->frame);
-	XMapWindow(dpy, c->frame);
+	containerhide(c, 0);
 	ewmhsetclients();
 	ewmhsetclientsstacking();
 }
