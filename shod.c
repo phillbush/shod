@@ -2772,7 +2772,7 @@ tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 				}
 				for (row = col->rows; row != NULL; row = row->next) {
 					if (yroot - c->y >= row->y &&
-					    yroot - c->y < row->y + row->h) {
+					    yroot - c->y < row->y + visual.tab) {
 						for (next = t = row->tabs; t != NULL; t = t->next) {
 							next = t;
 							if (xroot - c->x + col->x < col->x + t->x + t->w / 2) {
@@ -2788,7 +2788,7 @@ tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 						}
 					}
 					if (yroot - c->y >= row->y + row->h - DROPPIXELS &&
-					    yroot - c->y < row->y + row->h + visual.division + DROPPIXELS) {
+					    yroot - c->y < row->y + row->h + visual.division) {
 						nrow = rownew();
 						coladdrow(col, nrow, row);
 						rowaddtab(nrow, det, NULL);
@@ -3613,14 +3613,11 @@ mouseretab(struct Tab *t, int xroot, int yroot, int x, int y)
 	struct Row *row;
 	struct Winres res;
 	XEvent ev;
-	int drow, dcol, dc;
+	int recalc;
 
 	row = t->row;
 	col = row->col;
 	c = col->c;
-	drow = (row->ntabs == 1);
-	dcol = (drow && col->nrows == 1);
-	dc = (dcol && c->ncols == 1);
 	tabdetach(t, xroot - x, yroot - y);
 	containermoveresize(c, 0);
 	XGrabPointer(dpy, t->title, False,
@@ -3657,14 +3654,18 @@ done:
 		newc = containernew(xroot - x, yroot - y, t->winw, t->winh);
 		managecontainer(newc, t, mon->seldesk, 1);
 	}
-	if (dc) {
-		containerdel(c);
-	} else if (dcol) {
-		coldel(col);
-		containercalccols(c, 1);
-		containermoveresize(c, 1);
-	} else if (drow) {
+	recalc = 1;
+	if (row->ntabs == 0) {
 		rowdel(row);
+	}
+	if (col->nrows == 0) {
+		coldel(col);
+	}
+	if (c->ncols == 0) {
+		containerdel(c);
+		recalc = 0;
+	}
+	if (recalc) {
 		containercalccols(c, 1);
 		containermoveresize(c, 1);
 	}
@@ -3864,7 +3865,8 @@ mousererow(struct Row *row)
 done:
 	sumh = c->b;
 	prev = NULL;
-	if (row->col->nrows > 1 && newcol != NULL) {
+	col = row->col;
+	if (newcol != NULL) {
 		for (r = newcol->rows; r != NULL; r = r->next) {
 			sumh += row->h;
 			prev = r;
@@ -3874,11 +3876,12 @@ done:
 		if (prev != row && prev != NULL) {
 			rowdetach(row);
 			coladdrow(newcol, row, prev);
-			colcalcrows(newcol, 0);
 		}
-		dy = y - row->y;
-		row->h -= dy;
-		row->prev->h += dy;
+		if (row->prev != NULL) {
+			dy = y - row->y;
+			row->h -= dy;
+			row->prev->h += dy;
+		}
 	}
 	containercalccols(c, 1);
 	containermoveresize(c, 1);
