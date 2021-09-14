@@ -61,7 +61,7 @@ enum {
 	PRESSED       = 1,
 	TAB_PRESSED   = 1,
 
-	/* the third decoration state is used for unfocused tab, transient borders, and merged borders */
+	/* the third decoration state is used for unfocused tab and dialog borders */
 	TAB_UNFOCUSED = 2,
 	DIALOG        = 2,
 	NOTIFICATION  = 2,
@@ -150,6 +150,8 @@ enum {
 	_NET_WM_STATE_BELOW,
 	_NET_WM_STATE_FOCUSED,
 	_NET_WM_STATE_DEMANDS_ATTENTION,
+	_NET_REQUEST_FRAME_EXTENTS,
+	_NET_FRAME_EXTENTS,
 
 	/* shod atoms */
 	_SHOD_CONTAINER_FOCUS,
@@ -164,6 +166,22 @@ enum {
 	_SHOD_MONITOR,
 
 	ATOM_LAST
+};
+
+/* moveresize action */
+enum {
+	_NET_WM_MOVERESIZE_SIZE_TOPLEFT     = 0,
+	_NET_WM_MOVERESIZE_SIZE_TOP         = 1,
+	_NET_WM_MOVERESIZE_SIZE_TOPRIGHT    = 2,
+	_NET_WM_MOVERESIZE_SIZE_RIGHT       = 3,
+	_NET_WM_MOVERESIZE_SIZE_BOTTOMRIGHT = 4,
+	_NET_WM_MOVERESIZE_SIZE_BOTTOM      = 5,
+	_NET_WM_MOVERESIZE_SIZE_BOTTOMLEFT  = 6,
+	_NET_WM_MOVERESIZE_SIZE_LEFT        = 7,
+	_NET_WM_MOVERESIZE_MOVE             = 8,   /* movement only */
+	_NET_WM_MOVERESIZE_SIZE_KEYBOARD    = 9,   /* size via keyboard */
+	_NET_WM_MOVERESIZE_MOVE_KEYBOARD    = 10,  /* move via keyboard */
+	_NET_WM_MOVERESIZE_CANCEL           = 11,  /* cancel operation */
 };
 
 /* window eight sections (aka octants) */
@@ -270,7 +288,6 @@ struct Container {
 	int x, y, w, h, b;                      /* current geometry */
 	int pw, ph;                             /* pixmap width and height */
 	int nx, ny, nw, nh;                     /* non-maximized geometry */
-	int mx, my, mw, mh;                     /* maximized geometry */
 };
 
 /* desktop of a monitor */
@@ -690,6 +707,8 @@ initatoms(void)
 		[_NET_WM_STATE_BELOW]                  = "_NET_WM_STATE_BELOW",
 		[_NET_WM_STATE_FOCUSED]                = "_NET_WM_STATE_FOCUSED",
 		[_NET_WM_STATE_DEMANDS_ATTENTION]      = "_NET_WM_STATE_DEMANDS_ATTENTION",
+		[_NET_REQUEST_FRAME_EXTENTS]           = "_NET_REQUEST_FRAME_EXTENTS",
+		[_NET_FRAME_EXTENTS]                   = "_NET_FRAME_EXTENTS",
 		[_SHOD_CONTAINER_FOCUS]                = "_SHOD_CONTAINER_FOCUS",
 		[_SHOD_WINDOW_FOCUS]                   = "_SHOD_WINDOW_FOCUS",
 		[_SHOD_RETILE]                         = "_SHOD_RETILE",
@@ -846,7 +865,7 @@ inittheme(void)
 	XFreePixmap(dpy, pix);
 }
 
-/* get pointer to client, tab or transient structure given a window */
+/* get pointer to proper structure given a window */
 static struct Winres
 getwin(Window win)
 {
@@ -977,7 +996,7 @@ getstate(Window w)
 	return result;
 }
 
-/* get tab given window is a transient for */
+/* get tab given window is a dialog for */
 static struct Tab *
 getdialogfor(Window win)
 {
@@ -1019,12 +1038,12 @@ getfullscreen(struct Monitor *mon, struct Desktop *desk)
 
 /* get next focused container after old on given monitor and desktop */
 static struct Container *
-getnextfocused(struct Desktop *desk)
+getnextfocused(struct Monitor *mon, struct Desktop *desk)
 {
 	struct Container *c;
 
 	for (c = wm.focuslist; c != NULL; c = c->next) {
-		if (c->mon == desk->mon && (c->issticky || c->desk == desk)) {
+		if (c->mon == mon && (c->issticky || c->desk == desk)) {
 			break;
 		}
 	}
@@ -1080,6 +1099,15 @@ getdivisions(struct Container *c, struct Column **cdiv, struct Row **rdiv, int x
 			}
 		}
 	}
+}
+
+/* get pointer to nth desktop in focused monitor */
+static struct Desktop *
+getdesk(long int n)
+{
+	if (n < 0 || n >= config.ndesktops)
+		return NULL;
+	return &wm.selmon->desks[n];
 }
 
 /* check whether window was placed by the user */
@@ -1277,6 +1305,58 @@ ewmhsetwmdesktop(struct Container *c)
 	}
 }
 
+/* set frames of window */
+static void
+ewmhsetframeextents(Window win, int b, int t)
+{
+	unsigned long data[4];
+
+	data[0] = data[1] = data[3] = b;
+	data[2] = b + t;
+	XChangeProperty(dpy, win, atoms[_NET_FRAME_EXTENTS], XA_CARDINAL, 32, PropModeReplace, (unsigned char *)&data, 4);
+}
+
+/* set state of windows */
+static void
+ewmhsetstate(struct Container *c)
+{
+	struct Column *col;
+	struct Row *row;
+	struct Tab *t;
+	struct Dialog *d;
+	Atom data[8];
+	int n = 0;
+
+	if (c == NULL)
+		return;
+	if (c == wm.focused)
+		data[n++] = atoms[_NET_WM_STATE_FOCUSED];
+	if (c->isfullscreen)
+		data[n++] = atoms[_NET_WM_STATE_FULLSCREEN];
+	if (c->issticky)
+		data[n++] = atoms[_NET_WM_STATE_STICKY];
+	if (c->isminimized)
+		data[n++] = atoms[_NET_WM_STATE_HIDDEN];
+	if (c->ismaximized) {
+		data[n++] = atoms[_NET_WM_STATE_MAXIMIZED_VERT];
+		data[n++] = atoms[_NET_WM_STATE_MAXIMIZED_HORZ];
+	}
+	if (c->layer > 0)
+		data[n++] = atoms[_NET_WM_STATE_ABOVE];
+	else if (c->layer < 0)
+		data[n++] = atoms[_NET_WM_STATE_BELOW];
+	for (col = c->cols; col != NULL; col = col->next) {
+		for (row = col->rows; row != NULL; row = row->next) {
+			for (t = row->tabs; t != NULL; t = t->next) {
+				XChangeProperty(dpy, t->win, atoms[_NET_WM_STATE], XA_ATOM, 32, PropModeReplace, (unsigned char *)data, n);
+				for (d = t->ds; d != NULL; d = d->next) {
+					XChangeProperty(dpy, d->win, atoms[_NET_WM_STATE], XA_ATOM, 32, PropModeReplace, (unsigned char *)data, n);
+				}
+			}
+		}
+	}
+}
+
 /* send a WM_DELETE message to client */
 static void
 windowclose(Window win)
@@ -1431,8 +1511,13 @@ colcalcrows(struct Column *col, int recursive)
 	}
 	sumh += (col->nrows - 1) * visual.division + 2 * c->b;
 
-	h = col->c->h - 2 * c->b - (col->nrows - 1) * visual.division;
-	y = c->b;
+	if (col->c->isfullscreen && col->c->ncols == 1 && col->nrows == 1) {
+		h = col->c->h + visual.tab;
+		y = -visual.tab;
+	} else {
+		h = col->c->h - 2 * c->b - (col->nrows - 1) * visual.division;
+		y = c->b;
+	}
 	for (i = 0, row = col->rows; row != NULL; row = row->next, i++) {
 		if (sumh != c->h)
 			row->h = max(1, ((i + 1) * h / col->nrows) - (i * h / col->nrows));
@@ -1451,16 +1536,24 @@ containercalccols(struct Container *c, int recursive)
 	struct Column *col;
 	int i, x, w, sumw;
 
-	if (c->ismaximized) {
-		c->x = c->mx;
-		c->y = c->my;
-		c->w = c->mw;
-		c->h = c->mh;
+	if (c->isfullscreen) {
+		c->x = c->mon->mx;
+		c->y = c->mon->my;
+		c->w = c->mon->mw;
+		c->h = c->mon->mh;
+		c->b = 0;
+	} else if (c->ismaximized) {
+		c->x = c->mon->wx;
+		c->y = c->mon->wy;
+		c->w = c->mon->ww;
+		c->h = c->mon->wh;
+		c->b = visual.border;
 	} else {
 		c->x = c->nx;
 		c->y = c->ny;
 		c->w = c->nw;
 		c->h = c->nh;
+		c->b = visual.border;
 	}
 
 	/* check if columns sum up the width of the container */
@@ -1980,7 +2073,7 @@ dialogmoveresize(struct Dialog *d)
 	}
 }
 
-/* configure transient window */
+/* configure dialog window */
 static void
 dialogconfigure(struct Dialog *d, unsigned int valuemask, XWindowChanges *wc)
 {
@@ -2179,7 +2272,7 @@ containerminimize(struct Container *c, int minimize, int focus)
 		containerhide(c, 1);
 		containerdelfocus(c);
 		if (focus) {
-			if ((tofocus = getnextfocused(c->desk)) != NULL) {
+			if ((tofocus = getnextfocused(c->mon, c->desk)) != NULL) {
 				tabfocus(tofocus->selcol->selrow->seltab, 0);
 			} else {
 				tabfocus(NULL, 0);
@@ -2189,8 +2282,87 @@ containerminimize(struct Container *c, int minimize, int focus)
 		c->isminimized = 0;
 		containersendtodesk(c, wm.selmon->seldesk, 1, 0);
 		containermoveresize(c);
-		/* no need to call clienthide(c, 0) here for containersendtodesk already calls it */
+		/* no need to call containerhide(c, 0) here for containersendtodesk already calls it */
+	} else {
+		return;
 	}
+	ewmhsetstate(c);
+}
+
+/* make a container occupy the whole monitor */
+static void
+containerfullscreen(struct Container *c, int fullscreen)
+{
+	if (fullscreen != REMOVE && !c->isfullscreen)
+		c->isfullscreen = 1;
+	else if (fullscreen != ADD && c->isfullscreen)
+		c->isfullscreen = 0;
+	else
+		return;
+	containerraise(c);
+	containercalccols(c, 1);
+	containermoveresize(c);
+	containerredecorate(c, NULL, NULL, 0);
+	ewmhsetstate(c);
+}
+
+/* maximize a container on the monitor */
+static void
+containermaximize(struct Container *c, int maximize)
+{
+	if (maximize != REMOVE && !c->ismaximized)
+		c->ismaximized = 1;
+	else if (maximize != ADD && c->ismaximized)
+		c->ismaximized = 0;
+	else
+		return;
+	containercalccols(c, 1);
+	containermoveresize(c);
+	containerredecorate(c, NULL, NULL, 0);
+	ewmhsetstate(c);
+}
+
+/* stick a container on the monitor */
+static void
+containerstick(struct Container *c, int stick)
+{
+	if (stick != REMOVE && !c->issticky) {
+		c->issticky = 1;
+	} else if (stick != ADD && c->issticky) {
+		c->issticky = 0;
+		containersendtodesk(c, c->mon->seldesk, 0, 0);
+	} else {
+		return;
+	}
+	ewmhsetstate(c);
+}
+
+/* raise container above others */
+static void
+containerabove(struct Container *c, int above)
+{
+	if (above != REMOVE && c->layer != 1)
+		c->layer = 1;
+	else if (above != ADD && c->layer != 0)
+		c->layer = 0;
+	else
+		return;
+	containerraise(c);
+	ewmhsetstate(c);
+}
+
+/* lower container below others */
+static void
+containerbelow(struct Container *c, int below)
+{
+	if (below != REMOVE && c->layer != -1)
+		c->layer = -1;
+	else if (below != ADD && c->layer != 0)
+		c->layer = 0;
+	else
+		return;
+	containerraise(c);
+	ewmhsetstate(c);
 }
 
 /* create new container */
@@ -2213,9 +2385,8 @@ containernew(int x, int y, int w, int h)
 	c->issticky = 0;
 	c->ishidden = 0;
 	c->layer = 0;
-	c->desk = 0;
+	c->desk = NULL;
 	c->pw = c->ph = 0;
-	c->mx = c->my = c->mw = c->mh = 0;
 	c->x = c->nx = x - visual.border;
 	c->y = c->ny = y - visual.border;
 	c->w = c->nw = w + 2 * visual.border;
@@ -2582,6 +2753,19 @@ deskisvisible(struct Desktop *desk)
 	return desk->mon->seldesk == desk;
 }
 
+/* (un)show desktop */
+static void
+deskshow(int show)
+{
+	struct Container *c;
+
+	for (c = wm.c; c != NULL; c = c->next)
+		if (!c->isminimized)
+			containerhide(c, show);
+	wm.showingdesk = show;
+	ewmhsetshowingdesktop(show);
+}
+
 /* change desktop */
 static void
 deskfocus(struct Desktop *desk)
@@ -2600,9 +2784,8 @@ deskfocus(struct Desktop *desk)
 		 * hide containers of previous current desktop */
 		for (c = wm.c; c != NULL; c = c->next) {
 			if (c->desk == desk) {
-				containermoveresize(c);
 				containerhide(c, 0);
-			} else if (c->desk == desk->mon->seldesk) {
+			} else if (!c->issticky && c->desk == desk->mon->seldesk) {
 				containerhide(c, 1);
 			}
 		}
@@ -2618,14 +2801,12 @@ deskfocus(struct Desktop *desk)
 	/* update current desktop */
 	wm.selmon = desk->mon;
 	wm.selmon->seldesk = desk;
-	if (wm.showingdesk) {
-		wm.showingdesk = 0;
-		ewmhsetshowingdesktop(1);
-	}
+	if (wm.showingdesk)
+		deskshow(0);
 	ewmhsetcurrentdesktop(desk->n);
 
 	/* focus client on the new current desktop */
-	c = getnextfocused(desk);
+	c = getnextfocused(desk->mon, desk);
 	if (c != NULL) {
 		tabfocus(c->selcol->selrow->seltab, 0);
 	} else {
@@ -3475,7 +3656,7 @@ unmanage(struct Tab *t)
 			coldel(col);
 			if (c->ncols == 0) {
 				containerdel(c);
-				focus = getnextfocused(desk);
+				focus = getnextfocused(desk->mon, desk);
 				moveresize = 0;
 			}
 		}
@@ -4119,16 +4300,160 @@ done:
 static void
 xeventclientmessage(XEvent *e)
 {
-	(void)e;
-	// TODO
+	struct Monitor *mon;
+	struct Desktop *prevdesk, *desk;
+	struct Container *c;
+	struct Winres res;
+	XClientMessageEvent *ev;
+	XWindowChanges wc;
+	unsigned value_mask = 0;
+	int i;
+
+	ev = &e->xclient;
+	res = getwin(ev->window);
+	if (ev->message_type == atoms[_NET_CURRENT_DESKTOP]) {
+		deskfocus(getdesk(ev->data.l[0]));
+	} else if (ev->message_type == atoms[_NET_SHOWING_DESKTOP]) {
+		if (ev->data.l[0]) {
+			deskshow(1);
+		} else {
+			deskfocus(wm.selmon->seldesk);
+		}
+	} else if (ev->message_type == atoms[_NET_WM_STATE]) {
+		if (res.c == NULL)
+			return;
+		if (((Atom)ev->data.l[1] == atoms[_NET_WM_STATE_MAXIMIZED_VERT] ||
+		     (Atom)ev->data.l[1] == atoms[_NET_WM_STATE_MAXIMIZED_HORZ]) &&
+		    ((Atom)ev->data.l[2] == atoms[_NET_WM_STATE_MAXIMIZED_VERT]  ||
+		     (Atom)ev->data.l[2] == atoms[_NET_WM_STATE_MAXIMIZED_HORZ])) {
+			containermaximize(res.c, ev->data.l[0]);
+		}
+		for (i = 1; i < 3; i++) {
+			if ((Atom)ev->data.l[i] == atoms[_NET_WM_STATE_FULLSCREEN]) {
+				containerfullscreen(res.c, ev->data.l[0]);
+			} else if ((Atom)ev->data.l[i] == atoms[_NET_WM_STATE_STICKY]) {
+				containerstick(res.c, ev->data.l[0]);
+			} else if ((Atom)ev->data.l[i] == atoms[_NET_WM_STATE_HIDDEN]) {
+				containerminimize(res.c, ev->data.l[0], 1);
+			} else if ((Atom)ev->data.l[i] == atoms[_NET_WM_STATE_ABOVE]) {
+				containerabove(res.c, ev->data.l[0]);
+			} else if ((Atom)ev->data.l[i] == atoms[_NET_WM_STATE_BELOW]) {
+				containerbelow(res.c, ev->data.l[0]);
+			} else if ((Atom)ev->data.l[i] == atoms[_NET_WM_STATE_DEMANDS_ATTENTION]) {
+				tabupdateurgency(res.t, ev->data.l[0] == ADD || (ev->data.l[0] == TOGGLE && !res.t->isurgent));
+			}
+		}
+	} else if (ev->message_type == atoms[_NET_ACTIVE_WINDOW]) {
+		if (res.t == NULL)
+			return;
+		containerraise(res.c);
+		tabfocus(res.t, 1);
+	} else if (ev->message_type == atoms[_NET_CLOSE_WINDOW]) {
+		windowclose(ev->window);
+	} else if (ev->message_type == atoms[_NET_MOVERESIZE_WINDOW]) {
+		value_mask = 0;
+		if (res.c == NULL)
+			return;
+		if (ev->data.l[0] & 1 << 8) {
+			wc.x = ev->data.l[1];
+			value_mask |= CWX;
+		}
+		if (ev->data.l[0] & 1 << 9) {
+			wc.y = ev->data.l[2];
+			value_mask |= CWY;
+		}
+		if (ev->data.l[0] & 1 << 10) {
+			wc.width = ev->data.l[3];
+			value_mask |= CWWidth;
+		}
+		if (ev->data.l[0] & 1 << 11) {
+			wc.height = ev->data.l[4];
+			value_mask |= CWHeight;
+		}
+		if (res.d != NULL) {
+			dialogconfigure(res.d, value_mask, &wc);
+		} else {
+			containerconfigure(res.c, value_mask, &wc);
+		}
+	} else if (ev->message_type == atoms[_NET_WM_DESKTOP]) {
+		if (res.c == NULL)
+			return;
+		if (ev->data.l[0] == 0xFFFFFFFF) {
+			containerstick(res.c, ADD);
+		} else if (!res.c->isminimized) {
+			if ((desk = getdesk(ev->data.l[0])) == NULL || desk == res.c->desk)
+				return;
+			if (res.c->issticky)
+				containerstick(res.c, REMOVE);
+			mon = res.c->mon;
+			prevdesk = res.c->desk;
+			containersendtodesk(res.c, desk, 0, 0);
+			c = getnextfocused(mon, prevdesk);
+			if (c != NULL) {
+				tabfocus(c->selcol->selrow->seltab, 0);
+			}
+		}
+	} else if (ev->message_type == atoms[_NET_REQUEST_FRAME_EXTENTS]) {
+		/*
+		* A client can request an estimate for the frame size
+		* which the window manager will put around it before
+		* actually mapping its window. Java does this (as of
+		* openjdk-7).
+		*/
+		if (res.c == NULL)
+			return;
+		ewmhsetframeextents(ev->window, res.c->b, (res.c->isfullscreen && res.c->ncols == 1 && res.c->cols->nrows == 1) ? 0 : visual.tab);
+	} else if (ev->message_type == atoms[_NET_WM_MOVERESIZE]) {
+		/*
+		 * Client-side decorated Gtk3 windows emit this signal when being
+		 * dragged by their GtkHeaderBar
+		 */
+		if (res.c == NULL)
+			return;
+		switch (ev->data.l[2]) {
+		case _NET_WM_MOVERESIZE_CANCEL:
+			XUngrabPointer(dpy, CurrentTime);
+			break;
+		case _NET_WM_MOVERESIZE_SIZE_TOPLEFT:
+			mouseresize(res.c, ev->data.l[0], ev->data.l[1], NW);
+			break;
+		case _NET_WM_MOVERESIZE_SIZE_TOP:
+			mouseresize(res.c, ev->data.l[0], ev->data.l[1], N);
+			break;
+		case _NET_WM_MOVERESIZE_SIZE_TOPRIGHT:
+			mouseresize(res.c, ev->data.l[0], ev->data.l[1], NE);
+			break;
+		case _NET_WM_MOVERESIZE_SIZE_RIGHT:
+			mouseresize(res.c, ev->data.l[0], ev->data.l[1], E);
+			break;
+		case _NET_WM_MOVERESIZE_SIZE_BOTTOMRIGHT:
+			mouseresize(res.c, ev->data.l[0], ev->data.l[1], SE);
+			break;
+		case _NET_WM_MOVERESIZE_SIZE_BOTTOM:
+			mouseresize(res.c, ev->data.l[0], ev->data.l[1], S);
+			break;
+		case _NET_WM_MOVERESIZE_SIZE_BOTTOMLEFT:
+			mouseresize(res.c, ev->data.l[0], ev->data.l[1], SW);
+			break;
+		case _NET_WM_MOVERESIZE_SIZE_LEFT:
+			mouseresize(res.c, ev->data.l[0], ev->data.l[1], W);
+			break;
+		case _NET_WM_MOVERESIZE_MOVE:
+			mousemove(res.c, ev->data.l[0], ev->data.l[1], C);
+			break;
+		default:
+			return;
+		}
+	}
 }
 
 /* handle configure notify event */
 static void
 xeventconfigurenotify(XEvent *e)
 {
-	XConfigureEvent *ev = &e->xconfigure;
+	XConfigureEvent *ev;
 
+	ev = &e->xconfigure;
 	if (ev->window == root) {
 		screenw = ev->width;
 		screenh = ev->height;
