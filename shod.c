@@ -1042,7 +1042,7 @@ getnextfocused(struct Monitor *mon, struct Desktop *desk)
 {
 	struct Container *c;
 
-	for (c = wm.focuslist; c != NULL; c = c->next) {
+	for (c = wm.focuslist; c != NULL; c = c->fnext) {
 		if (c->mon == mon && (c->issticky || c->desk == desk)) {
 			break;
 		}
