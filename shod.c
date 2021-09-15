@@ -4238,6 +4238,9 @@ xeventbuttonpress(XEvent *e)
 		containerraise(c);
 
 	/* do action performed by mouse on non-maximized windows */
+	if (XTranslateCoordinates(dpy, ev->window, c->frame, ev->x, ev->y, &x, &y, &dw) != True)
+		goto done;
+	o = getoctant(c, x, y);
 	if (ev->window == t->title && ev->button == Button3) {
 		mouseretab(t, ev->x_root, ev->y_root, ev->x, ev->y);
 	} else if (res.row != NULL && ev->window == res.row->bl && ev->button == Button3) {
@@ -4246,10 +4249,12 @@ xeventbuttonpress(XEvent *e)
 		mousererow(res.row);
 	} else if (res.row != NULL && ev->window == res.row->br && ev->button == Button1) {
 		mouseclose(res.row);
+	} else if (ev->window == c->frame && ev->button == Button1 && o == C) {
+		getdivisions(c, &cdiv, &rdiv, x, y);
+		if (cdiv != NULL || rdiv != NULL) {
+			mouseretile(c, cdiv, rdiv, ev->x_root, ev->y_root);
+		}
 	} else if (!c->isfullscreen && !c->isminimized && !c->ismaximized) {
-		if (XTranslateCoordinates(dpy, ev->window, c->frame, ev->x, ev->y, &x, &y, &dw) != True)
-			goto done;
-		o = getoctant(c, x, y);
 		if (ev->state == config.modifier && ev->button == Button1) {
 			mousemove(c, ev->x_root, ev->y_root, 0);
 		} else if (ev->window == c->frame && ev->button == Button3) {
@@ -4271,11 +4276,6 @@ xeventbuttonpress(XEvent *e)
 				}
 			}
 			mouseresize(c, ev->x_root, ev->y_root, o);
-		} else if (o == C && ev->window == c->frame && ev->button == Button1) {
-			getdivisions(c, &cdiv, &rdiv, x, y);
-			if (cdiv != NULL || rdiv != NULL) {
-				mouseretile(c, cdiv, rdiv, ev->x_root, ev->y_root);
-			}
 		} else if (ev->window == t->title && ev->button == Button1) {
 			tabdecorate(t, 1);
 			mousemove(c, ev->x_root, ev->y_root, 0);
