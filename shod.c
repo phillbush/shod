@@ -2118,6 +2118,7 @@ containermoveresize(struct Container *c)
 			} else if (row == col->maxrow) {        /* maximized row */
 				titlebarmoveresize(row, col->x, rowy, col->w);
 				XMoveResizeWindow(dpy, row->frame, col->x, rowy + visual.tab, col->w, rowh);
+				XMapWindow(dpy, row->frame);
 				rowy += rowh;
 			} else {                                /* minimized row */
 				titlebarmoveresize(row, col->x, rowy, col->w);
