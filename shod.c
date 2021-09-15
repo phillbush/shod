@@ -3052,6 +3052,21 @@ dialognew(Window win, int maxw, int maxh, int ignoreunmap)
 	return d;
 }
 
+/* stack rows */
+static void
+rowstack(struct Row *row)
+{
+	if (row->col->maxrow != row) {
+		row->col->maxrow = row;
+		tabfocus(row->seltab, 0);
+	} else {
+		row->col->maxrow = NULL;
+	}
+	rowcalctabs(row);
+	containermoveresize(row->col->c);
+	containerdecorate(row->col->c, NULL, NULL, 0, 0);
+}
+
 /* check if monitor geometry is unique */
 static int
 monisuniquegeom(XineramaScreenInfo *unique, size_t n, XineramaScreenInfo *info)
@@ -3745,6 +3760,8 @@ mouseretab(struct Tab *t, int xroot, int yroot, int x, int y)
 		}
 	}
 done:
+	if (col->maxrow != NULL)
+		rowstack(row);
 	if (!tabattach(t, xroot, yroot)) {
 		mon = getmon(xroot - x, yroot - y);
 		if (mon == NULL)
@@ -4014,6 +4031,7 @@ done:
 	}
 	containercalccols(c, 1);
 	containermoveresize(c);
+	buttondecorate(row, BUTTON_LEFT, 0);
 	containerdecorate(c, NULL, NULL, 0, 0);
 	XUngrabPointer(dpy, CurrentTime);
 }
@@ -4159,15 +4177,7 @@ mousestack(struct Row *row)
 			if (ev.xbutton.window == row->bl &&
 			    ev.xbutton.x >= 0 && ev.xbutton.x >= 0 &&
 			    ev.xbutton.x < visual.button && ev.xbutton.x < visual.button) {
-				if (row->col->maxrow == NULL) {
-					row->col->maxrow = row;
-					tabfocus(row->seltab, 0);
-				} else {
-					row->col->maxrow = NULL;
-				}
-				rowcalctabs(row);
-				containermoveresize(row->col->c);
-				containerdecorate(row->col->c, NULL, NULL, 0, 0);
+				rowstack(row);
 			}
 			goto done;
 			break;
