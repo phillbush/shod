@@ -2484,7 +2484,7 @@ tabdel(struct Tab *t)
 
 /* detach row from column */
 static void
-rowdetach(struct Row *row)
+rowdetach(struct Row *row, int recalc)
 {
 	if (row->col->selrow == row)
 		row->col->selrow = (row->prev != NULL) ? row->prev : row->next;
@@ -2499,7 +2499,9 @@ rowdetach(struct Row *row)
 		row->col->maxrow = NULL;
 	row->next = NULL;
 	row->prev = NULL;
-	colcalcrows(row->col, 0);
+	if (recalc) {
+		colcalcrows(row->col, 0);
+	}
 }
 
 /* delete row */
@@ -2508,7 +2510,7 @@ rowdel(struct Row *row)
 {
 	while (row->tabs)
 		tabdel(row->tabs);
-	rowdetach(row);
+	rowdetach(row, 1);
 	XDestroyWindow(dpy, row->frame);
 	XDestroyWindow(dpy, row->bar);
 	XDestroyWindow(dpy, row->bl);
@@ -4021,7 +4023,7 @@ done:
 				break;
 		}
 		if (prev != row && prev != NULL) {
-			rowdetach(row);
+			rowdetach(row, 0);
 			coladdrow(newcol, row, prev);
 		}
 		if (row->prev != NULL) {
