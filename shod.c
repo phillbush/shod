@@ -2773,7 +2773,7 @@ deskfocus(struct Desktop *desk)
 		/* unhide cointainers of new current desktop
 		 * hide containers of previous current desktop */
 		for (c = wm.c; c != NULL; c = c->next) {
-			if (c->desk == desk) {
+			if (!c->isminimized && c->desk == desk) {
 				containerhide(c, 0);
 			} else if (!c->issticky && c->desk == desk->mon->seldesk) {
 				containerhide(c, 1);
