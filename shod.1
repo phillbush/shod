@@ -1,0 +1,291 @@
+.TH SHOD 1
+.SH NAME
+.B shod, shodc
+\- acme-like window manager
+.SH SYNOPSIS
+.B shod
+.RB [ \-f
+.IR buttons ]
+.RB [ \-m
+.IR modifier ]
+.RB [ \-n
+.IR notificationspec ]
+.RB [ \-r
+.IR buttons ]
+.PP
+.B shodc
+.IR operation " [" options "] [" arg ...]
+.SH DESCRIPTION
+.B shod
+is a multi\-monitor floating reparenting X11 window manager which supports tiled and tabbed containers.
+.B shod
+sets no keybindings, reads no configuration,
+and works only via mouse with a given key modifier (Alt by default)
+and by responding to client messages
+(it is needed
+a controller called
+.IR shodc (1)
+to control shod).
+.PP The options are as follows:
+.TP
+.BI \-f " buttons"
+Which mouse buttons are used to focus a window when clicking on it.
+The argument of this option is a string of numbers 1 to 5 (corresponding to mouse buttons 1 to 5).
+For example, setting this resource to
+.B 13
+makes windows be focused when clicking on them with the mouse buttons 1 and 3
+(the left and right mouse buttons, respectively).
+If this is set to a blank string, no mouse button is used to focus windows,
+and
+.B shod
+uses the focus\-follow\-cursor focusing style.
+By default, focus follows mouse click on button 1.
+.TP
+.BI \-m " modifier"
+Which modifier, from
+.B Mod1
+to
+.B Mod5
+is used to move and resize windows with the mouse pointer.
+By default,
+.B shod
+uses Mod1 (Alt) as modifier.
+.TP
+.BI \-n " notificationspec"
+This option is used to specify the placement of notification windows.
+The argument of this option is a string of the form POS:GAP;
+where POS is a cardinal position such as NW (northwest), SE (southeast) or C (center);
+and GAP is a positive number.
+For example, if this option is called with
+.B NE:3
+(the default value)
+notifications are placed in the top right (northeast) corner of the screen,
+and have a gap of 3 pixels between them.
+.TP
+.BI \-r " buttons"
+Which mouse buttons are used to raise a window when clicking on it.
+The argument of this option is a string of numbers 1 to 5 (corresponding to mouse buttons 1 to 5).
+For example, setting this resource to
+.B 13
+makes windows be raised when clicking on them with the mouse buttons 1 and 3
+(the left and right mouse buttons, respectively).
+By default, raise occurs on mouse click on button 1.
+.PP
+.B shodc
+is the remote controller for
+.BR shod .
+Its first argument must be an operation to be performed.
+The following arguments are the options for the operation
+(each operation accepts a different set of options).
+The last arguments are the operation's arguments.
+For a list of all operations, see the OPERATIONS section below.
+.SH DESKTOP
+.PP
+.B shod
+maintains one monitor for each physical monitor found by
+.IR Xinerama (1).
+One of the monitors is the focused one, where new windows go to when they are created.
+Each monitor contains a different set of desktops.
+One of the desktops of a monitor is the focused desktop for that monitor.
+.PP
+Most windows are displayed in containers;
+but some windows are special and are displayed in different ways.
+.SS Containers
+Containers are floating windows with borders (four edges and four corners).
+A container contains client\-windows organized in columns, rows, and tabs;
+each client\-window can also contain a dialog.
+.TP
+Columns
+A container can have one or more columns.
+Columns split a conteiner horizontally, and each container appears next to the other.
+.TP
+Rows
+A column can have one or more rows.
+Rows split a column vertically, and each row appears on top of the other.
+.TP
+Tabs
+A row can have one or more tabs.
+Tabs split a column in the Z axis, and each tab appears above the other.
+.TP
+Client\-window.
+A client\-window is the actual window where the actual content of the client
+(such as a terminal emulator) is drawn.
+.TP
+Dialogs
+A client\-window can have a dialog.
+A dialog appears above the client window, and is centered on it.
+.PP
+The following illustration is an example of a container.
+This container contains two columns: one column in the left and another in the right.
+The column in the left contain a single row with two tabs,
+one of these tabs (the focused one) has a dialog on top of it.
+The column in the right contain two rows:
+the top row with a single tab, and the bottom row with three tabs.
+Each tab contains a client window.
+.IP
+.EX
+┌──────────────┬──────────────┬─────────────────────────────┐
+├──────────────┴──────────────┼─────────────────────────────┤
+│                             │                             │
+│                             │                             │
+│                             │                             │
+│                             │                             │
+│                             │                             │
+│ ┌─────────────────────────┐ │                             │
+│ │                         │ │                             │
+│ │                         │ │                             │
+│ │                         │ ├─────────┬─────────┬─────────┤
+│ │                         │ ├─────────┴─────────┴─────────┤
+│ │                         │ │                             │
+│ │                         │ │                             │
+│ └─────────────────────────┘ │                             │
+│                             │                             │
+│                             │                             │
+│                             │                             │
+│                             │                             │
+│                             │                             │
+└─────────────────────────────┴─────────────────────────────┘
+.EE
+.PP
+Each container can or not have each one of the following states:
+.TP
+Maximized
+Maximized containers occupies the entire space on the monitor available for windows.
+When a maximized container is unmaximized,
+it restores its previous size and position.
+.TP
+Fullscreen
+Fullscreen containers occupies the entire monitor space.
+When a fullscreen container is made not full,
+it restores its previous size and position.
+.TP
+Minimized
+Minimized containers are not shown on the screen.
+When a minimized container is unminimized,
+it goes to the focused monitor.
+.TP
+Sticky
+Sticky containers are \(lqsticked\(rq to the monitor,
+and they appear on the screen no matter which desktop is focused on that monitor.
+.TP
+Above or below.
+A container can be raised above or lowered below other containers.
+.SS Prompt
+A window of type
+.B _NET_WM_WINDOW_TYPE_PROMPT
+(called prompt window)
+is mapped on the top of the focused monitor.
+This window will stay focused and mapped until be closed or a mouse
+button is pressed outside that window.  This is an EWMH extension,
+only used by
+.IR xprompt (1).
+.PP
+.B shod
+does not change the size of the prompt window.
+However, shod changes its position.
+.SS Desktop windows
+Windows of type
+.B _NET_WM_WINDOW_TYPE_DESKTOP
+(called desktop windows)
+are mapped bellow all other windows and are stacked on the order they are spawned.
+Desktop windows cannot be manipulated.
+Desktop windows have no decoration around them.
+.PP
+Desktop windows indicates a desktop feature.
+That includes windows such as
+.IR conky (1)
+and windows that manage desktop icons.
+.PP
+.B shod
+does not change the size nor the position of desktop windows.
+.SS Notifications
+Windows of type
+.B _NET_WM_WINDOW_TYPE_NOTIFICATION
+(called notifications)
+are popped up on the top right corner, one above another.
+Notification windows cannot be manipulated.
+Notification windows have a decoration around them;
+this decoration is the same as the borders of the active container
+(or, for urgent notifications, the same as the borders of an urgent container).
+.PP
+An example of a notification window would be a bubble appearing with informative text such as
+"Your laptop is running out of power" etc.
+.PP
+The screen corner where notification windows pop up can be changed with the
+.B \-n
+command-line option
+.PP
+.B shod
+can change the size and the position of notification windows.
+.SS Dropdown windows
+TODO
+.SS Docked windows
+TODO
+.SH USAGE
+The main method for managing containers and windows is the mouse.
+.PP
+The mouse buttons set with the
+.B \-f
+command-line option are used to focus a container when clicking on it.
+If no mouse button is specified, the focus follows the mouse pointer.
+.PP
+The mouse buttons set with the
+.B \-r
+command-line option are used to raise a container when clicking on it.
+.PP
+The modifier set with the
+.B \-m
+command-line option is the modifier key.
+Pressing the modifier key and dragging a container with the mouse button 1
+(the left mouse button) will move that container.
+Pressing the modifier key and dragging a container with the mouse button 3
+(the right mouse button) will resize that container.
+.PP
+Resizing a container can also be performed by dragging the container border with the mouse button 1,
+without pressing any modifier.
+Moving a container can also be performed by dragging the container border with the mouse button 3,
+without pressing any modifier.
+Moving a container can also be performed by dragging a tab with the mouse button 1,
+without pressing any modifier.
+.PP
+A window can be detached from its container by dragging it by the tab with the mouse button 3.
+A detached window, while being dragged this way,
+can be attached as a new tab into another container by dropping it next to an existing tab;
+or can be attached into a new row or column on another container by dropping it on a column or row division.
+.PP
+Each row has two buttons on its title bar.
+Clicking with the mouse button 1 on the left title bar button can be used to drag and drop the row around the container.
+Clicking with the mouse button 3 on the left title bar button can be used to maximize the row on the column
+while minimizing all the other rows (this operation is called "restacking").
+Clicking with the mouse button 1 on the right title bar button closes the window on the focused tab, and
+if it was the last window on the container, deletes the container.
+.PP
+The divisions between columns and rows can be dragged with the mouse button 1 (the left mouse button)
+to rearrange the size of columns and rows.
+.PP
+When a container is moved from one monitor to another,
+that container moves from the desktop it is in to the focused desktop
+of the monitor it is moved to.
+.SH OPERATIONS
+TODO.
+.SH ENVIRONMENT
+The following environment variables affect the execution of
+.B shod
+.TP
+.B DISPLAY
+The display to start
+.B shod
+on.
+.SH SEE ALSO
+.IR xprompt (1),
+.IR xnotify (1)
+.SH BUGS
+.IR XSizeHints (3)
+are ignored.
+Size hints make no sense in a tiled and tabbed window manager.
+They only make sense when the size of a single container depends only on a single window,
+and a single window dictates the size of a single container.
+When the size of a container depends on the size of other windows (as in the tiled situation),
+or when a set of windows must have the same size (as in a tabbed situation),
+it makes no sense to constrain the size of a container based on the size hints of a single window,
+because the relation from windows to containers is no more one-to-one.
