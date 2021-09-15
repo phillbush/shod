@@ -2237,9 +2237,14 @@ containersendtodesk(struct Container *c, struct Desktop *desk, int place, int us
 		return;
 	c->desk = desk;
 	c->mon = desk->mon;
-	if (place) {
-		containerplace(c, c->desk, userplaced);
+	if (c->issticky) {
+		c->issticky = 0;
+		ewmhsetstate(c);
 	}
+	if (place)
+		containerplace(c, c->desk, userplaced);
+	if (desk != desk->mon->seldesk)  /* container was sent to invisible desktop */
+		containerhide(c, 1);
 	containerraise(c);
 	ewmhsetwmdesktop(c);
 }
@@ -2937,7 +2942,7 @@ tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 	struct Tab *t, *next;
 
 	for (c = list; c != NULL; c = c->rnext) {
-		if (xroot < c->x || xroot >= c->x + c->w || yroot < c->y || yroot >= c->y + c->h)
+		if (c->ishidden || xroot < c->x || xroot >= c->x + c->w || yroot < c->y || yroot >= c->y + c->h)
 			continue;
 		if (xroot - c->x < c->b + DROPPIXELS) {
 			nrow = rownew();
