@@ -380,7 +380,6 @@ struct Config {
 	unsigned int raisebuttons;
 	int ndesktops;
 	int notifgap;
-	const char *theme_path;
 	const char *font;
 	const char *notifgravity;
 
@@ -398,9 +397,7 @@ static XSetWindowAttributes clientswa = {
 static int (*xerrorxlib)(Display *, XErrorEvent *);
 static Display *dpy;
 static Window root;
-static XrmDatabase xdb;
 static GC gc;
-static char *xrm;
 static int depth;
 static int screen, screenw, screenh;
 static Atom atoms[ATOM_LAST];
@@ -408,6 +405,15 @@ static struct Visual visual;
 static struct WM wm;
 static struct Config config;
 volatile sig_atomic_t running = 1;
+
+/* show usage and exit */
+static void
+usage(void)
+{
+	(void)fprintf(stderr, "usage: shod [-d ndesks] [-f buttons] [-m modifier]\n");
+	(void)fprintf(stderr, "            [-n notificationspec] [-r buttons]\n");
+	exit(1);
+}
 
 /* get maximum */
 static int
@@ -538,15 +544,14 @@ siginthandler(int signo)
 	running = 0;
 }
 
-/* init configuration from X resources */
+/* read command-line options */
 static void
-initconfig(void)
+getoptions(int argc, char *argv[])
 {
-	XrmValue xval;
 	long n;
-	char *type;
+	int c;
+	char *s;
 
-	config.theme_path = NULL;
 	config.font = FONT;
 	config.notifgravity = NOTIFGRAVITY;
 	config.notifgap = NOTIFGAP;
@@ -555,34 +560,39 @@ initconfig(void)
 	config.focusbuttons = FOCUS_BUTTONS;
 	config.raisebuttons = RAISE_BUTTONS;
 
-	if (xrm == NULL || xdb == NULL)
-		return;
-
-	if (XrmGetResource(xdb, "shod.theme", "*", &type, &xval) == True)
-		config.theme_path = xval.addr;
-
-	if (XrmGetResource(xdb, "shod.font", "*", &type, &xval) == True)
-		config.font = xval.addr;
-
-	if (XrmGetResource(xdb, "shod.notification.gravity", "*", &type, &xval) == True)
-		config.notifgravity = xval.addr;
-
-	if (XrmGetResource(xdb, "shod.notification.gap", "*", &type, &xval) == True)
-		if ((n = strtol(xval.addr, NULL, 10)) > 0)
-			config.notifgap = n;
-
-	if (XrmGetResource(xdb, "shod.ndesktops", "*", &type, &xval) == True)
-		if ((n = strtol(xval.addr, NULL, 10)) > 0)
-			config.ndesktops = n;
-
-	if (XrmGetResource(xdb, "shod.modifier", "*", &type, &xval) == True)
-		config.modifier = parsemodifier(xval.addr);
-
-	if (XrmGetResource(xdb, "shod.focusButtons", "*", &type, &xval) == True)
-		config.focusbuttons = parsebuttons(xval.addr);
-
-	if (XrmGetResource(xdb, "shod.raiseButtons", "*", &type, &xval) == True)
-		config.raisebuttons = parsebuttons(xval.addr);
+	while ((c = getopt(argc, argv, "d:f:m:n:r:")) != -1) {
+		switch (c) {
+		case 'd':
+			if ((n = strtol(optarg, NULL, 10)) > 0)
+				config.ndesktops = n;
+			break;
+		case 'f':
+			config.focusbuttons = parsebuttons(optarg);
+			break;
+		case 'm':
+			config.modifier = parsemodifier(optarg);
+			break;
+		case 'n':
+			config.notifgravity = optarg;
+			if ((s = strchr(optarg, ':')) == NULL)
+				break;
+			*(s++) = '\0';
+			if ((n = strtol(s, NULL, 10)) > 0)
+				config.notifgap = n;
+			break;
+		case 'r':
+			config.raisebuttons = parsebuttons(optarg);
+			break;
+		default:
+			usage();
+			break;
+		}
+	}
+	argc -= optind;
+	argv += optind;
+	if (argc != 0) {
+		usage();
+	}
 }
 
 /* initialize signals */
@@ -776,10 +786,7 @@ inittheme(void)
 	int status;
 
 	memset(&xa, 0, sizeof xa);
-	if (config.theme_path)  /* if the we have specified a file, read it instead */
-		status = XpmReadFileToImage(dpy, config.theme_path, &img, NULL, &xa);
-	else                    /* else use the default theme */
-		status = XpmCreateImageFromData(dpy, theme, &img, NULL, &xa);
+	status = XpmCreateImageFromData(dpy, theme, &img, NULL, &xa);
 	if (status != XpmSuccess)
 		errx(1, "could not load theme");
 
@@ -4766,7 +4773,7 @@ cleanfontset(void)
 
 /* shod window manager */
 int
-main(void)
+main(int argc, char *argv[])
 {
 	XEvent ev;
 	void (*xevents[LASTEvent])(XEvent *) = {
@@ -4784,6 +4791,9 @@ main(void)
 		[UnmapNotify]      = xeventunmapnotify
 	};
 
+	/* parse command-line options */
+	getoptions(argc, argv);
+
 	/* open connection to server and set X variables */
 	if (!setlocale(LC_ALL, "") || !XSupportsLocale())
 		warnx("warning: no locale support");
@@ -4796,12 +4806,8 @@ main(void)
 	root = RootWindow(dpy, screen);
 	gc = XCreateGC(dpy, root, 0, NULL);
 	xerrorxlib = XSetErrorHandler(xerror);
-	XrmInitialize();
-	if ((xrm = XResourceManagerString(dpy)) != NULL)
-		xdb = XrmGetStringDatabase(xrm);
 
 	/* initialize */
-	initconfig();
 	initsignal();
 	initdummywindows();
 	initfontset();
@@ -4847,7 +4853,6 @@ main(void)
 
 	/* close connection to server */
 	XUngrabPointer(dpy, CurrentTime);
-	XrmDestroyDatabase(xdb);
 	XCloseDisplay(dpy);
 
 	return 0;
