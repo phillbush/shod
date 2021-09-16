@@ -1063,7 +1063,7 @@ getnextfocused(struct Monitor *mon, struct Desktop *desk)
 
 /* get next focused container in given direction from another */
 static struct Container *
-getbydirection(struct Container *rel, int dir)
+getfocusedbydirection(struct Container *rel, int dir)
 {
 	struct Monitor *mon;
 	struct Desktop *desk;
@@ -4485,7 +4485,7 @@ xeventclientmessage(XEvent *e)
 		case _SHOD_FOCUS_RIGHT_CONTAINER:
 		case _SHOD_FOCUS_TOP_CONTAINER:
 		case _SHOD_FOCUS_BOTTOM_CONTAINER:
-			if (res.c != NULL && (c = getbydirection(res.c, ev->data.l[3])) != NULL)
+			if (res.c != NULL && (c = getfocusedbydirection(res.c, ev->data.l[3])) != NULL)
 				t = c->selcol->selrow->seltab;
 			break;
 		case _SHOD_FOCUS_PREVIOUS_CONTAINER:
