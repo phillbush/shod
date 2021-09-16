@@ -30,6 +30,11 @@
 #define DROPPIXELS      30      /* number of pixels from the border where a tab can be dropped in */
 #define RESIZETIME      64      /* time to redraw containers during resizing */
 
+#define _SHOD_RELATIVE_X        ((long)(1 << 16))
+#define _SHOD_RELATIVE_Y        ((long)(1 << 17))
+#define _SHOD_RELATIVE_WIDTH    ((long)(1 << 18))
+#define _SHOD_RELATIVE_HEIGHT   ((long)(1 << 19))
+
 /* title bar buttons */
 enum {
 	BUTTON_NONE,
@@ -37,7 +42,7 @@ enum {
 	BUTTON_RIGHT
 };
 
-/* state flag */
+/* state action */
 enum {
 	REMOVE = 0,
 	ADD    = 1,
@@ -173,6 +178,23 @@ enum {
 	_NET_WM_MOVERESIZE_SIZE_KEYBOARD    = 9,   /* size via keyboard */
 	_NET_WM_MOVERESIZE_MOVE_KEYBOARD    = 10,  /* move via keyboard */
 	_NET_WM_MOVERESIZE_CANCEL           = 11,  /* cancel operation */
+};
+
+/* focus relative direction */
+enum {
+	_SHOD_FOCUS_ABSOLUTE            = 0,
+	_SHOD_FOCUS_LEFT_CONTAINER      = 1,
+	_SHOD_FOCUS_RIGHT_CONTAINER     = 2,
+	_SHOD_FOCUS_TOP_CONTAINER       = 3,
+	_SHOD_FOCUS_BOTTOM_CONTAINER    = 4,
+	_SHOD_FOCUS_PREVIOUS_CONTAINER  = 5,
+	_SHOD_FOCUS_NEXT_CONTAINER      = 6,
+	_SHOD_FOCUS_LEFT_WINDOW         = 7,
+	_SHOD_FOCUS_RIGHT_WINDOW        = 8,
+	_SHOD_FOCUS_TOP_WINDOW          = 9,
+	_SHOD_FOCUS_BOTTOM_WINDOW       = 10,
+	_SHOD_FOCUS_PREVIOUS_WINDOW     = 11,
+	_SHOD_FOCUS_NEXT_WINDOW         = 12,
 };
 
 /* window eight sections (aka octants) */
@@ -1039,6 +1061,89 @@ getnextfocused(struct Monitor *mon, struct Desktop *desk)
 	return c;
 }
 
+/* get next focused container in given direction from another */
+static struct Container *
+getbydirection(struct Container *rel, int dir)
+{
+	struct Monitor *mon;
+	struct Desktop *desk;
+	struct Container *c, *ret;
+
+	ret = NULL;
+	mon = rel->mon;
+	desk = rel->issticky ? rel->mon->seldesk : rel->desk;
+	for (c = wm.focuslist; c != NULL; c = c->fnext) {
+		if (c == rel || c->isminimized)
+			continue;
+		if (c->mon == mon && (c->issticky || c->desk == desk)) {
+			switch (dir) {
+			case _SHOD_FOCUS_LEFT_CONTAINER:
+				if (c->x <= rel->x && (ret == NULL || c->x > ret->x))
+					ret = c;
+				break;
+			case _SHOD_FOCUS_RIGHT_CONTAINER:
+				if (c->x >= rel->x && (ret == NULL || c->x < ret->x))
+					ret = c;
+				break;
+			case _SHOD_FOCUS_TOP_CONTAINER:
+				if (c->y <= rel->y && (ret == NULL || c->y > ret->y))
+					ret = c;
+				break;
+			case _SHOD_FOCUS_BOTTOM_CONTAINER:
+				if (c->y >= rel->y && (ret == NULL || c->y < ret->y))
+					ret = c;
+				break;
+			default:
+				return NULL;
+			}
+		}
+	}
+	return ret;
+}
+
+/* get first focused container in the same monitor and desktop of rel */
+static struct Container *
+getfirstfocused(struct Container *rel)
+{
+	struct Monitor *mon;
+	struct Desktop *desk;
+	struct Container *c;
+
+	mon = rel->mon;
+	desk = rel->issticky ? rel->mon->seldesk : rel->desk;
+	for (c = wm.focuslist; c != NULL; c = c->fnext) {
+		if (c == rel)
+			return NULL;
+		if (c->isminimized)
+			continue;
+		if (c->mon == mon && (c->issticky || c->desk == desk)) {
+			return c;
+		}
+	}
+	return NULL;
+}
+
+/* get last focused container in the same monitor and desktop of rel */
+static struct Container *
+getlastfocused(struct Container *rel)
+{
+	struct Monitor *mon;
+	struct Desktop *desk;
+	struct Container *c, *ret;
+
+	ret = NULL;
+	mon = rel->mon;
+	desk = rel->issticky ? rel->mon->seldesk : rel->desk;
+	for (c = rel; c != NULL; c = c->fnext) {
+		if (c->isminimized)
+			continue;
+		if (c != rel && c->mon == mon && (c->issticky || c->desk == desk)) {
+			ret = c;
+		}
+	}
+	return ret;
+}
+
 /* get pointer position within a container */
 static enum Octant
 getoctant(struct Container *c, int x, int y)
@@ -1092,11 +1197,24 @@ getdivisions(struct Container *c, struct Column **cdiv, struct Row **rdiv, int x
 
 /* get pointer to nth desktop in focused monitor */
 static struct Desktop *
-getdesk(long int n)
+getdesk(long int n, long int m)
 {
+	struct Monitor *mon, *tmp;
+	long int i;
+
 	if (n < 0 || n >= config.ndesktops)
 		return NULL;
-	return &wm.selmon->desks[n];
+	if (m == 0) {
+		return &wm.selmon->desks[n];
+	} else {
+		mon = NULL;
+		for (i = 0, tmp = wm.selmon; i < m && tmp != NULL; i++, tmp = tmp->next)
+			mon = tmp;
+		if (mon != NULL) {
+		return &mon->desks[n];
+		}
+	}
+	return NULL;
 }
 
 /* check whether window was placed by the user */
@@ -2164,9 +2282,9 @@ containerconfigure(struct Container *c, unsigned int valuemask, XWindowChanges *
 		c->nx = wc->x;
 	if (valuemask & CWY)
 		c->ny = wc->y;
-	if (valuemask & CWWidth)
+	if ((valuemask & CWWidth) && wc->width >= visual.center + 2 * visual.border)
 		c->nw = wc->width;
-	if (valuemask & CWHeight)
+	if ((valuemask & CWHeight) && wc->height >= visual.center + 2 * visual.border)
 		c->nh = wc->height;
 	containercalccols(c, 1);
 	containermoveresize(c);
@@ -2879,8 +2997,6 @@ tabfocus(struct Tab *t, int gotodesk)
 	wm.prevfocused = wm.focused;
 	if (t == NULL) {
 		wm.focused = NULL;
-		if (wm.prevfocused != NULL)
-			containerdecorate(wm.prevfocused, NULL, NULL, 1, 0);
 		XSetInputFocus(dpy, wm.focuswin, RevertToParent, CurrentTime);
 		ewmhsetactivewindow(None);
 	} else {
@@ -2904,8 +3020,6 @@ tabfocus(struct Tab *t, int gotodesk)
 		}
 		if (t->isurgent)
 			tabclearurgency(t);
-		if (wm.prevfocused)
-			containerdecorate(wm.prevfocused, NULL, NULL, 1, 0);
 		containeraddfocus(c);
 		containerdecorate(c, NULL, NULL, 1, 0);
 		containerminimize(c, 0, 0);
@@ -2915,6 +3029,10 @@ tabfocus(struct Tab *t, int gotodesk)
 		}
 		shodgroup(c);
 		ewmhsetstate(c);
+	}
+	if (wm.prevfocused != NULL) {
+		containerdecorate(wm.prevfocused, NULL, NULL, 1, 0);
+		ewmhsetstate(wm.prevfocused);
 	}
 }
 
@@ -4314,6 +4432,7 @@ xeventclientmessage(XEvent *e)
 	struct Monitor *mon;
 	struct Desktop *prevdesk, *desk;
 	struct Container *c;
+	struct Tab *t;
 	struct Winres res;
 	XClientMessageEvent *ev;
 	XWindowChanges wc;
@@ -4323,7 +4442,7 @@ xeventclientmessage(XEvent *e)
 	ev = &e->xclient;
 	res = getwin(ev->window);
 	if (ev->message_type == atoms[_NET_CURRENT_DESKTOP]) {
-		deskfocus(getdesk(ev->data.l[0]));
+		deskfocus(getdesk(ev->data.l[0], ev->data.l[2]));
 	} else if (ev->message_type == atoms[_NET_SHOWING_DESKTOP]) {
 		if (ev->data.l[0]) {
 			deskshow(1);
@@ -4355,32 +4474,100 @@ xeventclientmessage(XEvent *e)
 			}
 		}
 	} else if (ev->message_type == atoms[_NET_ACTIVE_WINDOW]) {
-		if (res.t == NULL)
+		if (res.t == NULL && wm.focused != NULL) {
+			res.c = wm.focused;
+			res.t = wm.focused->selcol->selrow->seltab;
+		}
+		c = NULL;
+		t = NULL;
+		switch (ev->data.l[3]) {
+		case _SHOD_FOCUS_LEFT_CONTAINER:
+		case _SHOD_FOCUS_RIGHT_CONTAINER:
+		case _SHOD_FOCUS_TOP_CONTAINER:
+		case _SHOD_FOCUS_BOTTOM_CONTAINER:
+			if (res.c != NULL && (c = getbydirection(res.c, ev->data.l[3])) != NULL)
+				t = c->selcol->selrow->seltab;
+			break;
+		case _SHOD_FOCUS_PREVIOUS_CONTAINER:
+			if (res.c != NULL && res.c->fprev != NULL) {
+				c = res.c->fprev;
+				t = c->selcol->selrow->seltab;
+			} else if (ev->data.l[4] && res.c != NULL && (c = getlastfocused(res.c)) != NULL) {
+				t = c->selcol->selrow->seltab;
+			}
+			break;
+		case _SHOD_FOCUS_NEXT_CONTAINER:
+			if (res.c != NULL && res.c->fnext != NULL) {
+				c = res.c->fnext;
+				t = c->selcol->selrow->seltab;
+			} else if (ev->data.l[4] && res.c != NULL && (c = getfirstfocused(res.c)) != NULL) {
+				t = c->selcol->selrow->seltab;
+			}
+			break;
+		case _SHOD_FOCUS_LEFT_WINDOW:
+			if (res.t != NULL && res.t->row->col->prev != NULL) {
+				c = res.c;
+				t = res.t->row->col->prev->selrow->seltab;
+			}
+			break;
+		case _SHOD_FOCUS_RIGHT_WINDOW:
+			if (res.t != NULL && res.t->row->col->next != NULL) {
+				c = res.c;
+				t = res.t->row->col->next->selrow->seltab;
+			}
+			break;
+		case _SHOD_FOCUS_TOP_WINDOW:
+			if (res.t != NULL && res.t->row->prev != NULL) {
+				c = res.c;
+				t = res.t->row->prev->seltab;
+			}
+			break;
+		case _SHOD_FOCUS_BOTTOM_WINDOW:
+			if (res.t != NULL && res.t->row->next != NULL) {
+				c = res.c;
+				t = res.t->row->next->seltab;
+			}
+			break;
+		case _SHOD_FOCUS_PREVIOUS_WINDOW:
+			c = res.c;
+			if (res.t != NULL && res.t->prev != NULL) {
+				t = res.t->prev;
+			} else if (ev->data.l[4] && res.t != NULL) {
+				for (t = res.t->row->tabs; t != NULL; t = t->next) {
+					if (t->next == NULL) {
+						break;
+					}
+				}
+			}
+			break;
+		case _SHOD_FOCUS_NEXT_WINDOW:
+			if (res.t != NULL && res.t->next != NULL) {
+				c = res.c;
+				t = res.t->next;
+			} else if (ev->data.l[4] && res.t != NULL) {
+				t = res.t->row->tabs;
+			}
+			break;
+		default:
+			c = res.c;
+			t = res.t;
+			break;
+		}
+		if (c == NULL || t == NULL)
 			return;
-		containerraise(res.c);
-		tabfocus(res.t, 1);
+		containerraise(c);
+		tabfocus(t, 1);
 	} else if (ev->message_type == atoms[_NET_CLOSE_WINDOW]) {
 		windowclose(ev->window);
 	} else if (ev->message_type == atoms[_NET_MOVERESIZE_WINDOW]) {
 		value_mask = 0;
 		if (res.c == NULL)
 			return;
-		if (ev->data.l[0] & 1 << 8) {
-			wc.x = ev->data.l[1];
-			value_mask |= CWX;
-		}
-		if (ev->data.l[0] & 1 << 9) {
-			wc.y = ev->data.l[2];
-			value_mask |= CWY;
-		}
-		if (ev->data.l[0] & 1 << 10) {
-			wc.width = ev->data.l[3];
-			value_mask |= CWWidth;
-		}
-		if (ev->data.l[0] & 1 << 11) {
-			wc.height = ev->data.l[4];
-			value_mask |= CWHeight;
-		}
+		value_mask = CWX | CWY | CWWidth | CWHeight;
+		wc.x = (ev->data.l[0] & _SHOD_RELATIVE_X) ? res.c->x + res.c->b + ev->data.l[1] : ev->data.l[1];
+		wc.y = (ev->data.l[0] & _SHOD_RELATIVE_Y) ? res.c->y + res.c->b + ev->data.l[2] : ev->data.l[2];
+		wc.width = (ev->data.l[0] & _SHOD_RELATIVE_WIDTH) ? res.c->w + ev->data.l[3] - 2 * res.c->b : ev->data.l[3];
+		wc.height = (ev->data.l[0] & _SHOD_RELATIVE_HEIGHT) ? res.c->h + ev->data.l[4] - 2 * res.c->b : ev->data.l[4];
 		if (res.d != NULL) {
 			dialogconfigure(res.d, value_mask, &wc);
 		} else {
@@ -4392,7 +4579,7 @@ xeventclientmessage(XEvent *e)
 		if (ev->data.l[0] == 0xFFFFFFFF) {
 			containerstick(res.c, ADD);
 		} else if (!res.c->isminimized) {
-			if ((desk = getdesk(ev->data.l[0])) == NULL || desk == res.c->desk)
+			if ((desk = getdesk(ev->data.l[0], ev->data.l[2])) == NULL || desk == res.c->desk)
 				return;
 			if (res.c->issticky)
 				containerstick(res.c, REMOVE);

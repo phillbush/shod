@@ -13,8 +13,45 @@
 .RB [ \-r
 .IR buttons ]
 .PP
-.B shodc
-.IR operation " [" options "] [" arg ...]
+.B shodc close
+.RI [ win_id ]
+.br
+.B shodc desks
+.br
+.B shodc focus
+.RB [ \-clrtbpnLRTBPN ]
+.RI [ win_id ]
+.br
+.B shodc geom
+.RB [ \-X|\-x
+.IR N ]
+.RB [ \-Y|\-y
+.IR N ]
+.RB [ \-W|\-w
+.IR N ]
+.RB [ \-H|\-h
+.IR N ]
+.RI [ win_id ]
+.br
+.B shodc goto
+.RB [ \-m
+.IR mon_id ]
+.I desk_id
+.br
+.B shodc list
+.RB [ \-ls ]
+.RI [ win_id ]
+.br
+.B shodc sendto
+.RB [ \-m
+.IR mon_id ]
+.I desk_id
+.RI [ win_id ]
+.br
+.B shodc state
+.RB [ \-ATR ]
+.RB [ \-abfMms ]
+.RI [ win_id ]
 .SH DESCRIPTION
 .B shod
 is a multi\-monitor floating reparenting X11 window manager which supports tiled and tabbed containers.
@@ -26,7 +63,8 @@ and by responding to client messages
 a controller called
 .IR shodc (1)
 to control shod).
-.PP The options are as follows:
+.PP
+The options are as follows:
 .TP
 .BI \-f " buttons"
 Which mouse buttons are used to focus a window when clicking on it.
@@ -77,8 +115,282 @@ is the remote controller for
 Its first argument must be an operation to be performed.
 The following arguments are the options for the operation
 (each operation accepts a different set of options).
-The last arguments are the operation's arguments.
-For a list of all operations, see the OPERATIONS section below.
+The last arguments are the operation's arguments, such as a window ID or a desktop ID.
+.PP
+Known operations for
+.B shodc
+are listed below.
+.SS Close Window
+The
+.B close
+operation closes a window whose ID is provided as argument.
+If no argument is provided, close the active window.
+.SS List desktops
+The
+.B desks
+operation lists the desktops, one per line.
+.PP
+If the line begins with an asterisk, the desktop is the focused one;
+If the line begins with a hyphen, the desktop has an urgent window in it.
+The number is the number of windows in the desktop.
+.SS Focus Window
+The
+.B focus
+operation focus a window whose ID is provided as argument.
+If a option is provided, focus a window relative to the window provided as argument.
+.PP
+The options are as follows:
+.TP
+.B \-c
+Cycle focus. This option only makes sense when using
+.BR \-n ,
+.BR \-p ,
+.BR \-N ,
+or
+.BR \-P .
+.TP
+.B \-l
+Focus window in the closest container to the left of the container of the window provided as argument
+(or the active window, if no argument is provided).
+.TP
+.B \-r
+Focus window in the closest container to the right of the container of the window provided as argument
+(or the active window, if no argument is provided).
+.TP
+.B \-t
+Focus window in the closest container on the top of the container of the window provided as argument
+(or the active window, if no argument is provided).
+.TP
+.B \-b
+Focus window in the closest container on the bottom of the container of the window provided as argument
+(or the active window, if no argument is provided).
+.TP
+.B \-p
+Focus window in the previous container in the focus list
+in relation to the container of the window provided as argument
+(or the active window, if no argument is provided).
+.TP
+.B \-n
+Focus window in the next container in the focus list
+in relation to the container of the window provided as argument
+(or the active window, if no argument is provided).
+.TP
+.B \-L
+Focus window in the column to the left of the window provided as argument
+(or the active window, if no argument is provided).
+.TP
+.B \-R
+Focus window in the column to the right of the window provided as argument
+(or the active window, if no argument is provided).
+.TP
+.B \-T
+Focus window in the row above (on the top of) the window provided as argument
+(or the active window, if no argument is provided).
+.TP
+.B \-B
+Focus window in the row below (on the bottom of) the window provided as argument
+(or the active window, if no argument is provided).
+.TP
+.B \-P
+Focus window in the tab previous to the window provided as argument
+(or the active window, if no argument is provided).
+.TP
+.B \-N
+Focus window in the tab next to the window provided as argument
+(or the active window, if no argument is provided).
+.SS Set Geometry
+The
+.B geom
+operation sets the geometry (position and size) of the container of the window whose ID is provided as argument.
+If no argument is provided, sets the geometry of the container of the active window.
+If no position (set by the options
+.B \-X
+or
+.B \-x
+and
+.B \-Y
+or 
+.BR \-y )
+is provided, move window to position 0,0 (top left corner).
+.PP
+The options are as follows:
+.TP
+.B \-X \fIN\fP
+Relative X position.
+Set the position on the X axis to N plus the current X position of the container.
+.TP
+.B \-x \fIN\fP
+Absolute X position.
+Set the position on the X axis to N.
+.TP
+.B \-Y \fIN\fP
+Relative Y position.
+Set the position on the Y axis to N plus the current Y position of the container.
+.TP
+.B \-y \fIN\fP
+Absolute Y position.
+Set the position on the Y axis to N.
+.TP
+.B \-W \fIN\fP
+Relative width.
+Set the width of the contianer to N plus its current width.
+.TP
+.B \-w \fIN\fP
+Absolute width.
+Set the width of the contianer to N.
+.TP
+.B \-H \fIN\fP
+Relative height.
+Set the height of the contianer to N plus its current height.
+.TP
+.B \-h \fIN\fP
+Absolute height.
+Set the height of the contianer to N.
+.SS Go To Desktop
+The
+.B goto
+operation goes to the desktop ID provided as argument.
+Different of other window managers, shod counts desktop from 1;
+So the first desktop is the desktop 1, not the desktop 0.
+.PP
+The options are as follows:
+.TP
+.B \-M \fImonitor\fP
+Goes to a desktop on the provided monitor rather than on the currently focused monitor.
+Monitors are counted from 1, not from 0.
+.SS List windows
+The
+.B list
+operation
+lists windows, one entry per line.
+If a window ID is provided as argument, list only this window.
+.PP
+The option are as follows:
+.TP
+.B \-l
+Long list format.
+More information on this format below.
+.TP
+.B \-s
+Sort by stacking order.
+.PP
+If the
+.B \-l
+option is given, the following information (delimited by tabs) is displayed for each window:
+window state,
+window desktop,
+window geometry (size and position),
+ID of the container window is on,
+ID of the row window is on,
+ID of the window,
+name of the window.
+.PP
+The state consists of a sequence of eight characters,
+each one meaning a state for the container.
+If a character is \- the state is not set or does not apply to the window.
+.IP \(bu 2
+The first character is
+.B d
+to indicate that the window is a dialog.
+.IP \(bu 2
+The second character is
+.B y
+to indicate that the window's container is sticky.
+.IP \(bu 2
+The third character is
+.B M
+to indicate that the window's container is maximized.
+.IP \(bu 2
+The fourth character is
+.B m
+to indicate that the window's container is minimized.
+.IP \(bu 2
+The fifth character is
+.B f
+to indicate that the window's container is fullscreen.
+.IP \(bu 2
+The sixth character is
+.B a
+to indicate that the window's container is above others,
+or
+.B b
+to indicate that the window's container is below others.
+.IP \(bu 2
+The seventh character is
+.B u
+to indicate that the window has the urgency hint set,
+.B a
+to indicate that the window demands attention,
+or
+.B U
+to indicate that the window is both urgent and demands attention.
+.IP \(bu 2
+The eighth and last character is
+.B a
+to indicate that the window is active,
+.B f
+to indicate that the window is focused,
+or
+.B A
+to indicate that the window is both active and focused.
+.SS Send To Desktop
+The
+.B sendto
+operation sends to the desktop ID provided as first argument
+the container of the window whose ID provided as second argument.
+If no window ID is provided, sends the container of the active window to that desktop.
+Different of other window managers, shod counts desktop from 1;
+So the first desktop is the desktop 1, not the desktop 0.
+.PP
+The options are as follows:
+.TP
+.B \-M \fImonitor\fP
+Sends to a desktop on the provided monitor rather than on the currently focused monitor.
+Monitors are counted from 1, not from 0.
+.SS Set Container State
+The
+.B state
+operation
+sets the state of the container of the window whose ID is provided as argument.
+If no argument is provided, sets the state of the container of the active window.
+.PP
+The options are as follows:
+.TP
+.B \-a
+Set state above.
+Raise container above others.
+.TP
+.B \-b
+Set state below.
+Lower container below others.
+.TP
+.B \-f
+Set state fullscreen.
+Make container fullscreen.
+.TP
+.B \-M
+Set state maximized.
+Maximize container
+.TP
+.B \-m
+Set state minimized.
+Minimize container.
+.TP
+.B \-s
+Set state sticky.
+Stick container to the monitor.
+.TP
+.B \-A
+Add (set) state.
+Force state to be set.
+.TP
+.B \-T
+Toggle state.
+Set state if it is unset, or unset it if it is set.
+.TP
+.B \-R
+Remove (unset) state.
+Force state to be unset.
 .SH DESKTOP
 .PP
 .B shod
@@ -266,8 +578,6 @@ to rearrange the size of columns and rows.
 When a container is moved from one monitor to another,
 that container moves from the desktop it is in to the focused desktop
 of the monitor it is moved to.
-.SH OPERATIONS
-TODO.
 .SH ENVIRONMENT
 The following environment variables affect the execution of
 .B shod

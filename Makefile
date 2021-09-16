@@ -18,27 +18,32 @@ LDFLAGS = ${LIBS}
 CC = cc
 
 # files
-PROGS = shod
+PROGS = shod shodc
 SRCS = ${PROGS}.c
 OBJS = ${SRCS:.c=.o}
 
-all: shod
+all: ${PROGS}
 
 shod: shod.o
 	${CC} -o $@ shod.o ${LDFLAGS}
 
 shod.o: theme.xpm
 
+shodc: shodc.o
+	${CC} -o $@ shodc.o ${LDFLAGS}
+
 .c.o:
 	${CC} ${CFLAGS} -c $<
 
 install: all
 	install -D -m 755 shod ${DESTDIR}${PREFIX}/bin/shod
-	#install -D -m 644 shod.1 ${DESTDIR}${MANPREFIX}/man1/shod.1
+	install -D -m 755 shodc ${DESTDIR}${PREFIX}/bin/shodc
+	install -D -m 644 shod.1 ${DESTDIR}${MANPREFIX}/man1/shod.1
 
 uninstall:
 	rm -f ${DESTDIR}/${PREFIX}/bin/shod
-	#rm -f ${DESTDIR}/${MANPREFIX}/man1/shod.1
+	rm -f ${DESTDIR}/${PREFIX}/bin/shodc
+	rm -f ${DESTDIR}/${MANPREFIX}/man1/shod.1
 
 clean:
 	-rm ${OBJS} ${PROGS}
