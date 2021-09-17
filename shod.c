@@ -2520,6 +2520,7 @@ containernew(int x, int y, int w, int h)
 		wm.c->prev = c;
 	c->next = wm.c;
 	wm.c = c;
+	containeraddfocus(c);
 	return c;
 }
 
