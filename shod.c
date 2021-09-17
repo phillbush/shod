@@ -4596,15 +4596,17 @@ xeventclientmessage(XEvent *e)
 			}
 		}
 	} else if (ev->message_type == atoms[_NET_REQUEST_FRAME_EXTENTS]) {
-		/*
-		* A client can request an estimate for the frame size
-		* which the window manager will put around it before
-		* actually mapping its window. Java does this (as of
-		* openjdk-7).
-		*/
-		if (res.c == NULL)
-			return;
-		ewmhsetframeextents(ev->window, res.c->b, (res.c->isfullscreen && res.c->ncols == 1 && res.c->cols->nrows == 1) ? 0 : visual.tab);
+		if (res.c == NULL) {
+			/*
+			 * A client can request an estimate for the frame size
+			 * which the window manager will put around it before
+			 * actually mapping its window. Java does this (as of
+			 * openjdk-7).
+			 */
+			ewmhsetframeextents(ev->window, visual.border, visual.tab);
+		} else {
+			ewmhsetframeextents(ev->window, res.c->b, (res.c->isfullscreen && res.c->ncols == 1 && res.c->cols->nrows == 1) ? 0 : visual.tab);
+		}
 	} else if (ev->message_type == atoms[_NET_WM_MOVERESIZE]) {
 		/*
 		 * Client-side decorated Gtk3 windows emit this signal when being
