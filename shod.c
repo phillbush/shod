@@ -1420,7 +1420,7 @@ ewmhsetframeextents(Window win, int b, int t)
 
 	data[0] = data[1] = data[3] = b;
 	data[2] = b + t;
-	XChangeProperty(dpy, win, atoms[_NET_FRAME_EXTENTS], XA_CARDINAL, 32, PropModeReplace, (unsigned char *)&data, 4);
+	XChangeProperty(dpy, win, atoms[_NET_FRAME_EXTENTS], XA_CARDINAL, 32, PropModeReplace, (unsigned char *)data, 4);
 }
 
 /* set state of windows */
@@ -2257,6 +2257,7 @@ containermoveresize(struct Container *c)
 				}
 				XResizeWindow(dpy, t->win, t->winw, t->winh);
 				winnotify(t->win, c->x + col->x, c->y + row->y + visual.tab, t->winw, t->winh);
+				ewmhsetframeextents(t->win, c->b, (c->isfullscreen && c->ncols == 1 && c->cols->nrows == 1) ? 0 : visual.tab);
 				tabmoveresize(t);
 			}
 		}
@@ -2605,6 +2606,22 @@ tabdel(struct Tab *t)
 	free(t->name);
 	free(t->class);
 	free(t);
+}
+
+/* stack rows */
+static void
+rowstack(struct Column *col, struct Row *row)
+{
+	if (row == NULL) {
+		col->maxrow = NULL;
+	} else if (col->maxrow != row) {
+		col->maxrow = row;
+		rowcalctabs(row);
+	} else {
+		return;
+	}
+	containermoveresize(col->c);
+	containerdecorate(col->c, NULL, NULL, 0, 0);
 }
 
 /* detach row from column */
@@ -3000,8 +3017,6 @@ tabfocus(struct Tab *t, int gotodesk)
 		XSetInputFocus(dpy, wm.focuswin, RevertToParent, CurrentTime);
 		ewmhsetactivewindow(None);
 	} else {
-		if (t->row->col->maxrow != NULL && t->row != t->row->col->maxrow)
-			t = t->row->col->maxrow->seltab;
 		c = t->row->col->c;
 		if (!c->isfullscreen && getfullscreen(c->mon, c->desk) != NULL)
 			return;         /* we should not focus a client below a fullscreen client */
@@ -3009,6 +3024,8 @@ tabfocus(struct Tab *t, int gotodesk)
 		t->row->seltab = t;
 		t->row->col->selrow = t->row;
 		t->row->col->c->selcol = t->row->col;
+		if (t->row->col->maxrow != NULL && t->row->col->maxrow != t->row)
+			rowstack(t->row->col, t->row);
 		XRaiseWindow(dpy, t->frame);
 		if (t->ds) {
 			XRaiseWindow(dpy, t->ds->frame);
@@ -3178,21 +3195,6 @@ dialognew(Window win, int maxw, int maxh, int ignoreunmap)
 	XMapWindow(dpy, d->win);
 	clientsincr();
 	return d;
-}
-
-/* stack rows */
-static void
-rowstack(struct Row *row)
-{
-	if (row->col->maxrow != row) {
-		row->col->maxrow = row;
-		tabfocus(row->seltab, 0);
-	} else {
-		row->col->maxrow = NULL;
-	}
-	rowcalctabs(row);
-	containermoveresize(row->col->c);
-	containerdecorate(row->col->c, NULL, NULL, 0, 0);
 }
 
 /* check if monitor geometry is unique */
@@ -3888,8 +3890,9 @@ mouseretab(struct Tab *t, int xroot, int yroot, int x, int y)
 		}
 	}
 done:
-	if (col->maxrow != NULL)
-		rowstack(row);
+	if (col->maxrow != NULL) {
+		rowstack(col, (col->maxrow == row) ? NULL : row);
+	}
 	if (!tabattach(t, xroot, yroot)) {
 		mon = getmon(xroot - x, yroot - y);
 		if (mon == NULL)
@@ -4305,7 +4308,8 @@ mousestack(struct Row *row)
 			if (ev.xbutton.window == row->bl &&
 			    ev.xbutton.x >= 0 && ev.xbutton.x >= 0 &&
 			    ev.xbutton.x < visual.button && ev.xbutton.x < visual.button) {
-				rowstack(row);
+				rowstack(row->col, (row->col->maxrow == row) ? NULL : row);
+				tabfocus(row->seltab, 0);
 			}
 			goto done;
 			break;
@@ -4541,8 +4545,8 @@ xeventclientmessage(XEvent *e)
 			}
 			break;
 		case _SHOD_FOCUS_NEXT_WINDOW:
+			c = res.c;
 			if (res.t != NULL && res.t->next != NULL) {
-				c = res.c;
 				t = res.t->next;
 			} else if (ev->data.l[4] && res.t != NULL) {
 				t = res.t->row->tabs;
