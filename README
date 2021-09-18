@@ -1,4 +1,4 @@
-                                 Shod 2
+                                  shod
 
                              ┌───────────────────────┐
                              │                       │
@@ -14,14 +14,21 @@
                  │                       │
                  └───────────────────────┘
 
-shod2 was inspired by the following programs and window managers.  I'd
+shod (or "shod2", to distinguish it from its previous version) is a
+multi-monitor floating reparenting X11 window manager that supports
+tiled and tabbed containers.  shod sets no keybindings, reads no
+configuration, and works only via mouse with a given key modifier
+(Alt by default) and by responding to client messages sent by the
+shodc utility (shod's remote controller).
+
+shod was inspired by the following programs and window managers.  I'd
 like to thank their authors for their work that helped me developing
-shod2.
+shod.
 • notion: https://github.com/raboof/notion
 • wmii:   https://github.com/0intro/wmii
 • acme:   http://acme.cat-v.org/
 
-shod2 was developed after studying the code of the following window
+shod was developed after studying the code of the following window
 managers.  I'd like to thank their authors for their work that helped
 me understanding how a X Window Manager works.
 • dwm:      https://dwm.suckless.org
@@ -29,3 +36,8 @@ me understanding how a X Window Manager works.
 
 Screenshots:
 • https://0x0.st/-3XI.png
+
+TODO:
+• Add support for dropdown (quake-like) windows.
+• Add support for docked windows (for panels/bars).
+• Add support for window rules.
