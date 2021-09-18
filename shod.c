@@ -3919,6 +3919,7 @@ done:
 		containermoveresize(c);
 		containerredecorate(c, NULL, NULL, 0);
 	}
+	XUngrabPointer(dpy, CurrentTime);
 }
 
 /* resize container with mouse */
