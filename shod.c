@@ -3805,9 +3805,7 @@ unmanage(struct Tab *t)
 		containerredecorate(c, NULL, NULL, 0);
 		shodgroup(c);
 	}
-	if (focus != NULL) {
-		tabfocus(focus->selcol->selrow->seltab, 0);
-	}
+	tabfocus((focus != NULL) ? focus->selcol->selrow->seltab : NULL, 0);
 }
 
 /* scan for already existing windows and adopt them */
