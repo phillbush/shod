@@ -1483,7 +1483,7 @@ shodgroup(struct Container *c)
 
 /* send a WM_DELETE message to client */
 static void
-windowclose(Window win)
+winclose(Window win)
 {
 	XEvent ev;
 
@@ -3028,7 +3028,7 @@ tabfocus(struct Tab *t, int gotodesk)
 		if (t->row->col->maxrow != NULL && t->row->col->maxrow != t->row)
 			rowstack(t->row->col, t->row);
 		XRaiseWindow(dpy, t->frame);
-		if (t->ds) {
+		if (t->ds != NULL) {
 			XRaiseWindow(dpy, t->ds->frame);
 			XSetInputFocus(dpy, t->ds->win, RevertToParent, CurrentTime);
 			ewmhsetactivewindow(t->ds->win);
@@ -3630,6 +3630,8 @@ managedialog(struct Tab *t, struct Dialog *d)
 	icccmwmstate(d->win, NormalState);
 	dialogcalcsize(d);
 	dialogmoveresize(d);
+	if (wm.focused != NULL && wm.focused->selcol->selrow->seltab == t)
+		tabfocus(t, 0);
 	XMapRaised(dpy, d->frame);
 	ewmhsetclients();
 	ewmhsetclientsstacking();
@@ -3678,7 +3680,7 @@ manageprompt(Window win, int w, int h)
 			break;
 		case ButtonPress:
 			if (ev.xbutton.window != win && ev.xbutton.window != prompt.frame)
-				windowclose(win);
+				winclose(win);
 			XAllowEvents(dpy, ReplayPointer, CurrentTime);
 			break;
 		}
@@ -4190,7 +4192,7 @@ mouseclose(struct Row *row)
 			if (ev.xbutton.window == row->br &&
 			    ev.xbutton.x >= 0 && ev.xbutton.x >= 0 &&
 			    ev.xbutton.x < visual.button && ev.xbutton.x < visual.button)
-				windowclose(row->seltab->win);
+				winclose(row->seltab->ds != NULL ? row->seltab->ds->win : row->seltab->win);
 			goto done;
 			break;
 		}
@@ -4563,7 +4565,7 @@ xeventclientmessage(XEvent *e)
 		containerraise(c);
 		tabfocus(t, 1);
 	} else if (ev->message_type == atoms[_NET_CLOSE_WINDOW]) {
-		windowclose(ev->window);
+		winclose(ev->window);
 	} else if (ev->message_type == atoms[_NET_MOVERESIZE_WINDOW]) {
 		value_mask = 0;
 		if (res.c == NULL)
