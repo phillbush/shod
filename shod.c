@@ -4386,9 +4386,9 @@ xeventbuttonpress(XEvent *e)
 	o = getoctant(c, x, y);
 	if (ev->window == t->title && ev->button == Button3) {
 		mouseretab(t, ev->x_root, ev->y_root, ev->x, ev->y);
-	} else if (res.row != NULL && ev->window == res.row->bl && ev->button == Button3) {
-		mousestack(res.row);
 	} else if (res.row != NULL && ev->window == res.row->bl && ev->button == Button1) {
+		mousestack(res.row);
+	} else if (res.row != NULL && ev->window == res.row->bl && ev->button == Button3) {
 		mousererow(res.row);
 	} else if (res.row != NULL && ev->window == res.row->br && ev->button == Button1) {
 		mouseclose(res.row);
