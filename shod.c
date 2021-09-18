@@ -3893,6 +3893,7 @@ mouseretab(struct Tab *t, int xroot, int yroot, int x, int y)
 		}
 	}
 done:
+	XUngrabPointer(dpy, CurrentTime);
 	if (col->maxrow != NULL) {
 		rowstack(col, (col->maxrow == row) ? NULL : row);
 	}
@@ -3919,7 +3920,6 @@ done:
 		containermoveresize(c);
 		containerredecorate(c, NULL, NULL, 0);
 	}
-	XUngrabPointer(dpy, CurrentTime);
 }
 
 /* resize container with mouse */
