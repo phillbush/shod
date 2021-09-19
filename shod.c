@@ -2566,7 +2566,7 @@ dialogdel(struct Dialog *d)
 
 /* detach tab from row */
 static void
-tabdetach(struct Tab *t, int x, int y)
+tabdetach(struct Tab *t, int x, int y, int w, int h)
 {
 	struct Row *row;
 
@@ -2582,6 +2582,8 @@ tabdetach(struct Tab *t, int x, int y)
 		t->prev->next = t->next;
 	else
 		row->tabs = t->next;
+	t->winw = w;
+	t->winh = h;
 	t->next = NULL;
 	t->prev = NULL;
 	t->row = NULL;
@@ -2594,7 +2596,7 @@ tabdel(struct Tab *t)
 {
 	while (t->ds)
 		dialogdel(t->ds);
-	tabdetach(t, 0, 0);
+	tabdetach(t, 0, 0, t->winw, t->winh);
 	if (t->pixtitle != None)
 		XFreePixmap(dpy, t->pixtitle);
 	if (t->pix != None)
@@ -3086,30 +3088,13 @@ tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 	struct Column *col, *ncol;
 	struct Row *row, *nrow;
 	struct Tab *t, *next;
+	int rowy, rowh;
 
 	for (c = list; c != NULL; c = c->rnext) {
 		if (c->ishidden || xroot < c->x || xroot >= c->x + c->w || yroot < c->y || yroot >= c->y + c->h)
 			continue;
-		if (xroot - c->x < c->b + DROPPIXELS) {
-			nrow = rownew();
-			ncol = colnew();
-			containeraddcol(c, ncol, NULL);
-			coladdrow(ncol, nrow, NULL);
-			rowaddtab(nrow, det, NULL);
-			containercalccols(c, 1);
-			goto done;
-		}
 		for (col = c->cols; col != NULL; col = col->next) {
-			if (xroot - c->x >= col->x + col->w - DROPPIXELS &&
-			    xroot - c->x < col->x + col->w + visual.division + DROPPIXELS) {
-				nrow = rownew();
-				ncol = colnew();
-				containeraddcol(c, ncol, col);
-				coladdrow(ncol, nrow, NULL);
-				rowaddtab(nrow, det, NULL);
-				containercalccols(c, 1);
-				goto done;
-			} else if (xroot - c->x >= col->x - DROPPIXELS &&
+			if (xroot - c->x >= col->x - DROPPIXELS &&
 				   xroot - c->x < col->x + col->w + DROPPIXELS) {
 				if (yroot - c->y < c->b) {
 					nrow = rownew();
@@ -3118,9 +3103,19 @@ tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 					colcalcrows(col, 1);
 					goto done;
 				}
+				rowy = c->b;
 				for (row = col->rows; row != NULL; row = row->next) {
-					if (yroot - c->y >= row->y &&
-					    yroot - c->y < row->y + visual.tab) {
+					if (col->maxrow != NULL) {
+						if (row == col->maxrow) {
+							rowh = c->h - 2 * c->b - (col->nrows - 1) * visual.tab;
+						} else {
+							rowh = visual.tab;
+						}
+					} else {
+						rowh = row->h;
+					}
+					if (yroot - c->y >= rowy &&
+					    yroot - c->y < rowy + visual.tab) {
 						for (next = t = row->tabs; t != NULL; t = t->next) {
 							next = t;
 							if (xroot - c->x + col->x < col->x + t->x + t->w / 2) {
@@ -3135,16 +3130,35 @@ tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 							goto done;
 						}
 					}
-					if (yroot - c->y >= row->y + row->h - DROPPIXELS &&
-					    yroot - c->y < row->y + row->h + visual.division) {
+					if (yroot - c->y >= rowy + rowh - DROPPIXELS &&
+					    yroot - c->y < rowy + rowh + visual.division) {
 						nrow = rownew();
 						coladdrow(col, nrow, row);
 						rowaddtab(nrow, det, NULL);
 						colcalcrows(col, 1);
 						goto done;
 					}
+					rowy += rowh;
 				}
+			} else if (xroot - c->x >= col->x + col->w - DROPPIXELS &&
+			    xroot - c->x < col->x + col->w + visual.division + DROPPIXELS) {
+				nrow = rownew();
+				ncol = colnew();
+				containeraddcol(c, ncol, col);
+				coladdrow(ncol, nrow, NULL);
+				rowaddtab(nrow, det, NULL);
+				containercalccols(c, 1);
+				goto done;
 			}
+		}
+		if (xroot - c->x < c->b + DROPPIXELS) {
+			nrow = rownew();
+			ncol = colnew();
+			containeraddcol(c, ncol, NULL);
+			coladdrow(ncol, nrow, NULL);
+			rowaddtab(nrow, det, NULL);
+			containercalccols(c, 1);
+			goto done;
 		}
 		break;
 	}
@@ -3862,7 +3876,7 @@ mouseretab(struct Tab *t, int xroot, int yroot, int x, int y)
 	row = t->row;
 	col = row->col;
 	c = col->c;
-	tabdetach(t, xroot - x, yroot - y);
+	tabdetach(t, xroot - x, yroot - y, c->nw - 2 * visual.tab, c->nh - 2 * visual.tab);
 	containermoveresize(c);
 	XGrabPointer(dpy, t->title, False,
 	             ButtonReleaseMask | PointerMotionMask,
