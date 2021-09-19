@@ -334,7 +334,7 @@ closewin(int argc, char *argv[])
 	win = None;
 	if (argc == 1)
 		win = active;
-	else if (argc == 2 && argv[1][0] == '-')
+	else if (argc == 2 && argv[1][0] != '-')
 		win = getwin(argv[1]);
 	else
 		usage();

@@ -2399,6 +2399,7 @@ containerminimize(struct Container *c, int minimize, int focus)
 		containersendtodesk(c, wm.selmon->seldesk, 1, 0);
 		containermoveresize(c);
 		containerhide(c, 0);
+		tabfocus(c->selcol->selrow->seltab, 0);
 	} else {
 		return;
 	}
@@ -3790,26 +3791,28 @@ manage(Window win, XWindowAttributes *wa, int ignoreunmap)
 static void
 unmanage(struct Tab *t)
 {
-	struct Container *c, *focus;
+	struct Container *c, *next;
 	struct Column *col;
 	struct Row *row;
 	struct Desktop *desk;
 	int moveresize;
+	int focus;
 
 	row = t->row;
 	col = row->col;
 	c = col->c;
 	desk = c->desk;
 	moveresize = 1;
-	focus = c;
+	next = c;
 	tabdel(t);
+	focus = (c == wm.focused);
 	if (row->ntabs == 0) {
 		rowdel(row);
 		if (col->nrows == 0) {
 			coldel(col);
 			if (c->ncols == 0) {
 				containerdel(c);
-				focus = getnextfocused(desk->mon, desk);
+				next = getnextfocused(desk->mon, desk);
 				moveresize = 0;
 			}
 		}
@@ -3820,7 +3823,9 @@ unmanage(struct Tab *t)
 		containerredecorate(c, NULL, NULL, 0);
 		shodgroup(c);
 	}
-	tabfocus((focus != NULL) ? focus->selcol->selrow->seltab : NULL, 0);
+	if (focus) {
+		tabfocus((next != NULL) ? next->selcol->selrow->seltab : NULL, 0);
+	}
 }
 
 /* scan for already existing windows and adopt them */
@@ -4485,7 +4490,7 @@ xeventclientmessage(XEvent *e)
 			} else if ((Atom)ev->data.l[i] == atoms[_NET_WM_STATE_STICKY]) {
 				containerstick(res.c, ev->data.l[0]);
 			} else if ((Atom)ev->data.l[i] == atoms[_NET_WM_STATE_HIDDEN]) {
-				containerminimize(res.c, ev->data.l[0], 1);
+				containerminimize(res.c, ev->data.l[0], (res.c == wm.focused));
 			} else if ((Atom)ev->data.l[i] == atoms[_NET_WM_STATE_ABOVE]) {
 				containerabove(res.c, ev->data.l[0]);
 			} else if ((Atom)ev->data.l[i] == atoms[_NET_WM_STATE_BELOW]) {
