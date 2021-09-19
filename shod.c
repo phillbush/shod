@@ -3140,7 +3140,8 @@ tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 					}
 					rowy += rowh;
 				}
-			} else if (xroot - c->x >= col->x + col->w - DROPPIXELS &&
+			}
+			if (xroot - c->x >= col->x + col->w - DROPPIXELS &&
 			    xroot - c->x < col->x + col->w + visual.division + DROPPIXELS) {
 				nrow = rownew();
 				ncol = colnew();
@@ -3871,7 +3872,7 @@ mouseretab(struct Tab *t, int xroot, int yroot, int x, int y)
 	struct Row *row;
 	struct Winres res;
 	XEvent ev;
-	int recalc;
+	int recalc, redraw;
 
 	row = t->row;
 	col = row->col;
@@ -3906,9 +3907,6 @@ mouseretab(struct Tab *t, int xroot, int yroot, int x, int y)
 	}
 done:
 	XUngrabPointer(dpy, CurrentTime);
-	if (col->maxrow != NULL) {
-		rowstack(col, (col->maxrow == row) ? NULL : row);
-	}
 	if (!tabattach(t, xroot, yroot)) {
 		mon = getmon(xroot - x, yroot - y);
 		if (mon == NULL)
@@ -3917,11 +3915,14 @@ done:
 		managecontainer(newc, t, mon->seldesk, 1);
 	}
 	recalc = 1;
+	redraw = 0;
 	if (row->ntabs == 0) {
 		rowdel(row);
+		redraw = 1;
 	}
 	if (col->nrows == 0) {
 		coldel(col);
+		redraw = 1;
 	}
 	if (c->ncols == 0) {
 		containerdel(c);
@@ -3930,7 +3931,9 @@ done:
 	if (recalc) {
 		containercalccols(c, 1);
 		containermoveresize(c);
-		containerredecorate(c, NULL, NULL, 0);
+		if (redraw) {
+			containerdecorate(c, NULL, NULL, 0, 0);
+		}
 	}
 }
 
@@ -4038,7 +4041,6 @@ mouseresize(struct Container *c, int xroot, int yroot, enum Octant o)
 					c->nh += dy;
 				}
 			}
-			//outlinedraw(c->nx, c->ny, c->nw, c->nh);
 			if (ev.xmotion.time - lasttime > RESIZETIME) {
 				containercalccols(c, 1);
 				containermoveresize(c);
@@ -4051,7 +4053,6 @@ mouseresize(struct Container *c, int xroot, int yroot, enum Octant o)
 		}
 	}
 done:
-	//outlinedraw(0, 0, 0, 0);
 	containercalccols(c, 1);
 	containermoveresize(c);
 	containerdecorate(c, NULL, NULL, 0, 0);
