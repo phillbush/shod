@@ -3882,7 +3882,7 @@ mouseretab(struct Tab *t, int xroot, int yroot, int x, int y)
 	row = t->row;
 	col = row->col;
 	c = col->c;
-	tabdetach(t, xroot - x, yroot - y, c->nw - 2 * visual.tab, c->nh - 2 * visual.tab);
+	tabdetach(t, xroot - x, yroot - y, c->nw - 2 * visual.border, c->nh - 2 * visual.border - visual.tab);
 	containermoveresize(c);
 	XGrabPointer(dpy, t->title, False,
 	             ButtonReleaseMask | PointerMotionMask,
@@ -3916,7 +3916,7 @@ done:
 		mon = getmon(xroot - x, yroot - y);
 		if (mon == NULL)
 			mon = wm.selmon;
-		newc = containernew(xroot - x, yroot - y, t->winw, t->winh);
+		newc = containernew(xroot - x - visual.button, yroot - y, t->winw, t->winh);
 		managecontainer(newc, t, mon->seldesk, 1);
 	}
 	recalc = 1;
