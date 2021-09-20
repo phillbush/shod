@@ -3634,9 +3634,6 @@ decorate(struct Winres *res)
 static void
 managedialog(struct Tab *t, struct Dialog *d)
 {
-	struct Container *c;
-
-	c = t->row->col->c;
 	d->t = t;
 	XReparentWindow(dpy, d->frame, t->frame, 0, 0);
 	if (t->ds)
@@ -3646,9 +3643,9 @@ managedialog(struct Tab *t, struct Dialog *d)
 	icccmwmstate(d->win, NormalState);
 	dialogcalcsize(d);
 	dialogmoveresize(d);
+	XMapRaised(dpy, d->frame);
 	if (wm.focused != NULL && wm.focused->selcol->selrow->seltab == t)
 		tabfocus(t, 0);
-	XMapRaised(dpy, d->frame);
 	ewmhsetclients();
 	ewmhsetclientsstacking();
 }
