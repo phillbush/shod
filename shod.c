@@ -159,7 +159,8 @@ enum {
 	_NET_FRAME_EXTENTS,
 
 	/* shod atoms */
-	_SHOD_TAB_GROUP,
+	_SHOD_GROUP_TAB,
+	_SHOD_GROUP_CONTAINER,
 
 	ATOM_LAST
 };
@@ -732,7 +733,8 @@ initatoms(void)
 		[_NET_WM_STATE_DEMANDS_ATTENTION]      = "_NET_WM_STATE_DEMANDS_ATTENTION",
 		[_NET_REQUEST_FRAME_EXTENTS]           = "_NET_REQUEST_FRAME_EXTENTS",
 		[_NET_FRAME_EXTENTS]                   = "_NET_FRAME_EXTENTS",
-		[_SHOD_TAB_GROUP]                      = "_SHOD_TAB_GROUP",
+		[_SHOD_GROUP_TAB]                      = "_SHOD_GROUP_TAB",
+		[_SHOD_GROUP_CONTAINER]                = "_SHOD_GROUP_CONTAINER",
 	};
 
 	XInternAtoms(dpy, atomnames, ATOM_LAST, False, atoms);
@@ -1466,7 +1468,7 @@ ewmhsetstate(struct Container *c)
 
 /* set group of windows in client */
 static void
-shodgroup(struct Container *c)
+shodgrouptab(struct Container *c)
 {
 	struct Column *col;
 	struct Row *row;
@@ -1475,7 +1477,24 @@ shodgroup(struct Container *c)
 	for (col = c->cols; col != NULL; col = col->next) {
 		for (row = col->rows; row != NULL; row = row->next) {
 			for (t = row->tabs; t != NULL; t = t->next) {
-				XChangeProperty(dpy, t->win, atoms[_SHOD_TAB_GROUP], XA_WINDOW, 32, PropModeReplace, (unsigned char *)&row->seltab->win, 1);
+				XChangeProperty(dpy, t->win, atoms[_SHOD_GROUP_TAB], XA_WINDOW, 32, PropModeReplace, (unsigned char *)&row->seltab->win, 1);
+			}
+		}
+	}
+}
+
+/* set group of windows in client */
+static void
+shodgroupcontainer(struct Container *c)
+{
+	struct Column *col;
+	struct Row *row;
+	struct Tab *t;
+
+	for (col = c->cols; col != NULL; col = col->next) {
+		for (row = col->rows; row != NULL; row = row->next) {
+			for (t = row->tabs; t != NULL; t = t->next) {
+				XChangeProperty(dpy, t->win, atoms[_SHOD_GROUP_CONTAINER], XA_WINDOW, 32, PropModeReplace, (unsigned char *)&c->selcol->selrow->seltab->win, 1);
 			}
 		}
 	}
@@ -3048,7 +3067,8 @@ tabfocus(struct Tab *t, int gotodesk)
 		if (gotodesk) {
 			deskfocus(c->issticky ? c->mon->seldesk : c->desk);
 		}
-		shodgroup(c);
+		shodgrouptab(c);
+		shodgroupcontainer(c);
 		ewmhsetstate(c);
 	}
 	if (wm.prevfocused != NULL) {
@@ -3139,7 +3159,7 @@ tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 						colcalcrows(col, 1);
 						goto done;
 					}
-					rowy += rowh;
+					rowy += rowh + visual.division;
 				}
 			}
 			if (xroot - c->x >= col->x + col->w - DROPPIXELS &&
@@ -3818,7 +3838,8 @@ unmanage(struct Tab *t)
 		containercalccols(c, 1);
 		containermoveresize(c);
 		containerredecorate(c, NULL, NULL, 0);
-		shodgroup(c);
+		shodgrouptab(c);
+		shodgroupcontainer(c);
 	}
 	if (focus) {
 		tabfocus((next != NULL) ? next->selcol->selrow->seltab : NULL, 0);
