@@ -3188,6 +3188,7 @@ tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 done:
 	tabfocus(det, 0);
 	XMapSubwindows(dpy, c->frame);
+	/* no need to call shodgrouptab() and shodgroupcontainer(); tabfocus() already calls them */
 	ewmhsetclientsstacking();
 	containermoveresize(c);
 	containerredecorate(c, NULL, NULL, 0);
@@ -3764,6 +3765,7 @@ managecontainer(struct Container *c, struct Tab *t, struct Desktop *desk, int us
 	XMapSubwindows(dpy, c->frame);
 	containerhide(c, 0);
 	tabfocus(t, 0);
+	/* no need to call shodgrouptab() and shodgroupcontainer(); tabfocus() already calls them */
 	ewmhsetclients();
 	ewmhsetclientsstacking();
 }
@@ -3954,6 +3956,8 @@ done:
 	if (recalc) {
 		containercalccols(c, 1);
 		containermoveresize(c);
+		shodgrouptab(c);
+		shodgroupcontainer(c);
 		if (redraw) {
 			containerdecorate(c, NULL, NULL, 0, 0);
 		}
