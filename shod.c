@@ -1749,7 +1749,7 @@ containerplace(struct Container *c, struct Desktop *desk, int userplaced)
 
 	/* increment cells of grid a window is in */
 	for (tmp = wm.c; tmp; tmp = tmp->next) {
-		if (tmp != c && ((tmp->issticky && tmp->mon == mon) || tmp->desk == desk)) {
+		if (tmp != c && !tmp->isminimized && ((tmp->issticky && tmp->mon == mon) || tmp->desk == desk)) {
 			for (i = 0; i < DIV; i++) {
 				for (j = 0; j < DIV; j++) {
 					ha = mon->wy + (mon->wh * i)/DIV;
