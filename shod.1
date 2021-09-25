@@ -1,7 +1,7 @@
 .TH SHOD 1
 .SH NAME
 .B shod, shodc
-\- acme-like window manager
+\- mouse-based window manager
 .SH SYNOPSIS
 .B shod
 .RB [ \-f
@@ -63,6 +63,9 @@ and by responding to client messages
 a controller called
 .IR shodc (1)
 to control shod).
+To understand how
+.B shod
+organizes the desktop, see the DESKTOP section below.
 .PP
 The options are as follows:
 .TP
@@ -394,51 +397,69 @@ Force state to be unset.
 .SH DESKTOP
 .PP
 .B shod
-maintains one monitor for each physical monitor found by
+maintains one virtual monitor for each physical monitor found by
 .IR Xinerama (1).
 One of the monitors is the focused one, where new windows go to when they are created.
-Each monitor contains a different set of desktops.
+Each monitor contains a different set of virtual desktops (or "desktop", for short).
 One of the desktops of a monitor is the focused desktop for that monitor.
 .PP
-Most windows are displayed in containers;
+Most client windows are displayed in containers;
 but some windows are special and are displayed in different ways.
+A new client window is mapped inside a new container that floats in the focused desktop of the focused monitor.
+This new container is placed in a empty area of the screen or in an area with few windows over it.
 .SS Containers
 Containers are floating windows with borders (four edges and four corners).
 A container contains client\-windows organized in columns, rows, and tabs;
-each client\-window can also contain a dialog.
+each client\-window can also contain dialog windows associated to it.
+Containers are divided into columns.
+A container can be made maximized, fullscreen, minimized, sticky, and/or above/below.
 .TP
 Columns
 A container can have one or more columns.
 Columns split a conteiner horizontally, and each container appears next to the other.
+Columns are divided into rows.
+A column can have either no maximized row, in which case all rows are visible;
+or can have a single maximized row, in which case only that row is visible.
+The process of maximizing a row is called restacking.
 .TP
 Rows
 A column can have one or more rows.
 Rows split a column vertically, and each row appears on top of the other.
+Rows are divided into tabs.
+At the top of the row is the title bar.
+The title bar lists the tabs of the row and contains two buttons:
+the left button (used to restack the column of the row)
+and the right button (used to close the active tab of the row).
+The title bar is always visible, even when the content of the row is hidden by another
+maximized row.
 .TP
 Tabs
 A row can have one or more tabs.
 Tabs split a column in the Z axis, and each tab appears above the other.
+A tab contain a client\-window and all the dialogs associated to that client\-window.
 .TP
 Client\-window.
 A client\-window is the actual window where the actual content of the client
 (such as a terminal emulator) is drawn.
+A client\-window can have one or more dialogs associated with it;
+however only one dialog is visible per time.
 .TP
 Dialogs
 A client\-window can have a dialog.
 A dialog appears above the client window, and is centered on it.
 .PP
-The following illustration is an example of a container.
+The following illustration is an example of a container with several client\-windows in it.
 This container contains two columns: one column in the left and another in the right.
-The column in the left contain a single row with two tabs,
-one of these tabs (the focused one) has a dialog on top of it.
+The column in the left contain three rows, the top row is maximized and visible, while
+the two rows on the bottom (one one of them with two tabs) are hidden.
 The column in the right contain two rows:
-the top row with a single tab, and the bottom row with three tabs.
-Each tab contains a client window.
+the top row with a single tab, and the bottom row with two tabs.
+Each tab contains a client\-window;
+one of the client\-windows has a dialog floating above it.
 .IP
 .EX
-┌──────────────┬──────────────┬─────────────────────────────┐
-├──────────────┴──────────────┼─────────────────────────────┤
-│                             │                             │
+┌─┬─────────────────────────┬─┬─┬─────────────────────────┬─┐
+├─┴─────────────────────────┴─┼─┴─────────────────────────┴─┤
 │                             │                             │
 │                             │                             │
 │                             │                             │
@@ -446,17 +467,18 @@ Each tab contains a client window.
 │ ┌─────────────────────────┐ │                             │
 │ │                         │ │                             │
 │ │                         │ │                             │
-│ │                         │ ├─────────┬─────────┬─────────┤
-│ │                         │ ├─────────┴─────────┴─────────┤
 │ │                         │ │                             │
+│ │                         │ ├─┬────────────┬────────────┬─┤
+│ │                         │ ├─┴────────────┴────────────┴─┤
 │ │                         │ │                             │
 │ └─────────────────────────┘ │                             │
 │                             │                             │
 │                             │                             │
 │                             │                             │
 │                             │                             │
-│                             │                             │
-└─────────────────────────────┴─────────────────────────────┘
+├─┬─────────────────────────┬─┤                             │
+├─┼────────────┬────────────┼─┤                             │
+└─┴────────────┴────────────┴─┴─────────────────────────────┘
 .EE
 .PP
 Each container can or not have each one of the following states:
@@ -525,7 +547,7 @@ An example of a notification window would be a bubble appearing with informative
 .PP
 The screen corner where notification windows pop up can be changed with the
 .B \-n
-command-line option
+command-line option.
 .PP
 .B shod
 can change the size and the position of notification windows.
