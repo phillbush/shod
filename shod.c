@@ -682,6 +682,7 @@ initdummywindows(void)
 	                            CWDontPropagate, &swa);
 	for (i = 0; i < LAYER_LAST; i++) {
 		wm.layerwins[i] = XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0);
+		XRaiseWindow(dpy, wm.layerwins[i]);
 	}
 }
 
@@ -3892,7 +3893,7 @@ done:
 static void
 managedesktop(Window win)
 {
-	Window wins[2] = {win, wm.layerwins[LAYER_DESKTOP]};
+	Window wins[2] = {wm.layerwins[LAYER_DESKTOP], win};
 
 	XRestackWindows(dpy, wins, sizeof wins);
 	XMapWindow(dpy, win);
@@ -3934,7 +3935,7 @@ static void
 managedock(Window win)
 {
 	struct Dock *dock;
-	Window wins[2] = {win, wm.layerwins[LAYER_DOCK]};
+	Window wins[2] = {wm.layerwins[LAYER_DOCK], win};
 
 	dock = emalloc(sizeof(*dock));
 	dock->prev = dock->next = NULL;
