@@ -724,12 +724,15 @@ state(int argc, char *argv[])
 			break;
 		case 'a':
 			state1 = atoms[_NET_WM_STATE_ABOVE];
+			state2 = None;
 			break;
 		case 'b':
 			state1 = atoms[_NET_WM_STATE_BELOW];
+			state2 = None;
 			break;
 		case 'f':
 			state1 = atoms[_NET_WM_STATE_FULLSCREEN];
+			state2 = None;
 			break;
 		case 'M':
 			state1 = atoms[_NET_WM_STATE_MAXIMIZED_VERT];
@@ -737,9 +740,11 @@ state(int argc, char *argv[])
 			break;
 		case 'm':
 			state1 = atoms[_NET_WM_STATE_HIDDEN];
+			state2 = None;
 			break;
 		case 's':
 			state1 = atoms[_NET_WM_STATE_STICKY];
+			state2 = None;
 			break;
 		default:
 			usage();
