@@ -400,6 +400,9 @@ One of the monitors is the focused one, where new windows go to when they are cr
 Each monitor contains a different set of virtual desktops (or "desktop", for short).
 One of the desktops of a monitor is the focused desktop for that monitor.
 .PP
+Each monitor has an area called container area, within containers are spawned and can be maximized.
+The size and position of a monitor's container area can be changed by dock windows.
+.PP
 Most client windows are displayed in containers;
 but some windows are special and are displayed in different ways.
 .SH CONTAINERS
@@ -618,7 +621,8 @@ Each container can or not have each one of the following states.
 By default, a container has no state.
 .TP
 Maximized
-Maximized containers occupies the entire space on the monitor available for windows.
+Maximized containers occupies the entire space on the monitor available for windows
+(a region called container area).
 When a maximized container is unmaximized,
 it restores its previous size and position.
 .TP
@@ -685,10 +689,22 @@ command-line option.
 .PP
 .B shod
 can change the size and the position of notification windows.
-.SH DROPDOWN WINDOWS
-TODO
-.SH DOCKED WINDOWS
-TODO
+.SH DOCKS
+Windows of type
+.B _NET_WM_WINDOW_TYPE_DOCK
+(called docks, panels, or bars)
+are mapped on a side of a monitor.
+Dock windows cannot be manipulated, have no decoration and do not receive input focus.
+.PP
+A dock window can change the size of a region of the monitor called container area.
+The container area is the region of the monitor that a maximized container occupies.
+The container area is also the region of the monitor inside which containers are spawned.
+.PP
+Example of dock are a taskbar (that shows which programs are currently running),
+and a statusbar (that shows information about the system, such as memory usage and system time).
+.PP
+.B shod
+does not change the size nor the position of dock windows.
 .SH ENVIRONMENT
 The following environment variables affect the execution of
 .B shod

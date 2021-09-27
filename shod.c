@@ -99,6 +99,7 @@ enum {
 	LAYER_BELOW,
 	LAYER_NORMAL,
 	LAYER_ABOVE,
+	LAYER_DOCK,
 	LAYER_FULLSCREEN,
 	LAYER_LAST
 };
@@ -155,6 +156,8 @@ enum {
 	_NET_WM_STATE_BELOW,
 	_NET_WM_STATE_FOCUSED,
 	_NET_WM_STATE_DEMANDS_ATTENTION,
+	_NET_WM_STRUT,
+	_NET_WM_STRUT_PARTIAL,
 	_NET_REQUEST_FRAME_EXTENTS,
 	_NET_FRAME_EXTENTS,
 
@@ -198,6 +201,23 @@ enum {
 	_SHOD_FOCUS_NEXT_WINDOW         = 12,
 };
 
+/* strut elements */
+enum {
+	STRUT_LEFT              = 0,
+	STRUT_RIGHT             = 1,
+	STRUT_TOP               = 2,
+	STRUT_BOTTOM            = 3,
+	STRUT_LEFT_START_Y      = 4,
+	STRUT_LEFT_END_Y        = 5,
+	STRUT_RIGHT_START_Y     = 6,
+	STRUT_RIGHT_END_Y       = 7,
+	STRUT_TOP_START_X       = 8,
+	STRUT_TOP_END_X         = 9,
+	STRUT_BOTTOM_START_X    = 10,
+	STRUT_BOTTOM_END_X      = 11,
+	STRUT_LAST              = 12,
+};
+
 /* window eight sections (aka octants) */
 enum Octant {
 	C  = 0,
@@ -213,6 +233,7 @@ enum Octant {
 
 /* struct returned by getwindow */
 struct Winres {
+	struct Dock *dock;              /* dock of window */
 	struct Notification *n;         /* notification of window */
 	struct Container *c;            /* container of window */
 	struct Row *row;                /* row (with buttons) of window */
@@ -310,6 +331,13 @@ struct Desktop {
 	int n;                                  /* desktop number */
 };
 
+struct Dock {
+	struct Dock *prev, *next;               /* pointers for list of docks */
+	Window win;                             /* dock window */
+	int strut[STRUT_LAST];                  /* strut values */
+	int partial;                            /* strut has 12 elements rather than 4 */
+};
+
 /* data of a monitor */
 struct Monitor {
 	struct Monitor *prev, *next;            /* pointers for list of monitors */
@@ -378,6 +406,7 @@ struct Visual {
 
 /* window manager stuff */
 struct WM {
+	struct Dock *docks;                     /* list of docks */
 	struct Monitor *monhead, *montail;      /* list of monitors */
 	struct Notification *nhead, *ntail;     /* list of notifications */
 	struct Container *c;                    /* list of containers */
@@ -731,6 +760,8 @@ initatoms(void)
 		[_NET_WM_STATE_BELOW]                  = "_NET_WM_STATE_BELOW",
 		[_NET_WM_STATE_FOCUSED]                = "_NET_WM_STATE_FOCUSED",
 		[_NET_WM_STATE_DEMANDS_ATTENTION]      = "_NET_WM_STATE_DEMANDS_ATTENTION",
+		[_NET_WM_STRUT]                        = "_NET_WM_STRUT",
+		[_NET_WM_STRUT_PARTIAL]                = "_NET_WM_STRUT_PARTIAL",
 		[_NET_REQUEST_FRAME_EXTENTS]           = "_NET_REQUEST_FRAME_EXTENTS",
 		[_NET_FRAME_EXTENTS]                   = "_NET_FRAME_EXTENTS",
 		[_SHOD_GROUP_TAB]                      = "_SHOD_GROUP_TAB",
@@ -883,6 +914,7 @@ static struct Winres
 getwin(Window win)
 {
 	struct Winres res;
+	struct Dock *dock;
 	struct Container *c;
 	struct Column *col;
 	struct Row *row;
@@ -890,11 +922,18 @@ getwin(Window win)
 	struct Dialog *d;
 	struct Notification *n;
 
+	res.dock = NULL;
 	res.row = NULL;
 	res.n = NULL;
 	res.c = NULL;
 	res.t = NULL;
 	res.d = NULL;
+	for (dock = wm.docks; dock != NULL; dock = dock->next) {
+		if (win == dock->win) {
+			res.dock = dock;
+			return res;
+		}
+	}
 	for (n = wm.nhead; n != NULL; n = n->next) {
 		if (win == n->frame || win == n->win) {
 			res.n = n;
@@ -988,6 +1027,24 @@ getatomprop(Window win, Atom prop)
 		XFree(p);
 	}
 	return atom;
+}
+
+/* get atom property from window */
+static unsigned long
+getcardprop(Window win, Atom prop, unsigned long **array)
+{
+	int di;
+	unsigned long len;
+	unsigned long dl;
+	unsigned char *p = NULL;
+	Atom da = None;
+
+	if (XGetWindowProperty(dpy, win, prop, 0L, 1024, False, XA_CARDINAL, &da, &di, &len, &dl, &p) != Success || p == NULL) {
+		*array = NULL;
+		return 0;
+	}
+	*array = (unsigned long *)p;
+	return len;
 }
 
 /* get window's WM_STATE property */
@@ -3376,6 +3433,70 @@ monupdate(void)
 	free(unique);
 }
 
+/* update window area and dock area of monitor */
+static void
+monupdatearea(void)
+{
+	struct Monitor *mon;
+	struct Dock *dock;
+	struct Container *c;
+	int t, b, l, r;
+
+	for (mon = wm.monhead; mon != NULL; mon = mon->next) {
+		mon->wx = mon->mx;
+		mon->wy = mon->my;
+		mon->ww = mon->mw;
+		mon->wh = mon->mh;
+		t = b = l = r = 0;
+		for (dock = wm.docks; dock != NULL; dock = dock->next) {
+			if (dock->strut[STRUT_TOP] != 0) {
+				if (dock->strut[STRUT_TOP] >= mon->my &&
+				    dock->strut[STRUT_TOP] < mon->my + mon->mh &&
+				    (!dock->partial ||
+				     (dock->strut[STRUT_TOP_START_X] >= mon->mx &&
+				     dock->strut[STRUT_TOP_END_X] < mon->mx + mon->mw))) {
+					t = max(t, dock->strut[STRUT_TOP] - mon->my);
+				}
+			} else if (dock->strut[STRUT_BOTTOM] != 0) {
+				if (screenh - dock->strut[STRUT_BOTTOM] <= mon->my + mon->mh &&
+				    screenh - dock->strut[STRUT_BOTTOM] > mon->my &&
+				    (!dock->partial ||
+				     (dock->strut[STRUT_BOTTOM_START_X] >= mon->mx &&
+				     dock->strut[STRUT_BOTTOM_END_X] < mon->mx + mon->mw))) {
+					b = max(b, dock->strut[STRUT_BOTTOM] - (screenh - (mon->my + mon->mh)));
+				}
+			} else if (dock->strut[STRUT_LEFT] != 0) {
+				if (dock->strut[STRUT_LEFT] >= mon->mx &&
+				    dock->strut[STRUT_LEFT] < mon->mx + mon->mw &&
+				    (!dock->partial ||
+				     (dock->strut[STRUT_LEFT_START_Y] >= mon->my &&
+				     dock->strut[STRUT_LEFT_END_Y] < mon->my + mon->mh))) {
+					l = max(l, dock->strut[STRUT_LEFT] - mon->mx);
+				}
+			} else if (dock->strut[STRUT_RIGHT] != 0) {
+				if (screenw - dock->strut[STRUT_RIGHT] <= mon->mx + mon->mw &&
+				    screenw - dock->strut[STRUT_RIGHT] > mon->mx &&
+				    (!dock->partial ||
+				     (dock->strut[STRUT_RIGHT_START_Y] >= mon->my &&
+				     dock->strut[STRUT_RIGHT_END_Y] < mon->my + mon->mh))) {
+					r = max(r, dock->strut[STRUT_RIGHT] - (screenw - (mon->mx + mon->mw)));
+				}
+			}
+		}
+		mon->wy += t;
+		mon->wh -= t + b;
+		mon->wx += l;
+		mon->ww -= l + r;
+	}
+	for (c = wm.c; c != NULL; c = c->next) {
+		if (c->ismaximized) {
+			containercalccols(c, 1);
+			containermoveresize(c);
+			containerredecorate(c, NULL, NULL, 0);
+		}
+	}
+}
+
 /* select window input events, grab mouse button presses, and clear its border */
 static void
 preparewin(Window win)
@@ -3620,9 +3741,47 @@ notifdel(struct Notification *n)
 		wm.nhead = n->next;
 	if (n->pix != None)
 		XFreePixmap(dpy, n->pix);
+	XReparentWindow(dpy, n->win, root, 0, 0);
 	XDestroyWindow(dpy, n->frame);
 	free(n);
 	notifplace();
+}
+
+/* fill strut array of dock */
+static void
+dockstrut(struct Dock *dock)
+{
+	unsigned long *arr;
+	unsigned long l, i;
+
+	for (i = 0; i < STRUT_LAST; i++)
+		dock->strut[i] = 0;
+	dock->partial = 1;
+	l = getcardprop(dock->win, atoms[_NET_WM_STRUT_PARTIAL], &arr);
+	if (arr == NULL) {
+		dock->partial = 0;
+		l = getcardprop(dock->win, atoms[_NET_WM_STRUT], &arr);
+		if (arr == NULL) {
+			return;
+		}
+	}
+	for (i = 0; i < STRUT_LAST && i < l; i++)
+		dock->strut[i] = arr[i];
+	XFree(arr);
+}
+
+/* delete dock */
+static void
+dockdel(struct Dock *dock)
+{
+	if (dock->next != NULL)
+		dock->next->prev = dock->prev;
+	if (dock->prev != NULL)
+		dock->prev->next = dock->next;
+	else
+		wm.docks = dock->next;
+	free(dock);
+	monupdatearea();
 }
 
 /* call the proper decorate function */
@@ -3770,6 +3929,26 @@ managecontainer(struct Container *c, struct Tab *t, struct Desktop *desk, int us
 	ewmhsetclientsstacking();
 }
 
+/* map dock window */
+static void
+managedock(Window win)
+{
+	struct Dock *dock;
+	Window wins[2] = {win, wm.layerwins[LAYER_DOCK]};
+
+	dock = emalloc(sizeof(*dock));
+	dock->prev = dock->next = NULL;
+	dock->win = win;
+	if (wm.docks != NULL)
+		wm.docks->prev = dock;
+	dock->next = wm.docks;
+	wm.docks = dock;
+	XRestackWindows(dpy, wins, sizeof wins);
+	XMapWindow(dpy, win);
+	dockstrut(dock);
+	monupdatearea();
+}
+
 /* call one of the manage- functions */
 static void
 manage(Window win, XWindowAttributes *wa, int ignoreunmap)
@@ -3789,6 +3968,8 @@ manage(Window win, XWindowAttributes *wa, int ignoreunmap)
 	t = getdialogfor(win);
 	if (prop == atoms[_NET_WM_WINDOW_TYPE_DESKTOP]) {
 		managedesktop(win);
+	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_DOCK]) {
+		managedock(win);
 	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_NOTIFICATION]) {
 		managenotif(win, wa->width, wa->height);
 	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_PROMPT]) {
@@ -4748,6 +4929,9 @@ xeventdestroynotify(XEvent *e)
 	if (res.n && ev->window == res.n->win) {
 		notifdel(res.n);
 		return;
+	} else if (res.dock != NULL && ev->window == res.dock->win) {
+		dockdel(res.dock);
+		return;
 	} else if (res.d && ev->window == res.d->win) {
 		dialogdel(res.d);
 	} else if (res.t && ev->window == res.t->win) {
@@ -4892,6 +5076,9 @@ xeventpropertynotify(XEvent *e)
 		tabupdateclass(res.t);
 	} else if (ev->atom == XA_WM_HINTS) {
 		tabupdateurgency(res.t, winisurgent(res.t->win));
+	} else if (res.dock != NULL && (ev->atom == _NET_WM_STRUT_PARTIAL || ev->atom == _NET_WM_STRUT)) {
+		dockstrut(res.dock);
+		monupdatearea();
 	}
 }
 
@@ -4906,6 +5093,9 @@ xeventunmapnotify(XEvent *e)
 	res = getwin(ev->window);
 	if (res.n && ev->window == res.n->win) {
 		notifdel(res.n);
+		return;
+	} else if (res.dock != NULL && ev->window == res.dock->win) {
+		dockdel(res.dock);
 		return;
 	} else if (res.d && ev->window == res.d->win) {
 		if (res.d->ignoreunmap) {
@@ -4950,20 +5140,20 @@ cleancursors(void)
 	}
 }
 
-/* clean clients */
+/* clean window manager structures */
 static void
-cleancontainers(void)
+cleanwm(void)
 {
-	while (wm.c) {
+	while (wm.c != NULL) {
 		containerdel(wm.c);
 	}
-}
-
-/* clean monitors */
-static void
-cleanmonitors(void)
-{
-	while (wm.monhead) {
+	while (wm.nhead != NULL) {
+		notifdel(wm.nhead);
+	}
+	while (wm.docks != NULL) {
+		dockdel(wm.docks);
+	}
+	while (wm.monhead != NULL) {
 		mondel(wm.monhead);
 	}
 }
@@ -5078,10 +5268,9 @@ main(int argc, char *argv[])
 	/* clean up */
 	cleandummywindows();
 	cleancursors();
-	cleancontainers();
-	cleanmonitors();
 	cleanpixmaps();
 	cleanfontset();
+	cleanwm();
 
 	/* clear ewmh hints */
 	ewmhsetclients();
