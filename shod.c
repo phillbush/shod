@@ -1820,8 +1820,8 @@ containerplace(struct Container *c, struct Desktop *desk, int userplaced)
 	mon = desk->mon;
 
 	/* if window is bigger than monitor, resize it while maintaining proportion */
-	origw = c->nw + 2 * c->b;
-	origh = c->nh + 2 * c->b;
+	origw = c->nw;
+	origh = c->nh;
 	w = min(origw, mon->ww);
 	h = min(origh, mon->wh);
 	if (origw * h > origh * w) {
@@ -1831,8 +1831,8 @@ containerplace(struct Container *c, struct Desktop *desk, int userplaced)
 		w = (origw * h) / origh;
 		h = (origh * w) / origw;
 	}
-	c->nw = max(visual.center + c->b * 2, w - (2 * c->b));
-	c->nh = max(visual.center + c->b * 2, h - (2 * c->b));
+	c->nw = max(visual.center + c->b * 2, w);
+	c->nh = max(visual.center + c->b * 2, h);
 
 	/* if the user placed the window, we should not re-place it */
 	if (userplaced)
@@ -1848,9 +1848,9 @@ containerplace(struct Container *c, struct Desktop *desk, int userplaced)
 					wa = mon->wx + (mon->ww * j)/DIV;
 					wb = mon->wx + (mon->ww * (j + 1))/DIV;
 					ya = tmp->ny;
-					yb = tmp->ny + tmp->nh + 2 * tmp->b;
+					yb = tmp->ny + tmp->nh;
 					xa = tmp->nx;
-					xb = tmp->nx + tmp->nw + 2 * tmp->b;
+					xb = tmp->nx + tmp->nw;
 					if (ya <= hb && ha <= yb && xa <= wb && wa <= xb) {
 						if (ya < ha && yb > hb)
 							grid[i][j]++;
@@ -1897,8 +1897,8 @@ containerplace(struct Container *c, struct Desktop *desk, int userplaced)
 	suby = suby * mon->wh / DIV;
 	subw = subw * mon->ww / DIV;
 	subh = subh * mon->wh / DIV;
-	c->nx = min(mon->wx + mon->ww - c->nw - c->b, max(mon->wx + c->b, mon->wx + subx + subw / 2 - c->nw / 2));
-	c->ny = min(mon->wy + mon->wh - c->nh - c->b, max(mon->wy + c->b, mon->wy + suby + subh / 2 - c->nh / 2));
+	c->nx = min(mon->wx + mon->ww - c->nw, max(mon->wx, mon->wx + subx + subw / 2 - c->nw / 2));
+	c->ny = min(mon->wy + mon->wh - c->nh, max(mon->wy, mon->wy + suby + subh / 2 - c->nh / 2));
 	containercalccols(c, 1);
 }
 
