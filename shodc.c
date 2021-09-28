@@ -418,7 +418,7 @@ setgeom(int argc, char *argv[])
 
 	rel = 0;
 	x = y = w = h = 0;
-	while ((c = getopt(argc, argv, "XYWHxywh")) != -1) {
+	while ((c = getopt(argc, argv, "X:Y:W:H:x:y:w:h:")) != -1) {
 		switch (c) {
 		case 'X':
 			rel |= _SHOD_RELATIVE_X;

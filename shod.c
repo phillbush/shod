@@ -2224,14 +2224,16 @@ containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, in
 static void
 containerdelfocus(struct Container *c)
 {
-	if (c->fnext) {
+	if (c->fnext != NULL) {
 		c->fnext->fprev = c->fprev;
 	}
-	if (c->fprev) {
+	if (c->fprev != NULL) {
 		c->fprev->fnext = c->fnext;
 	} else if (wm.focuslist == c) {
 		wm.focuslist = c->fnext;
 	}
+	c->fnext = NULL;
+	c->fprev = NULL;
 }
 
 /* put container on beginning of focus list */
@@ -2406,10 +2408,10 @@ containerconfigure(struct Container *c, unsigned int valuemask, XWindowChanges *
 static void
 containerdelraise(struct Container *c)
 {
-	if (c->rnext) {
+	if (c->rnext != NULL) {
 		c->rnext->rprev = c->rprev;
 	}
-	if (c->rprev) {
+	if (c->rprev != NULL) {
 		c->rprev->rnext = c->rnext;
 	} else if (wm.fulllist == c) {
 		wm.fulllist = c->rnext;
@@ -2420,6 +2422,8 @@ containerdelraise(struct Container *c)
 	} else if (wm.belowlist == c) {
 		wm.belowlist = c->rnext;
 	}
+	c->rnext = NULL;
+	c->rprev = NULL;
 }
 
 /* put container on beginning of a raise list */
