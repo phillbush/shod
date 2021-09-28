@@ -35,6 +35,16 @@
 #define _SHOD_RELATIVE_WIDTH    ((long)(1 << 18))
 #define _SHOD_RELATIVE_HEIGHT   ((long)(1 << 19))
 
+/* window type */
+enum {
+	TYPE_NORMAL,
+	TYPE_DESKTOP,
+	TYPE_DOCK,
+	TYPE_NOTIFICATION,
+	TYPE_PROMPT,
+	TYPE_DOCKAPP
+};
+
 /* title bar buttons */
 enum {
 	BUTTON_NONE,
@@ -265,7 +275,6 @@ struct Tab {
 	Pixmap pix;                             /* pixmap to draw the background of the frame */
 	Pixmap pixtitle;                        /* pixmap to draw the background of the title window */
 	char *name;                             /* client name */
-	char *class;                            /* client class */
 	int ignoreunmap;                        /* number of unmapnotifys to ignore */
 	int isurgent;                           /* whether tab is urgent */
 	int winw, winh;                         /* window geometry */
@@ -817,10 +826,7 @@ initroot(void)
 	/* Select SubstructureRedirect events on root window */
 	swa.cursor = visual.cursors[CURSOR_NORMAL];
 	swa.event_mask = SubstructureRedirectMask|SubstructureNotifyMask
-	               | SubstructureRedirectMask
-	               | SubstructureNotifyMask
-	               | StructureNotifyMask
-	               | ButtonPressMask;
+	               | StructureNotifyMask | ButtonPressMask;
 	XChangeWindowAttributes(dpy, root, CWEventMask | CWCursor, &swa);
 
 	/* Set focus to root window */
@@ -1028,6 +1034,33 @@ getatomprop(Window win, Atom prop)
 		XFree(p);
 	}
 	return atom;
+}
+
+/* get type of window both by its WMHINTS and by the _NET_WM_WINDOW_TYPE hint */
+static int
+getwintype(Window win)
+{
+	XWMHints *wmhints;
+	Atom prop;
+	int isdockapp;
+
+	prop = getatomprop(win, atoms[_NET_WM_WINDOW_TYPE]);
+	wmhints = XGetWMHints(dpy, win);
+	isdockapp = (wmhints && (wmhints->flags & (IconWindowHint | StateHint)) && wmhints->initial_state == WithdrawnState);
+	if (wmhints != NULL)
+		XFree(wmhints);
+	if (isdockapp) {
+		return TYPE_DOCKAPP;
+	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_DESKTOP]) {
+		return TYPE_DESKTOP;
+	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_DOCK]) {
+		return TYPE_DOCK;
+	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_NOTIFICATION]) {
+		return TYPE_NOTIFICATION;
+	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_PROMPT]) {
+		return TYPE_PROMPT;
+	}
+	return TYPE_NORMAL;
 }
 
 /* get atom property from window */
@@ -2685,7 +2718,6 @@ tabdel(struct Tab *t)
 	XDestroyWindow(dpy, t->frame);
 	clientsdecr();
 	free(t->name);
-	free(t->class);
 	free(t);
 }
 
@@ -3040,7 +3072,6 @@ tabnew(Window win, int ignoreunmap)
 	t->row = NULL;
 	t->ds = NULL;
 	t->name = NULL;
-	t->class = NULL;
 	t->ignoreunmap = ignoreunmap;
 	t->isurgent = 0;
 	t->winw = t->winh = 0;
@@ -3141,22 +3172,6 @@ tabupdatetitle(struct Tab *t)
 {
 	free(t->name);
 	t->name = getwinname(t->win);
-}
-
-/* update tab class */
-static void
-tabupdateclass(struct Tab *t)
-{
-	XClassHint chint;
-
-	if (XGetClassHint(dpy, t->win, &chint)) {
-		free(t->class);
-		t->class = (chint.res_class != NULL && chint.res_class[0] != '\0')
-		         ? estrndup(chint.res_class, NAMEMAXLEN)
-		         : NULL;
-		XFree(chint.res_class);
-		XFree(chint.res_name);
-	}
 }
 
 /* try to attach tab in a client of specified client list */
@@ -3455,7 +3470,7 @@ monupdatearea(void)
 				    dock->strut[STRUT_TOP] < mon->my + mon->mh &&
 				    (!dock->partial ||
 				     (dock->strut[STRUT_TOP_START_X] >= mon->mx &&
-				     dock->strut[STRUT_TOP_END_X] < mon->mx + mon->mw))) {
+				     dock->strut[STRUT_TOP_END_X] <= mon->mx + mon->mw))) {
 					t = max(t, dock->strut[STRUT_TOP] - mon->my);
 				}
 			} else if (dock->strut[STRUT_BOTTOM] != 0) {
@@ -3463,7 +3478,7 @@ monupdatearea(void)
 				    screenh - dock->strut[STRUT_BOTTOM] > mon->my &&
 				    (!dock->partial ||
 				     (dock->strut[STRUT_BOTTOM_START_X] >= mon->mx &&
-				     dock->strut[STRUT_BOTTOM_END_X] < mon->mx + mon->mw))) {
+				     dock->strut[STRUT_BOTTOM_END_X] <= mon->mx + mon->mw))) {
 					b = max(b, dock->strut[STRUT_BOTTOM] - (screenh - (mon->my + mon->mh)));
 				}
 			} else if (dock->strut[STRUT_LEFT] != 0) {
@@ -3471,7 +3486,7 @@ monupdatearea(void)
 				    dock->strut[STRUT_LEFT] < mon->mx + mon->mw &&
 				    (!dock->partial ||
 				     (dock->strut[STRUT_LEFT_START_Y] >= mon->my &&
-				     dock->strut[STRUT_LEFT_END_Y] < mon->my + mon->mh))) {
+				     dock->strut[STRUT_LEFT_END_Y] <= mon->my + mon->mh))) {
 					l = max(l, dock->strut[STRUT_LEFT] - mon->mx);
 				}
 			} else if (dock->strut[STRUT_RIGHT] != 0) {
@@ -3479,7 +3494,7 @@ monupdatearea(void)
 				    screenw - dock->strut[STRUT_RIGHT] > mon->mx &&
 				    (!dock->partial ||
 				     (dock->strut[STRUT_RIGHT_START_Y] >= mon->my &&
-				     dock->strut[STRUT_RIGHT_END_Y] < mon->my + mon->mh))) {
+				     dock->strut[STRUT_RIGHT_END_Y] <= mon->my + mon->mh))) {
 					r = max(r, dock->strut[STRUT_RIGHT] - (screenw - (mon->mx + mon->mw)));
 				}
 			}
@@ -3899,6 +3914,16 @@ managedesktop(Window win)
 	XMapWindow(dpy, win);
 }
 
+/* map dockapp window */
+static void
+managedockapp(Window win)
+{
+	Window wins[2] = {wm.layerwins[LAYER_DESKTOP], win};
+
+	XRestackWindows(dpy, wins, sizeof wins);
+	XMapWindow(dpy, win);
+}
+
 /* add notification window into notification queue; and update notification placement */
 static void
 managenotif(Window win, int w, int h)
@@ -3958,33 +3983,42 @@ manage(Window win, XWindowAttributes *wa, int ignoreunmap)
 	struct Tab *t;
 	struct Container *c;
 	struct Dialog *d;
-	Atom prop;
 	int userplaced;
 
 	res = getwin(win);
-	if (res.c != NULL)
+	if (res.c != NULL || res.dock != NULL)
 		return;
-	preparewin(win);
-	prop = getatomprop(win, atoms[_NET_WM_WINDOW_TYPE]);
-	t = getdialogfor(win);
-	if (prop == atoms[_NET_WM_WINDOW_TYPE_DESKTOP]) {
+	switch (getwintype(win)) {
+	case TYPE_DESKTOP:
 		managedesktop(win);
-	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_DOCK]) {
+		break;
+	case TYPE_DOCKAPP:
+		managedockapp(win);
+		break;
+	case TYPE_DOCK:
 		managedock(win);
-	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_NOTIFICATION]) {
+		break;
+	case TYPE_NOTIFICATION:
+		preparewin(win);
 		managenotif(win, wa->width, wa->height);
-	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_PROMPT]) {
+		break;
+	case TYPE_PROMPT:
+		preparewin(win);
 		manageprompt(win, wa->width, wa->height);
-	} else if (t != NULL) {
-		d = dialognew(win, wa->width, wa->height, ignoreunmap);
-		managedialog(t, d);
-	} else {
-		userplaced = isuserplaced(win);
-		t = tabnew(win, ignoreunmap);
-		tabupdatetitle(t);
-		tabupdateclass(t);
-		c = containernew(wa->x, wa->y, wa->width, wa->height);
-		managecontainer(c, t, wm.selmon->seldesk, userplaced);
+		break;
+	default:
+		preparewin(win);
+		if ((t = getdialogfor(win)) != NULL) {
+			d = dialognew(win, wa->width, wa->height, ignoreunmap);
+			managedialog(t, d);
+		} else {
+			userplaced = isuserplaced(win);
+			t = tabnew(win, ignoreunmap);
+			tabupdatetitle(t);
+			c = containernew(wa->x, wa->y, wa->width, wa->height);
+			managecontainer(c, t, wm.selmon->seldesk, userplaced);
+		}
+		break;
 	}
 }
 
@@ -4518,8 +4552,6 @@ mousestack(struct Row *row)
 	XEvent ev;
 
 	buttondecorate(row, BUTTON_LEFT, 1);
-	if (row->col->nrows == 1)
-		return;
 	XGrabPointer(dpy, row->bl, False, ButtonReleaseMask,
 	             GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
 	while (!XMaskEvent(dpy, ButtonReleaseMask | ExposureMask, &ev)) {
@@ -4531,7 +4563,8 @@ mousestack(struct Row *row)
 			}
 			break;
 		case ButtonRelease:
-			if (ev.xbutton.window == row->bl &&
+			if (row->col->nrows > 1 &&
+			    ev.xbutton.window == row->bl &&
 			    ev.xbutton.x >= 0 && ev.xbutton.x >= 0 &&
 			    ev.xbutton.x < visual.button && ev.xbutton.x < visual.button) {
 				rowstack(row->col, (row->col->maxrow == row) ? NULL : row);
@@ -5073,8 +5106,6 @@ xeventpropertynotify(XEvent *e)
 	if (ev->atom == XA_WM_NAME || ev->atom == atoms[_NET_WM_NAME]) {
 		tabupdatetitle(res.t);
 		tabdecorate(res.t, 0);
-	} else if (ev->atom == XA_WM_CLASS) {
-		tabupdateclass(res.t);
 	} else if (ev->atom == XA_WM_HINTS) {
 		tabupdateurgency(res.t, winisurgent(res.t->win));
 	} else if (res.dock != NULL && (ev->atom == _NET_WM_STRUT_PARTIAL || ev->atom == _NET_WM_STRUT)) {
