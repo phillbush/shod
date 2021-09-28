@@ -7,12 +7,9 @@
 #include <X11/Xatom.h>
 #include <X11/Xutil.h>
 
-#define NAMEMAXLEN              128
-#define DIRECT_ACTION           2
-#define _SHOD_RELATIVE_X        ((long)(1 << 16))
-#define _SHOD_RELATIVE_Y        ((long)(1 << 17))
-#define _SHOD_RELATIVE_WIDTH    ((long)(1 << 18))
-#define _SHOD_RELATIVE_HEIGHT   ((long)(1 << 19))
+#define NAMEMAXLEN                      128
+#define DIRECT_ACTION                   2
+#define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
 
 /* state action */
 enum {
@@ -418,38 +415,21 @@ setgeom(int argc, char *argv[])
 
 	rel = 0;
 	x = y = w = h = 0;
-	while ((c = getopt(argc, argv, "X:Y:W:H:x:y:w:h:")) != -1) {
+	while ((c = getopt(argc, argv, "rx:y:w:h:")) != -1) {
 		switch (c) {
-		case 'X':
-			rel |= _SHOD_RELATIVE_X;
-			x = strtol(optarg, NULL, 10);
-			break;
-		case 'Y':
-			rel |= _SHOD_RELATIVE_Y;
-			y = strtol(optarg, NULL, 10);
-			break;
-		case 'W':
-			rel |= _SHOD_RELATIVE_WIDTH;
-			w = strtol(optarg, NULL, 10);
-			break;
-		case 'H':
-			rel |= _SHOD_RELATIVE_HEIGHT;
-			h = strtol(optarg, NULL, 10);
+		case 'r':
+			rel |= _SHOD_MOVERESIZE_RELATIVE;
 			break;
 		case 'x':
-			rel &= ~_SHOD_RELATIVE_X;
 			x = strtol(optarg, NULL, 10);
 			break;
 		case 'y':
-			rel &= ~_SHOD_RELATIVE_Y;
 			y = strtol(optarg, NULL, 10);
 			break;
 		case 'w':
-			rel &= ~_SHOD_RELATIVE_WIDTH;
 			w = strtol(optarg, NULL, 10);
 			break;
 		case 'h':
-			rel &= ~_SHOD_RELATIVE_HEIGHT;
 			h = strtol(optarg, NULL, 10);
 			break;
 		default:

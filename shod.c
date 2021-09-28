@@ -30,10 +30,7 @@
 #define DROPPIXELS      30      /* number of pixels from the border where a tab can be dropped in */
 #define RESIZETIME      64      /* time to redraw containers during resizing */
 
-#define _SHOD_RELATIVE_X        ((long)(1 << 16))
-#define _SHOD_RELATIVE_Y        ((long)(1 << 17))
-#define _SHOD_RELATIVE_WIDTH    ((long)(1 << 18))
-#define _SHOD_RELATIVE_HEIGHT   ((long)(1 << 19))
+#define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
 
 /* window type */
 enum {
@@ -4831,10 +4828,10 @@ xeventclientmessage(XEvent *e)
 		if (res.c == NULL)
 			return;
 		value_mask = CWX | CWY | CWWidth | CWHeight;
-		wc.x = (ev->data.l[0] & _SHOD_RELATIVE_X) ? res.c->x + res.c->b + ev->data.l[1] : ev->data.l[1];
-		wc.y = (ev->data.l[0] & _SHOD_RELATIVE_Y) ? res.c->y + res.c->b + ev->data.l[2] : ev->data.l[2];
-		wc.width = (ev->data.l[0] & _SHOD_RELATIVE_WIDTH) ? res.c->w + ev->data.l[3] - 2 * res.c->b : ev->data.l[3];
-		wc.height = (ev->data.l[0] & _SHOD_RELATIVE_HEIGHT) ? res.c->h + ev->data.l[4] - 2 * res.c->b : ev->data.l[4];
+		wc.x = (ev->data.l[0] & _SHOD_MOVERESIZE_RELATIVE) ? res.c->x + ev->data.l[1] : ev->data.l[1];
+		wc.y = (ev->data.l[0] & _SHOD_MOVERESIZE_RELATIVE) ? res.c->y + ev->data.l[2] : ev->data.l[2];
+		wc.width = (ev->data.l[0] & _SHOD_MOVERESIZE_RELATIVE) ? res.c->w + ev->data.l[3] : ev->data.l[3];
+		wc.height = (ev->data.l[0] & _SHOD_MOVERESIZE_RELATIVE) ? res.c->h + ev->data.l[4] : ev->data.l[4];
 		if (res.d != NULL) {
 			dialogconfigure(res.d, value_mask, &wc);
 		} else {
