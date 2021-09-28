@@ -705,6 +705,15 @@ and a statusbar (that shows information about the system, such as memory usage a
 .PP
 .B shod
 does not change the size nor the position of dock windows.
+.SH DOCKAPPS
+Windows that initiates in the WithdrawnState (called dockapps)
+are ignored and mapped below all other windows.
+.PP
+Dockapps, or docked applications are windows which appear to reside
+inside an icon or a dock rather than a container.
+.PP
+.B shod
+will probably support dockapps in the future, but for now, they are simply ignored.
 .SH ENVIRONMENT
 The following environment variables affect the execution of
 .B shod
@@ -729,7 +738,9 @@ or when a set of windows must have the same size (as in a tabbed situation),
 it makes no sense to constrain the size of a container based on the size hints of a single window,
 because the relation from windows to containers is no more one-to-one.
 .PP
-Different from other window managers,
-in
-.BR shod ,
-shaped client\-windows are not shapped.
+Shaped client\-windows do not have shaped containers.
+They are mapped inside a rectangular container.
+.PP
+Dockapps are ignored,
+they may be supported in a future version of
+.BR shod .
