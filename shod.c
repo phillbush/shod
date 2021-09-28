@@ -16,7 +16,7 @@
 #include <X11/extensions/Xinerama.h>
 #include "theme.xpm"
 
-#define WMNAME          "shod2"
+#define WMNAME          "shod"
 #define DIV             15      /* number to divide the screen into grids */
 #define FONT            "-misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-iso8859-1"
 #define MODIFIER        Mod1Mask

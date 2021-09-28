@@ -14,12 +14,11 @@
                  │                       │
                  └───────────────────────┘
 
-shod (or "shod2", to distinguish it from its previous version) is a
-multi-monitor floating reparenting X11 window manager that supports
-tiled and tabbed containers.  shod sets no keybindings, reads no
-configuration, and works only via mouse with a given key modifier
-(Alt by default) and by responding to client messages sent by the
-shodc utility (shod's remote controller).
+shod is a multi-monitor floating reparenting X11 window manager that
+supports tiled and tabbed containers.  shod sets no keybindings, reads
+no configuration, and works only via mouse with a given key modifier
+(Alt by default) and by responding to client messages sent by the shodc
+utility (shod's remote controller).
 
 shod was inspired by the following programs and window managers.  I'd
 like to thank their authors for their work that helped me developing
