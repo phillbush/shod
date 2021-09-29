@@ -2636,27 +2636,6 @@ containernew(int x, int y, int w, int h)
 	return c;
 }
 
-/* move container x pixels to the right and y pixels down */
-static void
-containerincrmove(struct Container *c, int x, int y)
-{
-	struct Monitor *monto;
-
-	if (c == NULL || c->isminimized || c->ismaximized || c->isfullscreen)
-		return;
-	c->nx += x;
-	c->ny += y;
-	c->x = c->nx;
-	c->y = c->ny;
-	containermoveresize(c);
-	if (!c->issticky) {
-		monto = getmon(c->nx + c->nw / 2, c->ny + c->nh / 2);
-		if (monto != NULL && monto != c->mon) {
-			containersendtodesk(c, monto->seldesk, 0, 0);
-		}
-	}
-}
-
 /* delete dialog */
 static void
 dialogdel(struct Dialog *d)
@@ -3016,7 +2995,7 @@ deskshow(int show)
 
 /* change desktop */
 static void
-deskfocus(struct Desktop *desk)
+deskfocus(struct Desktop *desk, int focus)
 {
 	void tabfocus(struct Tab *t, int gotodesk);
 	struct Container *c;
@@ -3039,13 +3018,6 @@ deskfocus(struct Desktop *desk)
 		}
 	}
 
-	/* if changing focus to a new monitor and the cursor isn't there, warp it */
-	XQueryPointer(dpy, root, &da, &db, &cursorx, &cursory, &dx, &dy, &du);
-	if (desk->mon != wm.selmon && desk->mon != getmon(cursorx, cursory)) {
-		XWarpPointer(dpy, None, root, 0, 0, 0, 0, desk->mon->mx + desk->mon->mw / 2,
-		                                         desk->mon->my + desk->mon->mh / 2);
-	}
-
 	/* update current desktop */
 	wm.selmon = desk->mon;
 	wm.selmon->seldesk = desk;
@@ -3054,11 +3026,37 @@ deskfocus(struct Desktop *desk)
 	ewmhsetcurrentdesktop(desk->n);
 
 	/* focus client on the new current desktop */
-	c = getnextfocused(desk->mon, desk);
-	if (c != NULL) {
-		tabfocus(c->selcol->selrow->seltab, 0);
-	} else {
-		tabfocus(NULL, 0);
+	if (focus) {
+		c = getnextfocused(desk->mon, desk);
+		if (c != NULL) {
+			tabfocus(c->selcol->selrow->seltab, 0);
+		} else {
+			tabfocus(NULL, 0);
+		}
+	}
+}
+
+/* move container x pixels to the right and y pixels down */
+static void
+containerincrmove(struct Container *c, int x, int y)
+{
+	struct Monitor *monto;
+
+	if (c == NULL || c->isminimized || c->ismaximized || c->isfullscreen)
+		return;
+	c->nx += x;
+	c->ny += y;
+	c->x = c->nx;
+	c->y = c->ny;
+	containermoveresize(c);
+	if (!c->issticky) {
+		monto = getmon(c->nx + c->nw / 2, c->ny + c->nh / 2);
+		if (monto != NULL && monto != c->mon) {
+			containersendtodesk(c, monto->seldesk, 0, 0);
+			if (wm.focused == c) {
+				deskfocus(monto->seldesk, 0);
+			}
+		}
 	}
 }
 
@@ -3155,7 +3153,7 @@ tabfocus(struct Tab *t, int gotodesk)
 		containerminimize(c, 0, 0);
 		containerraise(c);
 		if (gotodesk) {
-			deskfocus(c->issticky ? c->mon->seldesk : c->desk);
+			deskfocus(c->issticky ? c->mon->seldesk : c->desk, 0);
 		}
 		shodgrouptab(c);
 		shodgroupcontainer(c);
@@ -4603,7 +4601,7 @@ xeventbuttonpress(XEvent *e)
 	if (c == NULL) {
 		mon = getmon(ev->x_root, ev->y_root);
 		if (mon)
-			deskfocus(mon->seldesk);
+			deskfocus(mon->seldesk, 1);
 		goto done;
 	}
 
@@ -4706,12 +4704,12 @@ xeventclientmessage(XEvent *e)
 	ev = &e->xclient;
 	res = getwin(ev->window);
 	if (ev->message_type == atoms[_NET_CURRENT_DESKTOP]) {
-		deskfocus(getdesk(ev->data.l[0], ev->data.l[2]));
+		deskfocus(getdesk(ev->data.l[0], ev->data.l[2]), 1);
 	} else if (ev->message_type == atoms[_NET_SHOWING_DESKTOP]) {
 		if (ev->data.l[0]) {
 			deskshow(1);
 		} else {
-			deskfocus(wm.selmon->seldesk);
+			deskfocus(wm.selmon->seldesk, 1);
 		}
 	} else if (ev->message_type == atoms[_NET_WM_STATE]) {
 		if (res.c == NULL)
