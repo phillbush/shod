@@ -2999,10 +2999,6 @@ deskfocus(struct Desktop *desk, int focus)
 {
 	void tabfocus(struct Tab *t, int gotodesk);
 	struct Container *c;
-	int cursorx, cursory;
-	Window da, db;          /* dummy variables */
-	int dx, dy;             /* dummy variables */
-	unsigned int du;        /* dummy variable */
 
 	if (desk == NULL || desk == wm.selmon->seldesk)
 		return;
