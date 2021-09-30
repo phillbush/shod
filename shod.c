@@ -29,7 +29,8 @@
 #define NAMEMAXLEN      1024    /* maximum length of window's name */
 #define DROPPIXELS      30      /* number of pixels from the border where a tab can be dropped in */
 #define RESIZETIME      64      /* time to redraw containers during resizing */
-
+#define DEF_SLITPOS     SLIT_E  /* default dock position */
+#define DEF_SLITWIDTH   64      /* default dock width */
 #define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
 
 /* window type */
@@ -225,6 +226,22 @@ enum {
 	STRUT_LAST              = 12,
 };
 
+/* dock position */
+enum {
+	SLIT_NW,
+	SLIT_N,
+	SLIT_NE,
+	SLIT_SW,
+	SLIT_S,
+	SLIT_SE,
+	SLIT_WN,
+	SLIT_W,
+	SLIT_WS,
+	SLIT_EN,
+	SLIT_E,
+	SLIT_ES,
+};
+
 /* window eight sections (aka octants) */
 enum Octant {
 	C  = 0,
@@ -241,6 +258,8 @@ enum Octant {
 /* struct returned by getwindow */
 struct Winres {
 	struct Dock *dock;              /* dock of window */
+	struct Dockapp *dapp;           /* dockapp of window */
+	struct Bar *bar;                /* bar of window */
 	struct Notification *n;         /* notification of window */
 	struct Container *c;            /* container of window */
 	struct Row *row;                /* row (with buttons) of window */
@@ -337,11 +356,21 @@ struct Desktop {
 	int n;                                  /* desktop number */
 };
 
-struct Dock {
-	struct Dock *prev, *next;               /* pointers for list of docks */
-	Window win;                             /* dock window */
+/* bar (aka dock or panel) */
+struct Bar {
+	struct Bar *prev, *next;                /* pointers for list of bars */
+	Window win;                             /* bar window */
 	int strut[STRUT_LAST];                  /* strut values */
 	int partial;                            /* strut has 12 elements rather than 4 */
+};
+
+/* docked application */
+struct Dockapp {
+	struct Dockapp *prev, *next;
+	Window win;                     /* dockapp window */
+	int x, y, w, h;                 /* dockapp position and size */
+	int gw, gh;                     /* size of dockapp grid */
+	int ignoreunmap;                /* number of unmap requests to ignore */
 };
 
 /* data of a monitor */
@@ -374,7 +403,9 @@ struct Decor {
 	Pixmap bl;                              /* left button */
 	Pixmap br;                              /* right button */
 	Pixmap tl;                              /* title left end */
+	Pixmap tlt;                             /* title left text end */
 	Pixmap t;                               /* title middle */
+	Pixmap trt;                             /* title right text end */
 	Pixmap tr;                              /* title right end */
 	Pixmap nw;                              /* northwest corner */
 	Pixmap nf;                              /* north first edge */
@@ -401,6 +432,8 @@ struct Visual {
 	struct Decor decor[STYLE_LAST][DECOR_LAST];
 	Cursor cursors[CURSOR_LAST];
 	XFontSet fontset;
+	unsigned long dock_bg;                  /* background color of the dock */
+	unsigned long dock_border;              /* border color of the dock */
 	int edge;                               /* size of the decoration edge */
 	int corner;                             /* size of the decoration corner */
 	int border;                             /* size of the decoration border */
@@ -410,9 +443,21 @@ struct Visual {
 	int tab;                                /* height of the tab bar */
 };
 
+/* the dock */
+struct Dock {
+	struct Dockapp *head, *tail;    /* list of dockapps */
+	Window win;                     /* dock window */
+	Pixmap pix;                     /* dock pixmap */
+	int width;                      /* dock width */
+	int x, y, w, h;                 /* dock geometry */
+	int pw, ph;                     /* dock pixmap size */
+	int pos;                        /* dock position */
+	int mapped;                     /* whether dock is mapped */
+};
+
 /* window manager stuff */
 struct WM {
-	struct Dock *docks;                     /* list of docks */
+	struct Bar *bars;                       /* list of bars */
 	struct Monitor *monhead, *montail;      /* list of monitors */
 	struct Notification *nhead, *ntail;     /* list of notifications */
 	struct Container *c;                    /* list of containers */
@@ -461,6 +506,7 @@ static int screen, screenw, screenh;
 static Atom atoms[ATOM_LAST];
 static struct Visual visual;
 static struct WM wm;
+static struct Dock dock = {.pix = None, .win = None, .pos = DEF_SLITPOS, .width = DEF_SLITWIDTH};
 static struct Config config;
 volatile sig_atomic_t running = 1;
 
@@ -468,8 +514,8 @@ volatile sig_atomic_t running = 1;
 static void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: shod [-d ndesks] [-f buttons] [-m modifier]\n");
-	(void)fprintf(stderr, "            [-n notificationspec] [-r buttons]\n");
+	(void)fprintf(stderr, "usage: shod [-D dockspec] [-f buttons] [-m modifier]\n");
+	(void)fprintf(stderr, "            [-N notificationspec] [-n ndesks] [-r buttons]\n");
 	exit(1);
 }
 
@@ -594,6 +640,51 @@ parsemodifier(const char *s)
 	return 0;
 }
 
+/* parse dock specification */
+static void
+parsedock(const char *s)
+{
+	int n;
+
+	switch (s[0]) {
+	case 'N':
+		if (s[1] == 'W')
+			dock.pos = SLIT_NW;
+		else if (s[1] == 'E')
+			dock.pos = SLIT_NE;
+		else
+			dock.pos = SLIT_N;
+		break;
+	case 'S':
+		if (s[1] == 'W')
+			dock.pos = SLIT_SW;
+		else if (s[1] == 'E')
+			dock.pos = SLIT_SE;
+		else
+			dock.pos = SLIT_S;
+		break;
+	case 'W':
+		if (s[1] == 'N')
+			dock.pos = SLIT_WN;
+		else if (s[1] == 'S')
+			dock.pos = SLIT_WS;
+		else
+			dock.pos = SLIT_W;
+		break;
+	case 'E':
+		if (s[1] == 'N')
+			dock.pos = SLIT_EN;
+		else if (s[1] == 'S')
+			dock.pos = SLIT_ES;
+		else
+			dock.pos = SLIT_E;
+		break;
+	}
+	if ((n = strtol(optarg, NULL, 10)) > 0) {
+		dock.width = n;
+	}
+}
+
 /* stop running */
 static void
 siginthandler(int signo)
@@ -618,11 +709,10 @@ getoptions(int argc, char *argv[])
 	config.focusbuttons = FOCUS_BUTTONS;
 	config.raisebuttons = RAISE_BUTTONS;
 
-	while ((c = getopt(argc, argv, "d:f:m:n:r:")) != -1) {
+	while ((c = getopt(argc, argv, "D:f:m:N:n:r:")) != -1) {
 		switch (c) {
-		case 'd':
-			if ((n = strtol(optarg, NULL, 10)) > 0)
-				config.ndesktops = n;
+		case 'D':
+			parsedock(optarg);
 			break;
 		case 'f':
 			config.focusbuttons = parsebuttons(optarg);
@@ -630,13 +720,17 @@ getoptions(int argc, char *argv[])
 		case 'm':
 			config.modifier = parsemodifier(optarg);
 			break;
-		case 'n':
+		case 'N':
 			config.notifgravity = optarg;
 			if ((s = strchr(optarg, ':')) == NULL)
 				break;
 			*(s++) = '\0';
 			if ((n = strtol(s, NULL, 10)) > 0)
 				config.notifgap = n;
+			break;
+		case 'n':
+			if ((n = strtol(optarg, NULL, 10)) > 0)
+				config.ndesktops = n;
 			break;
 		case 'r':
 			config.raisebuttons = parsebuttons(optarg);
@@ -839,7 +933,7 @@ inittheme(void)
 	XImage *img;
 	Pixmap pix;
 	struct Decor *d;
-	unsigned int size;       /* size of each square in the .xpm file */
+	unsigned int sizew, sizeh;      /* size of each square in the .xpm file */
 	unsigned int x, y;
 	unsigned int i, j;
 	int status;
@@ -857,19 +951,21 @@ inittheme(void)
 	XPutImage(dpy, pix, gc, img, 0, 0, 0, 0, img->width, img->height);
 
 	/* check whether the theme has the correct proportions and hotspots */
-	size = 0;
+	sizeh = sizew = 0;
 	if (xa.valuemask & (XpmSize | XpmHotspot) &&
-	    xa.width % 3 == 0 && xa.height % 3 == 0 && xa.height == xa.width &&
-	    (xa.width / 3) % 2 == 1 && (xa.height / 3) % 2 == 1 &&
-	    xa.x_hotspot < ((xa.width / 3) - 1) / 2) {
-		size = xa.width / 3;
+	    xa.width % 3 == 0 && (xa.height - 2) % 3 == 0 &&
+	    (xa.width / 3) % 2 == 1 && ((xa.height - 2) / 3) % 2 == 1 &&
+	    xa.x_hotspot < ((xa.width / 3) - 3) / 2) {
+		sizew = xa.width / 3;
+		sizeh = (xa.height - 2) / 3;
 		visual.division = visual.border = xa.x_hotspot;
 		visual.button = visual.tab = xa.y_hotspot;
 		visual.corner = visual.border + visual.tab;
-		visual.edge = (size - 1) / 2 - visual.corner;
-		visual.center = size - visual.border * 2;
+		visual.edge = (sizew - 3) / 2 - visual.corner;
+		visual.center = sizew - visual.border * 2;
 	}
-	if (size == 0) {
+	if (!sizew || !sizeh || !visual.division || !visual.border || !visual.button ||
+	    !visual.tab || !visual.corner || !visual.edge || !visual.center) {
 		XDestroyImage(img);
 		XFreePixmap(dpy, pix);
 		errx(1, "theme in wrong format");
@@ -881,36 +977,53 @@ inittheme(void)
 		x = 0;
 		for (j = 0; j < DECOR_LAST; j++) {
 			d = &visual.decor[i][j];
-			d->bl = copypixmap(pix, x + visual.border, y + visual.border, visual.button, visual.button);
-			d->tl = copypixmap(pix, x + visual.border + visual.button, y + visual.border, visual.edge, visual.tab);
-			d->t  = copypixmap(pix, x + visual.border + visual.button + visual.edge, y + visual.border, 1, visual.tab);
-			d->tr = copypixmap(pix, x + visual.border + visual.button + visual.edge + 1, y + visual.border, visual.edge, visual.tab);
-			d->br = copypixmap(pix, x + visual.border + visual.button + 2 * visual.edge + 1, y + visual.border, visual.button, visual.button);
-			d->nw = copypixmap(pix, x, y, visual.corner, visual.corner);
-			d->nf = copypixmap(pix, x + visual.corner, y, visual.edge, visual.border);
-			d->n  = copypixmap(pix, x + visual.corner + visual.edge, y, 1, visual.border);
-			d->nl = copypixmap(pix, x + visual.corner + visual.edge + 1, y, visual.edge, visual.border);
-			d->ne = copypixmap(pix, x + size - visual.corner, y, visual.corner, visual.corner);
-			d->wf = copypixmap(pix, x, y + visual.corner, visual.border, visual.edge);
-			d->w  = copypixmap(pix, x, y + visual.corner + visual.edge, visual.border, 1);
-			d->wl = copypixmap(pix, x, y + visual.corner + visual.edge + 1, visual.border, visual.edge);
-			d->ef = copypixmap(pix, x + size - visual.border, y + visual.corner, visual.border, visual.edge);
-			d->e  = copypixmap(pix, x + size - visual.border, y + visual.corner + visual.edge, visual.border, 1);
-			d->el = copypixmap(pix, x + size - visual.border, y + visual.corner + visual.edge + 1, visual.border, visual.edge);
-			d->sw = copypixmap(pix, x, y + size - visual.corner, visual.corner, visual.corner);
-			d->sf = copypixmap(pix, x + visual.corner, y + size - visual.border, visual.edge, visual.border);
-			d->s  = copypixmap(pix, x + visual.corner + visual.edge, y + size - visual.border, 1, visual.border);
-			d->sl = copypixmap(pix, x + visual.corner + visual.edge + 1, y + size - visual.border, visual.edge, visual.border);
-			d->se = copypixmap(pix, x + size - visual.corner, y + size - visual.corner, visual.corner, visual.corner);
-			d->fg = XGetPixel(img, x + size / 2, y + visual.corner + visual.edge);
-			d->bg = XGetPixel(img, x + size / 2, y + visual.border + visual.tab / 2);
-			x += size;
+			d->bl   = copypixmap(pix, x + visual.border, y + visual.border, visual.button, visual.button);
+			d->tl   = copypixmap(pix, x + visual.border + visual.button, y + visual.border, visual.edge, visual.tab);
+			d->tlt  = copypixmap(pix, x + visual.border + visual.button + visual.edge, y + visual.border, 1, visual.tab);
+			d->t    = copypixmap(pix, x + visual.border + visual.button + visual.edge + 1, y + visual.border, 1, visual.tab);
+			d->trt  = copypixmap(pix, x + visual.border + visual.button + visual.edge + 2, y + visual.border, 1, visual.tab);
+			d->tr   = copypixmap(pix, x + visual.border + visual.button + visual.edge + 3, y + visual.border, visual.edge, visual.tab);
+			d->br   = copypixmap(pix, x + visual.border + visual.button + 2 * visual.edge + 3, y + visual.border, visual.button, visual.button);
+			d->nw   = copypixmap(pix, x, y, visual.corner, visual.corner);
+			d->nf   = copypixmap(pix, x + visual.corner, y, visual.edge, visual.border);
+			d->n    = copypixmap(pix, x + visual.corner + visual.edge + 1, y, 1, visual.border);
+			d->nl   = copypixmap(pix, x + visual.corner + visual.edge + 3, y, visual.edge, visual.border);
+			d->ne   = copypixmap(pix, x + sizew - visual.corner, y, visual.corner, visual.corner);
+			d->wf   = copypixmap(pix, x, y + visual.corner, visual.border, visual.edge);
+			d->w    = copypixmap(pix, x, y + visual.corner + visual.edge, visual.border, 1);
+			d->wl   = copypixmap(pix, x, y + visual.corner + visual.edge + 1, visual.border, visual.edge);
+			d->ef   = copypixmap(pix, x + sizew - visual.border, y + visual.corner, visual.border, visual.edge);
+			d->e    = copypixmap(pix, x + sizew - visual.border, y + visual.corner + visual.edge, visual.border, 1);
+			d->el   = copypixmap(pix, x + sizew - visual.border, y + visual.corner + visual.edge + 1, visual.border, visual.edge);
+			d->sw   = copypixmap(pix, x, y + sizeh - visual.corner, visual.corner, visual.corner);
+			d->sf   = copypixmap(pix, x + visual.corner, y + sizeh - visual.border, visual.edge, visual.border);
+			d->s    = copypixmap(pix, x + visual.corner + visual.edge + 1, y + sizeh - visual.border, 1, visual.border);
+			d->sl   = copypixmap(pix, x + visual.corner + visual.edge + 3, y + sizeh - visual.border, visual.edge, visual.border);
+			d->se   = copypixmap(pix, x + sizew - visual.corner, y + sizeh - visual.corner, visual.corner, visual.corner);
+			d->fg   = XGetPixel(img, x + sizew / 2, y + visual.corner + visual.edge);
+			d->bg   = XGetPixel(img, x + sizew / 2, y + visual.border + visual.tab / 2);
+			x += sizew;
 		}
-		y += size;
+		y += sizeh;
 	}
+	visual.dock_bg = XGetPixel(img, 0, xa.height - 2);
+	visual.dock_border = XGetPixel(img, 0, xa.height - 1);
 
 	XDestroyImage(img);
 	XFreePixmap(dpy, pix);
+}
+
+/* create dock window */
+static void
+initdock(void)
+{
+	XSetWindowAttributes swa;
+
+	swa.event_mask = SubstructureNotifyMask | SubstructureRedirectMask | ExposureMask;
+	swa.background_pixel = visual.dock_bg;
+	dock.win = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
+		                     CopyFromParent, CopyFromParent, CopyFromParent,
+		                     CWEventMask | CWBackPixel, &swa);
 }
 
 /* get pointer to proper structure given a window */
@@ -918,7 +1031,8 @@ static struct Winres
 getwin(Window win)
 {
 	struct Winres res;
-	struct Dock *dock;
+	struct Dockapp *dapp;
+	struct Bar *bar;
 	struct Container *c;
 	struct Column *col;
 	struct Row *row;
@@ -927,14 +1041,26 @@ getwin(Window win)
 	struct Notification *n;
 
 	res.dock = NULL;
+	res.dapp = NULL;
+	res.bar = NULL;
 	res.row = NULL;
 	res.n = NULL;
 	res.c = NULL;
 	res.t = NULL;
 	res.d = NULL;
-	for (dock = wm.docks; dock != NULL; dock = dock->next) {
-		if (win == dock->win) {
-			res.dock = dock;
+	if (win == dock.win) {
+		res.dock = &dock;
+		return res;
+	}
+	for (dapp = dock.head; dapp != NULL; dapp = dapp->next) {
+		if (win == dapp->win) {
+			res.dapp = dapp;
+			return res;
+		}
+	}
+	for (bar = wm.bars; bar != NULL; bar = bar->next) {
+		if (win == bar->win) {
+			res.bar = bar;
 			return res;
 		}
 	}
@@ -1996,27 +2122,50 @@ tabdecorate(struct Tab *t, int pressed)
 	t->pw = t->winw;
 	t->ph = t->winh;
 
-	/* draw tab */
-	val.tile = decor->t;
-	val.ts_x_origin = 0;
-	val.ts_y_origin = 0;
-	val.fill_style = FillTiled;
-	XChangeGC(dpy, gc, GCTile | GCTileStipYOrigin | GCTileStipXOrigin | GCFillStyle, &val);
-	XFillRectangle(dpy, t->pixtitle, gc, visual.edge, 0, t->w - visual.edge, visual.tab);
-	XCopyArea(dpy, decor->tl, t->pixtitle, gc, 0, 0, visual.edge, visual.tab, 0, 0);
-	XCopyArea(dpy, decor->tr, t->pixtitle, gc, 0, 0, visual.edge, visual.tab, t->w - visual.edge, 0);
+		/* draw tab */
 
 	/* write tab title */
 	if (t->name != NULL) {
 		len = strlen(t->name);
-		val.fill_style = FillSolid;
-		val.foreground = decor->fg;
-		XChangeGC(dpy, gc, GCFillStyle | GCForeground, &val);
 		XmbTextExtents(visual.fontset, t->name, len, &dr, &box);
 		x = (t->w - box.width) / 2 - box.x;
 		y = (visual.tab - box.height) / 2 - box.y;
+
+		val.ts_x_origin = 0;
+		val.ts_y_origin = 0;
+		val.fill_style = FillTiled;
+
+		val.tile = decor->tlt;
+		XChangeGC(dpy, gc, GCTile | GCTileStipYOrigin | GCTileStipXOrigin | GCFillStyle, &val);
+		XFillRectangle(dpy, t->pixtitle, gc, visual.edge, 0, x - visual.edge, visual.tab);
+
+		val.tile = decor->t;
+		XChangeGC(dpy, gc, GCTile | GCTileStipYOrigin | GCTileStipXOrigin | GCFillStyle, &val);
+		XFillRectangle(dpy, t->pixtitle, gc, x, 0, box.width, visual.tab);
+
+		val.tile = decor->trt;
+		XChangeGC(dpy, gc, GCTile | GCTileStipYOrigin | GCTileStipXOrigin | GCFillStyle, &val);
+		XFillRectangle(dpy, t->pixtitle, gc, x + box.width, 0, t->w - visual.edge - x - box.width, visual.tab);
+
+		val.fill_style = FillSolid;
+		val.foreground = decor->fg;
+		XChangeGC(dpy, gc, GCFillStyle | GCForeground, &val);
 		XmbDrawString(dpy, t->pixtitle, visual.fontset, gc, x, y, t->name, len);
+	} else {
+		val.ts_x_origin = 0;
+		val.ts_y_origin = 0;
+		val.fill_style = FillTiled;
+
+		val.tile = decor->tlt;
+		XChangeGC(dpy, gc, GCTile | GCTileStipYOrigin | GCTileStipXOrigin | GCFillStyle, &val);
+		XFillRectangle(dpy, t->pixtitle, gc, visual.edge, 0, t->w / 2, visual.tab);
+
+		val.tile = decor->trt;
+		XChangeGC(dpy, gc, GCTile | GCTileStipYOrigin | GCTileStipXOrigin | GCFillStyle, &val);
+		XFillRectangle(dpy, t->pixtitle, gc, t->w / 2, 0, t->w - visual.edge, visual.tab);
 	}
+	XCopyArea(dpy, decor->tl, t->pixtitle, gc, 0, 0, visual.edge, visual.tab, 0, 0);
+	XCopyArea(dpy, decor->tr, t->pixtitle, gc, 0, 0, visual.edge, visual.tab, t->w - visual.edge, 0);
 
 	/* draw frame background */
 	if (!pressed) {
@@ -2463,7 +2612,7 @@ containerraise(struct Container *c)
 		wins[0] = wm.layerwins[LAYER_BELOW];
 	else
 		wins[0] = wm.layerwins[LAYER_NORMAL];
-	XRestackWindows(dpy, wins, sizeof(wins));
+	XRestackWindows(dpy, wins, 2);
 	ewmhsetclientsstacking();
 }
 
@@ -3449,7 +3598,7 @@ static void
 monupdatearea(void)
 {
 	struct Monitor *mon;
-	struct Dock *dock;
+	struct Bar *bar;
 	struct Container *c;
 	int t, b, l, r;
 
@@ -3459,38 +3608,54 @@ monupdatearea(void)
 		mon->ww = mon->mw;
 		mon->wh = mon->mh;
 		t = b = l = r = 0;
-		for (dock = wm.docks; dock != NULL; dock = dock->next) {
-			if (dock->strut[STRUT_TOP] != 0) {
-				if (dock->strut[STRUT_TOP] >= mon->my &&
-				    dock->strut[STRUT_TOP] < mon->my + mon->mh &&
-				    (!dock->partial ||
-				     (dock->strut[STRUT_TOP_START_X] >= mon->mx &&
-				     dock->strut[STRUT_TOP_END_X] <= mon->mx + mon->mw))) {
-					t = max(t, dock->strut[STRUT_TOP] - mon->my);
+		if (mon == wm.monhead && dock.mapped) {
+			switch (dock.pos) {
+			case SLIT_N: case SLIT_NW: case SLIT_NE:
+				t = dock.width;
+				break;
+			case SLIT_S: case SLIT_SW: case SLIT_SE:
+				b = dock.width;
+				break;
+			case SLIT_W: case SLIT_WN: case SLIT_WS:
+				l = dock.width;
+				break;
+			case SLIT_E: case SLIT_EN: case SLIT_ES:
+				r = dock.width;
+				break;
+			}
+		}
+		for (bar = wm.bars; bar != NULL; bar = bar->next) {
+			if (bar->strut[STRUT_TOP] != 0) {
+				if (bar->strut[STRUT_TOP] >= mon->my &&
+				    bar->strut[STRUT_TOP] < mon->my + mon->mh &&
+				    (!bar->partial ||
+				     (bar->strut[STRUT_TOP_START_X] >= mon->mx &&
+				     bar->strut[STRUT_TOP_END_X] <= mon->mx + mon->mw))) {
+					t = max(t, bar->strut[STRUT_TOP] - mon->my);
 				}
-			} else if (dock->strut[STRUT_BOTTOM] != 0) {
-				if (screenh - dock->strut[STRUT_BOTTOM] <= mon->my + mon->mh &&
-				    screenh - dock->strut[STRUT_BOTTOM] > mon->my &&
-				    (!dock->partial ||
-				     (dock->strut[STRUT_BOTTOM_START_X] >= mon->mx &&
-				     dock->strut[STRUT_BOTTOM_END_X] <= mon->mx + mon->mw))) {
-					b = max(b, dock->strut[STRUT_BOTTOM] - (screenh - (mon->my + mon->mh)));
+			} else if (bar->strut[STRUT_BOTTOM] != 0) {
+				if (screenh - bar->strut[STRUT_BOTTOM] <= mon->my + mon->mh &&
+				    screenh - bar->strut[STRUT_BOTTOM] > mon->my &&
+				    (!bar->partial ||
+				     (bar->strut[STRUT_BOTTOM_START_X] >= mon->mx &&
+				     bar->strut[STRUT_BOTTOM_END_X] <= mon->mx + mon->mw))) {
+					b = max(b, bar->strut[STRUT_BOTTOM] - (screenh - (mon->my + mon->mh)));
 				}
-			} else if (dock->strut[STRUT_LEFT] != 0) {
-				if (dock->strut[STRUT_LEFT] >= mon->mx &&
-				    dock->strut[STRUT_LEFT] < mon->mx + mon->mw &&
-				    (!dock->partial ||
-				     (dock->strut[STRUT_LEFT_START_Y] >= mon->my &&
-				     dock->strut[STRUT_LEFT_END_Y] <= mon->my + mon->mh))) {
-					l = max(l, dock->strut[STRUT_LEFT] - mon->mx);
+			} else if (bar->strut[STRUT_LEFT] != 0) {
+				if (bar->strut[STRUT_LEFT] >= mon->mx &&
+				    bar->strut[STRUT_LEFT] < mon->mx + mon->mw &&
+				    (!bar->partial ||
+				     (bar->strut[STRUT_LEFT_START_Y] >= mon->my &&
+				     bar->strut[STRUT_LEFT_END_Y] <= mon->my + mon->mh))) {
+					l = max(l, bar->strut[STRUT_LEFT] - mon->mx);
 				}
-			} else if (dock->strut[STRUT_RIGHT] != 0) {
-				if (screenw - dock->strut[STRUT_RIGHT] <= mon->mx + mon->mw &&
-				    screenw - dock->strut[STRUT_RIGHT] > mon->mx &&
-				    (!dock->partial ||
-				     (dock->strut[STRUT_RIGHT_START_Y] >= mon->my &&
-				     dock->strut[STRUT_RIGHT_END_Y] <= mon->my + mon->mh))) {
-					r = max(r, dock->strut[STRUT_RIGHT] - (screenw - (mon->mx + mon->mw)));
+			} else if (bar->strut[STRUT_RIGHT] != 0) {
+				if (screenw - bar->strut[STRUT_RIGHT] <= mon->mx + mon->mw &&
+				    screenw - bar->strut[STRUT_RIGHT] > mon->mx &&
+				    (!bar->partial ||
+				     (bar->strut[STRUT_RIGHT_START_Y] >= mon->my &&
+				     bar->strut[STRUT_RIGHT_END_Y] <= mon->my + mon->mh))) {
+					r = max(r, bar->strut[STRUT_RIGHT] - (screenw - (mon->mx + mon->mw)));
 				}
 			}
 		}
@@ -3758,40 +3923,252 @@ notifdel(struct Notification *n)
 	notifplace();
 }
 
-/* fill strut array of dock */
+/* fill strut array of bar */
 static void
-dockstrut(struct Dock *dock)
+barstrut(struct Bar *bar)
 {
 	unsigned long *arr;
 	unsigned long l, i;
 
 	for (i = 0; i < STRUT_LAST; i++)
-		dock->strut[i] = 0;
-	dock->partial = 1;
-	l = getcardprop(dock->win, atoms[_NET_WM_STRUT_PARTIAL], &arr);
+		bar->strut[i] = 0;
+	bar->partial = 1;
+	l = getcardprop(bar->win, atoms[_NET_WM_STRUT_PARTIAL], &arr);
 	if (arr == NULL) {
-		dock->partial = 0;
-		l = getcardprop(dock->win, atoms[_NET_WM_STRUT], &arr);
+		bar->partial = 0;
+		l = getcardprop(bar->win, atoms[_NET_WM_STRUT], &arr);
 		if (arr == NULL) {
 			return;
 		}
 	}
 	for (i = 0; i < STRUT_LAST && i < l; i++)
-		dock->strut[i] = arr[i];
+		bar->strut[i] = arr[i];
 	XFree(arr);
 }
 
-/* delete dock */
+/* delete bar */
 static void
-dockdel(struct Dock *dock)
+bardel(struct Bar *bar)
 {
-	if (dock->next != NULL)
-		dock->next->prev = dock->prev;
-	if (dock->prev != NULL)
-		dock->prev->next = dock->next;
+	if (bar->next != NULL)
+		bar->next->prev = bar->prev;
+	if (bar->prev != NULL)
+		bar->prev->next = bar->next;
 	else
-		wm.docks = dock->next;
-	free(dock);
+		wm.bars = bar->next;
+	free(bar);
+	monupdatearea();
+}
+
+/* decorate dock */
+static void
+dockdecorate(void)
+{
+	XGCValues val;
+
+	if (dock.pw != dock.w || dock.ph != dock.h || dock.pix == None) {
+		if (dock.pix != None)
+			XFreePixmap(dpy, dock.pix);
+		dock.pix = XCreatePixmap(dpy, dock.win, dock.w, dock.h, depth);
+	}
+	dock.pw = dock.w;
+	dock.ph = dock.h;
+	val.fill_style = FillSolid;
+	val.foreground = visual.dock_bg;
+	XChangeGC(dpy, gc, GCFillStyle | GCForeground, &val);
+	XFillRectangle(dpy, dock.pix, gc, 0, 0, dock.w, dock.h);
+
+	val.foreground = visual.dock_border;
+	XChangeGC(dpy, gc, GCFillStyle | GCForeground, &val);
+	switch (dock.pos) {
+	case SLIT_N: case SLIT_NW: case SLIT_NE:
+		XFillRectangle(dpy, dock.pix, gc, 0, 0, 1, dock.h);
+		XFillRectangle(dpy, dock.pix, gc, dock.w - 1, 0, 1, dock.h);
+		XFillRectangle(dpy, dock.pix, gc, 0, dock.h - 1, dock.w - 2, 1);
+		break;
+	case SLIT_S: case SLIT_SW: case SLIT_SE:
+		XFillRectangle(dpy, dock.pix, gc, 0, 0, 1, dock.h);
+		XFillRectangle(dpy, dock.pix, gc, dock.w - 1, 0, 1, dock.h);
+		XFillRectangle(dpy, dock.pix, gc, 0, 0, dock.w - 2, 1);
+		break;
+	case SLIT_W: case SLIT_WN: case SLIT_WS:
+		XFillRectangle(dpy, dock.pix, gc, 0, 0, dock.w, 1);
+		XFillRectangle(dpy, dock.pix, gc, 0, dock.h - 1, dock.w, 1);
+		XFillRectangle(dpy, dock.pix, gc, dock.w - 1, 0, 1, dock.h - 2);
+		break;
+	case SLIT_E: case SLIT_EN: case SLIT_ES:
+		XFillRectangle(dpy, dock.pix, gc, 0, 0, dock.w, 1);
+		XFillRectangle(dpy, dock.pix, gc, 0, dock.h - 1, dock.w, 1);
+		XFillRectangle(dpy, dock.pix, gc, 0, 0, 1, dock.h - 2);
+		break;
+	}
+	XCopyArea(dpy, dock.pix, dock.win, gc, 0, 0, dock.w, dock.h, 0, 0);
+}
+
+/* update dock position; create it, if necessary */
+static void
+dockupdate(void)
+{
+	struct Dockapp *dapp;
+	Window wins[2];
+	int size;
+
+	size = 0;
+	for (dapp = dock.head; dapp != NULL; dapp = dapp->next) {
+		switch (dock.pos) {
+		case SLIT_N: case SLIT_NW: case SLIT_NE:
+			dapp->x = 1 + size + dapp->gw / 2 - dapp->w / 2;
+			dapp->y = dock.width / 2 - dapp->h / 2;
+			size += dapp->gw;
+			break;
+		case SLIT_S: case SLIT_SW: case SLIT_SE:
+			dapp->x = 1 + size + dapp->gw / 2 - dapp->w / 2;
+			dapp->y = 1 + dock.width / 2 - dapp->h / 2;
+			size += dapp->gw;
+			break;
+		case SLIT_W: case SLIT_WN: case SLIT_WS:
+			dapp->x = dock.width / 2 - dapp->w / 2;
+			dapp->y = 1 + size + dapp->gh / 2 - dapp->h / 2;
+			size += dapp->gh;
+			break;
+		case SLIT_E: case SLIT_EN: case SLIT_ES:
+			dapp->x = 1 + dock.width / 2 - dapp->w / 2;
+			dapp->y = 1 + size + dapp->gh / 2 - dapp->h / 2;
+			size += dapp->gh;
+			break;
+		}
+	}
+	if (size == 0) {
+		XUnmapWindow(dpy, dock.win);
+		dock.mapped = 0;
+		return;
+	}
+	dock.mapped = 1;
+	size += 2;
+	switch (dock.pos) {
+	case SLIT_NW:
+		dock.h = dock.width + 1;
+		dock.w = min(size, wm.monhead->mw);
+		dock.x = 0;
+		dock.y = 0;
+		break;
+	case SLIT_N:
+		dock.h = dock.width + 1;
+		dock.w = min(size, wm.monhead->mw);
+		dock.x = wm.monhead->mw / 2 - size / 2;
+		dock.y = 0;
+		break;
+	case SLIT_NE:
+		dock.h = dock.width + 1;
+		dock.w = min(size, wm.monhead->mw);
+		dock.x = wm.monhead->mw - size;
+		dock.y = 0;
+		break;
+	case SLIT_SW:
+		dock.h = dock.width + 1;
+		dock.w = min(size, wm.monhead->mw);
+		dock.x = 0;
+		dock.y = wm.monhead->mh - dock.width;
+		break;
+	case SLIT_S:
+		dock.h = dock.width + 1;
+		dock.w = min(size, wm.monhead->mw);
+		dock.x = wm.monhead->mw / 2 - size / 2;
+		dock.y = wm.monhead->mh - dock.width;
+		break;
+	case SLIT_SE:
+		dock.h = dock.width + 1;
+		dock.w = min(size, wm.monhead->mw);
+		dock.x = wm.monhead->mw - size;
+		dock.y = wm.monhead->mh - dock.width;
+		break;
+	case SLIT_WN:
+		dock.w = dock.width + 1;
+		dock.h = min(size, wm.monhead->mh);
+		dock.x = 0;
+		dock.y = 0;
+		break;
+	case SLIT_W:
+		dock.w = dock.width + 1;
+		dock.h = min(size, wm.monhead->mh);
+		dock.x = 0;
+		dock.y = wm.monhead->mh / 2 - size / 2;
+		break;
+	case SLIT_WS:
+		dock.w = dock.width + 1;
+		dock.h = min(size, wm.monhead->mh);
+		dock.x = 0;
+		dock.y = wm.monhead->mh - size;
+		break;
+	case SLIT_EN:
+		dock.w = dock.width + 1;
+		dock.h = min(size, wm.monhead->mh);
+		dock.x = wm.monhead->mw - dock.width;
+		dock.y = 0;
+		break;
+	case SLIT_E:
+		dock.w = dock.width + 1;
+		dock.h = min(size, wm.monhead->mh);
+		dock.x = wm.monhead->mw - dock.width;
+		dock.y = wm.monhead->mh / 2 - size / 2;
+		break;
+	case SLIT_ES:
+		dock.w = dock.width + 1;
+		dock.h = min(size, wm.monhead->mh);
+		dock.x = wm.monhead->mw - dock.width;
+		dock.y = wm.monhead->mh - size;
+		break;
+	}
+	for (dapp = dock.head; dapp != NULL; dapp = dapp->next) {
+		XMoveWindow(dpy, dapp->win, dapp->x, dapp->y);
+	}
+	dockdecorate();
+	wins[0] = wm.layerwins[LAYER_DOCK];
+	wins[1] = dock.win;
+	XMoveResizeWindow(dpy, dock.win, dock.x, dock.y, dock.w, dock.h);
+	XRestackWindows(dpy, wins, 2);
+	XMapWindow(dpy, dock.win);
+	XMapSubwindows(dpy, dock.win);
+}
+
+/* create dockapp */
+static void
+dockappnew(Window win, int w, int h, int ignoreunmap)
+{
+	struct Dockapp *dapp;
+
+	dapp = emalloc(sizeof(*dapp));
+	dapp->win = win;
+	dapp->x = dapp->y = 0;
+	dapp->w = w;
+	dapp->h = h;
+	dapp->gw = dock.width * (((w - 1) / dock.width) + 1);
+	dapp->gh = dock.width * (((h - 1) / dock.width) + 1);
+	dapp->prev = dock.tail;
+	dapp->next = NULL;
+	dapp->ignoreunmap = ignoreunmap;
+	if (dock.tail != NULL)
+		dock.tail->next = dapp;
+	else
+		dock.head = dapp;
+	dock.tail = dapp;
+}
+
+/* delete dockapp */
+static void
+dockappdel(struct Dockapp *dapp)
+{
+	if (dapp->next != NULL)
+		dapp->next->prev = dapp->prev;
+	else
+		dock.tail = dapp->prev;
+	if (dapp->prev != NULL)
+		dapp->prev->next = dapp->next;
+	else
+		dock.head = dapp->next;
+	XReparentWindow(dpy, dapp->win, root, 0, 0);
+	free(dapp);
+	dockupdate();
 	monupdatearea();
 }
 
@@ -3801,7 +4178,9 @@ decorate(struct Winres *res)
 {
 	int fullw, fullh;
 
-	if (res->n) {
+	if (res->dock) {
+		XCopyArea(dpy, res->dock->pix, res->dock->win, gc, 0, 0, res->dock->w, res->dock->h, 0, 0);
+	} else if (res->n) {
 		XCopyArea(dpy, res->n->pix, res->n->frame, gc, 0, 0, res->n->w, res->n->h, 0, 0);
 	} else if (res->d != NULL) {
 		fullw = res->d->w + 2 * visual.border;
@@ -3905,18 +4284,18 @@ managedesktop(Window win)
 {
 	Window wins[2] = {wm.layerwins[LAYER_DESKTOP], win};
 
-	XRestackWindows(dpy, wins, sizeof wins);
+	XRestackWindows(dpy, wins, 2);
 	XMapWindow(dpy, win);
 }
 
 /* map dockapp window */
 static void
-managedockapp(Window win)
+managedockapp(Window win, int w, int h, int ignoreunmap)
 {
-	Window wins[2] = {wm.layerwins[LAYER_DESKTOP], win};
-
-	XRestackWindows(dpy, wins, sizeof wins);
-	XMapWindow(dpy, win);
+	XReparentWindow(dpy, win, dock.win, 0, 0);
+	dockappnew(win, w, h, ignoreunmap);
+	dockupdate();
+	monupdatearea();
 }
 
 /* add notification window into notification queue; and update notification placement */
@@ -3950,23 +4329,23 @@ managecontainer(struct Container *c, struct Tab *t, struct Desktop *desk, int us
 	ewmhsetclientsstacking();
 }
 
-/* map dock window */
+/* map bar window */
 static void
-managedock(Window win)
+managebar(Window win)
 {
-	struct Dock *dock;
+	struct Bar *bar;
 	Window wins[2] = {wm.layerwins[LAYER_DOCK], win};
 
-	dock = emalloc(sizeof(*dock));
-	dock->prev = dock->next = NULL;
-	dock->win = win;
-	if (wm.docks != NULL)
-		wm.docks->prev = dock;
-	dock->next = wm.docks;
-	wm.docks = dock;
-	XRestackWindows(dpy, wins, sizeof wins);
+	bar = emalloc(sizeof(*bar));
+	bar->prev = bar->next = NULL;
+	bar->win = win;
+	if (wm.bars != NULL)
+		wm.bars->prev = bar;
+	bar->next = wm.bars;
+	wm.bars = bar;
+	XRestackWindows(dpy, wins, 2);
 	XMapWindow(dpy, win);
-	dockstrut(dock);
+	barstrut(bar);
 	monupdatearea();
 }
 
@@ -3981,17 +4360,17 @@ manage(Window win, XWindowAttributes *wa, int ignoreunmap)
 	int userplaced;
 
 	res = getwin(win);
-	if (res.c != NULL || res.dock != NULL)
+	if (res.dock != NULL || res.c != NULL || res.bar != NULL || res.dapp != NULL || res.n != NULL)
 		return;
 	switch (getwintype(win)) {
 	case TYPE_DESKTOP:
 		managedesktop(win);
 		break;
 	case TYPE_DOCKAPP:
-		managedockapp(win);
+		managedockapp(win, wa->width, wa->height, ignoreunmap);
 		break;
 	case TYPE_DOCK:
-		managedock(win);
+		managebar(win);
 		break;
 	case TYPE_NOTIFICATION:
 		preparewin(win);
@@ -4955,11 +5334,13 @@ xeventdestroynotify(XEvent *e)
 
 	ev = &e->xdestroywindow;
 	res = getwin(ev->window);
-	if (res.n && ev->window == res.n->win) {
+	if (res.dapp && ev->window == res.dapp->win) {
+		dockappdel(res.dapp);
+	} else if (res.n && ev->window == res.n->win) {
 		notifdel(res.n);
 		return;
-	} else if (res.dock != NULL && ev->window == res.dock->win) {
-		dockdel(res.dock);
+	} else if (res.bar != NULL && ev->window == res.bar->win) {
+		bardel(res.bar);
 		return;
 	} else if (res.d && ev->window == res.d->win) {
 		dialogdel(res.d);
@@ -5103,8 +5484,8 @@ xeventpropertynotify(XEvent *e)
 		tabdecorate(res.t, 0);
 	} else if (ev->atom == XA_WM_HINTS) {
 		tabupdateurgency(res.t, winisurgent(res.t->win));
-	} else if (res.dock != NULL && (ev->atom == _NET_WM_STRUT_PARTIAL || ev->atom == _NET_WM_STRUT)) {
-		dockstrut(res.dock);
+	} else if (res.bar != NULL && (ev->atom == _NET_WM_STRUT_PARTIAL || ev->atom == _NET_WM_STRUT)) {
+		barstrut(res.bar);
 		monupdatearea();
 	}
 }
@@ -5118,11 +5499,18 @@ xeventunmapnotify(XEvent *e)
 
 	ev = &e->xunmap;
 	res = getwin(ev->window);
-	if (res.n && ev->window == res.n->win) {
+	if (res.bar != NULL && ev->window == res.bar->win) {
+		bardel(res.bar);
+		return;
+	} else if (res.n && ev->window == res.n->win) {
 		notifdel(res.n);
 		return;
-	} else if (res.dock != NULL && ev->window == res.dock->win) {
-		dockdel(res.dock);
+	} else if (res.dapp && ev->window == res.dapp->win) {
+		if (res.dapp->ignoreunmap) {
+			res.dapp->ignoreunmap--;
+		} else {
+			dockappdel(res.dapp);
+		}
 		return;
 	} else if (res.d && ev->window == res.d->win) {
 		if (res.d->ignoreunmap) {
@@ -5177,12 +5565,23 @@ cleanwm(void)
 	while (wm.nhead != NULL) {
 		notifdel(wm.nhead);
 	}
-	while (wm.docks != NULL) {
-		dockdel(wm.docks);
+	while (wm.bars != NULL) {
+		bardel(wm.bars);
 	}
 	while (wm.monhead != NULL) {
 		mondel(wm.monhead);
 	}
+}
+
+/* clean dock */
+static void
+cleandock(void)
+{
+	while (dock.head != NULL) {
+		dockappdel(dock.head);
+	}
+	XFreePixmap(dpy, dock.pix);
+	XDestroyWindow(dpy, dock.win);
 }
 
 /* free pixmaps */
@@ -5196,7 +5595,9 @@ cleanpixmaps(void)
 			XFreePixmap(dpy, visual.decor[i][j].bl);
 			XFreePixmap(dpy, visual.decor[i][j].br);
 			XFreePixmap(dpy, visual.decor[i][j].tl);
+			XFreePixmap(dpy, visual.decor[i][j].tlt);
 			XFreePixmap(dpy, visual.decor[i][j].t);
+			XFreePixmap(dpy, visual.decor[i][j].trt);
 			XFreePixmap(dpy, visual.decor[i][j].tr);
 			XFreePixmap(dpy, visual.decor[i][j].nw);
 			XFreePixmap(dpy, visual.decor[i][j].nf);
@@ -5270,6 +5671,7 @@ main(int argc, char *argv[])
 	initnotif();
 	initroot();
 	inittheme();
+	initdock();
 
 	/* set up list of monitors */
 	monupdate();
@@ -5298,6 +5700,7 @@ main(int argc, char *argv[])
 	cleanpixmaps();
 	cleanfontset();
 	cleanwm();
+	cleandock();
 
 	/* clear ewmh hints */
 	ewmhsetclients();

@@ -4,12 +4,16 @@
 \- mouse-focused window manager
 .SH SYNOPSIS
 .B shod
+.RB [ \-D
+.IR dockspec ]
 .RB [ \-f
 .IR buttons ]
 .RB [ \-m
 .IR modifier ]
-.RB [ \-n
+.RB [ \-N
 .IR notificationspec ]
+.RB [ \-n
+.IR ndesks ]
 .RB [ \-r
 .IR buttons ]
 .PP
@@ -66,6 +70,19 @@ to control shod).
 .PP
 The options are as follows:
 .TP
+.BI \-D " dockspec"
+Specify the position and width of the dock.
+If dockspec is
+.BR NE56 ,
+The dock will be placed in the north side of the screen, at the east edge, with a width of 56 pixels.
+If dockspec is
+.BR W32 ,
+The dock will be placed in the west side of the screen, at the center, with a width of 32 pixels.
+If dockspec is
+.B E64
+(de default value)
+The dock will be placed in the east side of the screen, at the center, with a width of 64 pixels.
+.TP
 .BI \-f " buttons"
 Which mouse buttons are used to focus a window when clicking on it.
 The argument of this option is a string of numbers 1 to 5 (corresponding to mouse buttons 1 to 5).
@@ -89,7 +106,7 @@ By default,
 .B shod
 uses Mod1 (Alt) as modifier.
 .TP
-.BI \-n " notificationspec"
+.BI \-N " notificationspec"
 This option is used to specify the placement of notification windows.
 The argument of this option is a string of the form POS:GAP;
 where POS is a cardinal position such as NW (northwest), SE (southeast) or C (center);
@@ -99,6 +116,14 @@ For example, if this option is called with
 (the default value)
 notifications are placed in the top right (northeast) corner of the screen,
 and have a gap of 3 pixels between them.
+.TP
+.BI \-n " ndesks"
+Specify the number of desktops for
+.B shod
+to manage.
+By default,
+.B shod
+manages 10 desktops.
 .TP
 .BI \-r " buttons"
 Which mouse buttons are used to raise a window when clicking on it.
@@ -385,7 +410,7 @@ Each monitor contains a different set of virtual desktops (or "desktop", for sho
 One of the desktops of a monitor is the focused desktop for that monitor.
 .PP
 Each monitor has an area called container area, within containers are spawned and can be maximized.
-The size and position of a monitor's container area can be changed by dock windows.
+The size and position of a monitor's container area can be changed by bars and the dock.
 .PP
 Most client windows are displayed in containers;
 but some windows are special and are displayed in different ways.
@@ -668,36 +693,37 @@ An example of a notification window would be a bubble appearing with informative
 "Your laptop is running out of power" etc.
 .PP
 The screen corner where notification windows pop up can be changed with the
-.B \-n
+.B \-N
 command-line option.
 .PP
 .B shod
 can change the size and the position of notification windows.
-.SH DOCKS
+.SH BARS
 Windows of type
 .B _NET_WM_WINDOW_TYPE_DOCK
-(called docks, panels, or bars)
+(called, panels, bars, or external docks (to distinguish them from shod's internal dock))
 are mapped on a side of a monitor.
 Dock windows cannot be manipulated, have no decoration and do not receive input focus.
 .PP
-A dock window can change the size of a region of the monitor called container area.
+A bar window can change the size of a region of the monitor called container area.
 The container area is the region of the monitor that a maximized container occupies.
 The container area is also the region of the monitor inside which containers are spawned.
 .PP
-Example of dock are a taskbar (that shows which programs are currently running),
+Example of bar are a taskbar (that shows which programs are currently running),
 and a statusbar (that shows information about the system, such as memory usage and system time).
 .PP
 .B shod
-does not change the size nor the position of dock windows.
+does not change the size nor the position of bar windows.
 .SH DOCKAPPS
-Windows that initiates in the WithdrawnState (called dockapps)
-are ignored and mapped below all other windows.
+Windows that initiates in the WithdrawnState (called dockapps) are mapped inside the dock.
+The dock is a panel or bar that appears on the edge of the first monitor.
+Inside the dock, dockapps are organized by order of map request.
 .PP
 Dockapps, or docked applications are windows which appear to reside
 inside an icon or a dock rather than a container.
 .PP
-.B shod
-will probably support dockapps in the future, but for now, they are simply ignored.
+The placement of the dock can be changed with the
+.B \-D command-line option.
 .SH ENVIRONMENT
 The following environment variables affect the execution of
 .B shod
