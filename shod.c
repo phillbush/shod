@@ -29,8 +29,9 @@
 #define NAMEMAXLEN      1024    /* maximum length of window's name */
 #define DROPPIXELS      30      /* number of pixels from the border where a tab can be dropped in */
 #define RESIZETIME      64      /* time to redraw containers during resizing */
-#define DEF_SLITPOS     SLIT_E  /* default dock position */
-#define DEF_SLITWIDTH   64      /* default dock width */
+#define DEF_DOCKPOS     DOCK_E  /* default dock position */
+#define DEF_DOCKWIDTH   64      /* default dock width */
+#define DEF_DOCKSPACE   64      /* default size of the space for dockapps */
 #define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
 
 /* window type */
@@ -228,18 +229,18 @@ enum {
 
 /* dock position */
 enum {
-	SLIT_NW,
-	SLIT_N,
-	SLIT_NE,
-	SLIT_SW,
-	SLIT_S,
-	SLIT_SE,
-	SLIT_WN,
-	SLIT_W,
-	SLIT_WS,
-	SLIT_EN,
-	SLIT_E,
-	SLIT_ES,
+	DOCK_NW,
+	DOCK_N,
+	DOCK_NE,
+	DOCK_SW,
+	DOCK_S,
+	DOCK_SE,
+	DOCK_WN,
+	DOCK_W,
+	DOCK_WS,
+	DOCK_EN,
+	DOCK_E,
+	DOCK_ES,
 };
 
 /* window eight sections (aka octants) */
@@ -449,6 +450,7 @@ struct Dock {
 	Window win;                     /* dock window */
 	Pixmap pix;                     /* dock pixmap */
 	int width;                      /* dock width */
+	int space;                      /* dock space for dockapps */
 	int x, y, w, h;                 /* dock geometry */
 	int pw, ph;                     /* dock pixmap size */
 	int pos;                        /* dock position */
@@ -506,7 +508,7 @@ static int screen, screenw, screenh;
 static Atom atoms[ATOM_LAST];
 static struct Visual visual;
 static struct WM wm;
-static struct Dock dock = {.pix = None, .win = None, .pos = DEF_SLITPOS, .width = DEF_SLITWIDTH};
+static struct Dock dock = {.pix = None, .win = None, .pos = DEF_DOCKPOS, .width = DEF_DOCKWIDTH, .space = DEF_DOCKSPACE};
 static struct Config config;
 volatile sig_atomic_t running = 1;
 
@@ -645,44 +647,49 @@ static void
 parsedock(const char *s)
 {
 	int n;
+	char *t;
 
 	switch (s[0]) {
 	case 'N':
 		if (s[1] == 'W')
-			dock.pos = SLIT_NW;
+			dock.pos = DOCK_NW;
 		else if (s[1] == 'E')
-			dock.pos = SLIT_NE;
+			dock.pos = DOCK_NE;
 		else
-			dock.pos = SLIT_N;
+			dock.pos = DOCK_N;
 		break;
 	case 'S':
 		if (s[1] == 'W')
-			dock.pos = SLIT_SW;
+			dock.pos = DOCK_SW;
 		else if (s[1] == 'E')
-			dock.pos = SLIT_SE;
+			dock.pos = DOCK_SE;
 		else
-			dock.pos = SLIT_S;
+			dock.pos = DOCK_S;
 		break;
 	case 'W':
 		if (s[1] == 'N')
-			dock.pos = SLIT_WN;
+			dock.pos = DOCK_WN;
 		else if (s[1] == 'S')
-			dock.pos = SLIT_WS;
+			dock.pos = DOCK_WS;
 		else
-			dock.pos = SLIT_W;
+			dock.pos = DOCK_W;
 		break;
 	case 'E':
 		if (s[1] == 'N')
-			dock.pos = SLIT_EN;
+			dock.pos = DOCK_EN;
 		else if (s[1] == 'S')
-			dock.pos = SLIT_ES;
+			dock.pos = DOCK_ES;
 		else
-			dock.pos = SLIT_E;
+			dock.pos = DOCK_E;
 		break;
 	}
-	if ((n = strtol(optarg, NULL, 10)) > 0) {
-		dock.width = n;
+	if ((n = strtol(optarg, &t, 10)) > 0) {
+		dock.space = dock.width = n;
 	}
+	if (*t == '/' && (n = strtol(&t[1], NULL, 10)) > 0) {
+		dock.space = n;
+	}
+	dock.width++;
 }
 
 /* stop running */
@@ -3610,16 +3617,16 @@ monupdatearea(void)
 		t = b = l = r = 0;
 		if (mon == wm.monhead && dock.mapped) {
 			switch (dock.pos) {
-			case SLIT_N: case SLIT_NW: case SLIT_NE:
+			case DOCK_N: case DOCK_NW: case DOCK_NE:
 				t = dock.width;
 				break;
-			case SLIT_S: case SLIT_SW: case SLIT_SE:
+			case DOCK_S: case DOCK_SW: case DOCK_SE:
 				b = dock.width;
 				break;
-			case SLIT_W: case SLIT_WN: case SLIT_WS:
+			case DOCK_W: case DOCK_WN: case DOCK_WS:
 				l = dock.width;
 				break;
-			case SLIT_E: case SLIT_EN: case SLIT_ES:
+			case DOCK_E: case DOCK_EN: case DOCK_ES:
 				r = dock.width;
 				break;
 			}
@@ -3981,25 +3988,25 @@ dockdecorate(void)
 	val.foreground = visual.dock_border;
 	XChangeGC(dpy, gc, GCFillStyle | GCForeground, &val);
 	switch (dock.pos) {
-	case SLIT_N: case SLIT_NW: case SLIT_NE:
+	case DOCK_N: case DOCK_NW: case DOCK_NE:
 		XFillRectangle(dpy, dock.pix, gc, 0, 0, 1, dock.h);
 		XFillRectangle(dpy, dock.pix, gc, dock.w - 1, 0, 1, dock.h);
-		XFillRectangle(dpy, dock.pix, gc, 0, dock.h - 1, dock.w - 2, 1);
+		XFillRectangle(dpy, dock.pix, gc, 1, dock.h - 1, dock.w - 2, 1);
 		break;
-	case SLIT_S: case SLIT_SW: case SLIT_SE:
+	case DOCK_S: case DOCK_SW: case DOCK_SE:
 		XFillRectangle(dpy, dock.pix, gc, 0, 0, 1, dock.h);
 		XFillRectangle(dpy, dock.pix, gc, dock.w - 1, 0, 1, dock.h);
-		XFillRectangle(dpy, dock.pix, gc, 0, 0, dock.w - 2, 1);
+		XFillRectangle(dpy, dock.pix, gc, 1, 0, dock.w - 2, 1);
 		break;
-	case SLIT_W: case SLIT_WN: case SLIT_WS:
+	case DOCK_W: case DOCK_WN: case DOCK_WS:
 		XFillRectangle(dpy, dock.pix, gc, 0, 0, dock.w, 1);
 		XFillRectangle(dpy, dock.pix, gc, 0, dock.h - 1, dock.w, 1);
-		XFillRectangle(dpy, dock.pix, gc, dock.w - 1, 0, 1, dock.h - 2);
+		XFillRectangle(dpy, dock.pix, gc, dock.w - 1, 1, 1, dock.h - 2);
 		break;
-	case SLIT_E: case SLIT_EN: case SLIT_ES:
+	case DOCK_E: case DOCK_EN: case DOCK_ES:
 		XFillRectangle(dpy, dock.pix, gc, 0, 0, dock.w, 1);
 		XFillRectangle(dpy, dock.pix, gc, 0, dock.h - 1, dock.w, 1);
-		XFillRectangle(dpy, dock.pix, gc, 0, 0, 1, dock.h - 2);
+		XFillRectangle(dpy, dock.pix, gc, 0, 1, 1, dock.h - 2);
 		break;
 	}
 	XCopyArea(dpy, dock.pix, dock.win, gc, 0, 0, dock.w, dock.h, 0, 0);
@@ -4016,23 +4023,23 @@ dockupdate(void)
 	size = 0;
 	for (dapp = dock.head; dapp != NULL; dapp = dapp->next) {
 		switch (dock.pos) {
-		case SLIT_N: case SLIT_NW: case SLIT_NE:
+		case DOCK_N: case DOCK_NW: case DOCK_NE:
 			dapp->x = 1 + size + dapp->gw / 2 - dapp->w / 2;
-			dapp->y = dock.width / 2 - dapp->h / 2;
+			dapp->y = dock.space / 2 - dapp->h / 2;
 			size += dapp->gw;
 			break;
-		case SLIT_S: case SLIT_SW: case SLIT_SE:
+		case DOCK_S: case DOCK_SW: case DOCK_SE:
 			dapp->x = 1 + size + dapp->gw / 2 - dapp->w / 2;
-			dapp->y = 1 + dock.width / 2 - dapp->h / 2;
+			dapp->y = 1 + dock.space / 2 - dapp->h / 2;
 			size += dapp->gw;
 			break;
-		case SLIT_W: case SLIT_WN: case SLIT_WS:
-			dapp->x = dock.width / 2 - dapp->w / 2;
+		case DOCK_W: case DOCK_WN: case DOCK_WS:
+			dapp->x = dock.space / 2 - dapp->w / 2;
 			dapp->y = 1 + size + dapp->gh / 2 - dapp->h / 2;
 			size += dapp->gh;
 			break;
-		case SLIT_E: case SLIT_EN: case SLIT_ES:
-			dapp->x = 1 + dock.width / 2 - dapp->w / 2;
+		case DOCK_E: case DOCK_EN: case DOCK_ES:
+			dapp->x = 1 + dock.space / 2 - dapp->w / 2;
 			dapp->y = 1 + size + dapp->gh / 2 - dapp->h / 2;
 			size += dapp->gh;
 			break;
@@ -4046,74 +4053,74 @@ dockupdate(void)
 	dock.mapped = 1;
 	size += 2;
 	switch (dock.pos) {
-	case SLIT_NW:
-		dock.h = dock.width + 1;
+	case DOCK_NW:
+		dock.h = dock.width;
 		dock.w = min(size, wm.monhead->mw);
 		dock.x = 0;
 		dock.y = 0;
 		break;
-	case SLIT_N:
-		dock.h = dock.width + 1;
+	case DOCK_N:
+		dock.h = dock.width;
 		dock.w = min(size, wm.monhead->mw);
 		dock.x = wm.monhead->mw / 2 - size / 2;
 		dock.y = 0;
 		break;
-	case SLIT_NE:
-		dock.h = dock.width + 1;
+	case DOCK_NE:
+		dock.h = dock.width;
 		dock.w = min(size, wm.monhead->mw);
 		dock.x = wm.monhead->mw - size;
 		dock.y = 0;
 		break;
-	case SLIT_SW:
-		dock.h = dock.width + 1;
+	case DOCK_SW:
+		dock.h = dock.width;
 		dock.w = min(size, wm.monhead->mw);
 		dock.x = 0;
 		dock.y = wm.monhead->mh - dock.width;
 		break;
-	case SLIT_S:
-		dock.h = dock.width + 1;
+	case DOCK_S:
+		dock.h = dock.width;
 		dock.w = min(size, wm.monhead->mw);
 		dock.x = wm.monhead->mw / 2 - size / 2;
 		dock.y = wm.monhead->mh - dock.width;
 		break;
-	case SLIT_SE:
-		dock.h = dock.width + 1;
+	case DOCK_SE:
+		dock.h = dock.width;
 		dock.w = min(size, wm.monhead->mw);
 		dock.x = wm.monhead->mw - size;
 		dock.y = wm.monhead->mh - dock.width;
 		break;
-	case SLIT_WN:
-		dock.w = dock.width + 1;
+	case DOCK_WN:
+		dock.w = dock.width;
 		dock.h = min(size, wm.monhead->mh);
 		dock.x = 0;
 		dock.y = 0;
 		break;
-	case SLIT_W:
-		dock.w = dock.width + 1;
+	case DOCK_W:
+		dock.w = dock.width;
 		dock.h = min(size, wm.monhead->mh);
 		dock.x = 0;
 		dock.y = wm.monhead->mh / 2 - size / 2;
 		break;
-	case SLIT_WS:
-		dock.w = dock.width + 1;
+	case DOCK_WS:
+		dock.w = dock.width;
 		dock.h = min(size, wm.monhead->mh);
 		dock.x = 0;
 		dock.y = wm.monhead->mh - size;
 		break;
-	case SLIT_EN:
-		dock.w = dock.width + 1;
+	case DOCK_EN:
+		dock.w = dock.width;
 		dock.h = min(size, wm.monhead->mh);
 		dock.x = wm.monhead->mw - dock.width;
 		dock.y = 0;
 		break;
-	case SLIT_E:
-		dock.w = dock.width + 1;
+	case DOCK_E:
+		dock.w = dock.width;
 		dock.h = min(size, wm.monhead->mh);
 		dock.x = wm.monhead->mw - dock.width;
 		dock.y = wm.monhead->mh / 2 - size / 2;
 		break;
-	case SLIT_ES:
-		dock.w = dock.width + 1;
+	case DOCK_ES:
+		dock.w = dock.width;
 		dock.h = min(size, wm.monhead->mh);
 		dock.x = wm.monhead->mw - dock.width;
 		dock.y = wm.monhead->mh - size;
@@ -4142,8 +4149,8 @@ dockappnew(Window win, int w, int h, int ignoreunmap)
 	dapp->x = dapp->y = 0;
 	dapp->w = w;
 	dapp->h = h;
-	dapp->gw = dock.width * (((w - 1) / dock.width) + 1);
-	dapp->gh = dock.width * (((h - 1) / dock.width) + 1);
+	dapp->gw = dock.space * (((w - 1) / dock.space) + 1);
+	dapp->gh = dock.space * (((h - 1) / dock.space) + 1);
 	dapp->prev = dock.tail;
 	dapp->next = NULL;
 	dapp->ignoreunmap = ignoreunmap;
