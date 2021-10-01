@@ -510,13 +510,14 @@ static struct Visual visual;
 static struct WM wm;
 static struct Dock dock = {.pix = None, .win = None, .pos = DEF_DOCKPOS, .width = DEF_DOCKWIDTH, .space = DEF_DOCKSPACE};
 static struct Config config;
+static int cflag = 0;
 volatile sig_atomic_t running = 1;
 
 /* show usage and exit */
 static void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: shod [-D dockspec] [-f buttons] [-m modifier]\n");
+	(void)fprintf(stderr, "usage: shod [-c] [-D dockspec] [-f buttons] [-m modifier]\n");
 	(void)fprintf(stderr, "            [-N notificationspec] [-n ndesks] [-r buttons]\n");
 	exit(1);
 }
@@ -716,8 +717,11 @@ getoptions(int argc, char *argv[])
 	config.focusbuttons = FOCUS_BUTTONS;
 	config.raisebuttons = RAISE_BUTTONS;
 
-	while ((c = getopt(argc, argv, "D:f:m:N:n:r:")) != -1) {
+	while ((c = getopt(argc, argv, "cD:f:m:N:n:r:")) != -1) {
 		switch (c) {
+		case 'c':
+			cflag = 1;
+			break;
 		case 'D':
 			parsedock(optarg);
 			break;
@@ -5326,7 +5330,11 @@ xeventconfigurerequest(XEvent *e)
 	if (res.d != NULL) {
 		dialogconfigure(res.d, ev->value_mask, &wc);
 	} else if (res.c != NULL) {
-		containerconfigure(res.c, ev->value_mask, &wc);
+		if (cflag) {
+			containerconfigure(res.c, ev->value_mask, &wc);
+		} else {
+			containermoveresize(res.c);
+		}
 	} else if (res.c == NULL){
 		XConfigureWindow(dpy, ev->window, ev->value_mask, &wc);
 	}

@@ -4,6 +4,7 @@
 \- mouse-focused window manager
 .SH SYNOPSIS
 .B shod
+.RB [ \-c ]
 .RB [ \-D
 .IR dockspec ]
 .RB [ \-f
@@ -69,6 +70,24 @@ a controller called
 to control shod).
 .PP
 The options are as follows:
+.TP
+.B \-c
+Honor configure requests.
+By default,
+.B shod
+ignore requests to configure a window size or position after the window is mapped.
+A client may request the window manager to reconfigure (ie', resize or replace) its own window.
+For example,
+.IR xterm (1)
+sends a configure request for the window manager to expand or shrink its window
+when the user changes its font size.
+Clients requesting to change its size may be annoying,
+so configure requests are ignored by defaul;
+but they can be honored by invoking
+.B shod
+with the
+.B \-c
+command-line option.
 .TP
 .BI \-D " dockspec"
 Specify the position and width of the dock.
