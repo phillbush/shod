@@ -25,6 +25,7 @@
 #define NDESKTOPS       10
 #define NOTIFGRAVITY    "NE"
 #define NOTIFGAP        3
+#define SNAP_PROXIMITY  8       /* default proximity of container edges to perform snap attraction */
 #define IGNOREUNMAP     6       /* number of unmap notifies to ignore while scanning existing clients */
 #define NAMEMAXLEN      1024    /* maximum length of window's name */
 #define DROPPIXELS      30      /* number of pixels from the border where a tab can be dropped in */
@@ -476,6 +477,7 @@ struct WM {
 	Window layerwins[LAYER_LAST];           /* dummy windows used to set stacking order */
 	int nclients;                           /* total number of client windows */
 	int showingdesk;                        /* whether the desktop is being shown */
+	int minsize;                            /* minimum size of a container */
 };
 
 /* configuration */
@@ -485,6 +487,7 @@ struct Config {
 	unsigned int raisebuttons;
 	int ndesktops;
 	int notifgap;
+	int snap;
 	const char *font;
 	const char *notifgravity;
 
@@ -519,6 +522,7 @@ usage(void)
 {
 	(void)fprintf(stderr, "usage: shod [-c] [-D dockspec] [-f buttons] [-m modifier]\n");
 	(void)fprintf(stderr, "            [-N notificationspec] [-n ndesks] [-r buttons]\n");
+	(void)fprintf(stderr, "            [-s snap]\n");
 	exit(1);
 }
 
@@ -716,8 +720,9 @@ getoptions(int argc, char *argv[])
 	config.modifier = MODIFIER;
 	config.focusbuttons = FOCUS_BUTTONS;
 	config.raisebuttons = RAISE_BUTTONS;
+	config.snap = SNAP_PROXIMITY;
 
-	while ((c = getopt(argc, argv, "cD:f:m:N:n:r:")) != -1) {
+	while ((c = getopt(argc, argv, "cD:f:m:N:n:r:s:")) != -1) {
 		switch (c) {
 		case 'c':
 			cflag = 1;
@@ -745,6 +750,10 @@ getoptions(int argc, char *argv[])
 			break;
 		case 'r':
 			config.raisebuttons = parsebuttons(optarg);
+			break;
+		case 's':
+			if ((n = strtol(optarg, NULL, 10)) > 0)
+				config.snap = n;
 			break;
 		default:
 			usage();
@@ -974,6 +983,7 @@ inittheme(void)
 		visual.corner = visual.border + visual.tab;
 		visual.edge = (sizew - 3) / 2 - visual.corner;
 		visual.center = sizew - visual.border * 2;
+		wm.minsize = visual.center + visual.border * 2;
 	}
 	if (!sizew || !sizeh || !visual.division || !visual.border || !visual.button ||
 	    !visual.tab || !visual.corner || !visual.edge || !visual.center) {
@@ -1288,40 +1298,49 @@ getnextfocused(struct Monitor *mon, struct Desktop *desk)
 	return c;
 }
 
-/* get next focused container in given direction from another */
+/* get next focused container in given direction from rel (relative) */
 static struct Container *
 getfocusedbydirection(struct Container *rel, int dir)
 {
 	struct Monitor *mon;
 	struct Desktop *desk;
 	struct Container *c, *ret;
+	int retx, rety, relx, rely, x, y;
 
 	ret = NULL;
+	relx = rel->x + rel->w / 2;
+	rely = rel->y + rel->h / 2;
 	mon = rel->mon;
 	desk = rel->issticky ? rel->mon->seldesk : rel->desk;
 	for (c = wm.focuslist; c != NULL; c = c->fnext) {
 		if (c == rel || c->isminimized)
 			continue;
 		if (c->mon == mon && (c->issticky || c->desk == desk)) {
+			x = c->x + c->w / 2;
+			y = c->y + c->h / 2;
 			switch (dir) {
 			case _SHOD_FOCUS_LEFT_CONTAINER:
-				if (c->x <= rel->x && (ret == NULL || c->x > ret->x))
+				if (x <= relx && (ret == NULL || x > retx))
 					ret = c;
 				break;
 			case _SHOD_FOCUS_RIGHT_CONTAINER:
-				if (c->x >= rel->x && (ret == NULL || c->x < ret->x))
+				if (x >= relx && (ret == NULL || x < retx))
 					ret = c;
 				break;
 			case _SHOD_FOCUS_TOP_CONTAINER:
-				if (c->y <= rel->y && (ret == NULL || c->y > ret->y))
+				if (y <= rely && (ret == NULL || y > rety))
 					ret = c;
 				break;
 			case _SHOD_FOCUS_BOTTOM_CONTAINER:
-				if (c->y >= rel->y && (ret == NULL || c->y < ret->y))
+				if (y >= rely && (ret == NULL || y < rety))
 					ret = c;
 				break;
 			default:
 				return NULL;
+			}
+			if (ret != NULL) {
+				retx = ret->x + ret->w / 2;
+				rety = ret->y + ret->h / 2;
 			}
 		}
 	}
@@ -1965,8 +1984,8 @@ containerplace(struct Container *c, struct Desktop *desk, int userplaced)
 		w = (origw * h) / origh;
 		h = (origh * w) / origw;
 	}
-	c->nw = max(visual.center + c->b * 2, w);
-	c->nh = max(visual.center + c->b * 2, h);
+	c->nw = max(wm.minsize, w);
+	c->nh = max(wm.minsize, h);
 
 	/* if the user placed the window, we should not re-place it */
 	if (userplaced)
@@ -2552,9 +2571,9 @@ containerconfigure(struct Container *c, unsigned int valuemask, XWindowChanges *
 		c->nx = wc->x;
 	if (valuemask & CWY)
 		c->ny = wc->y;
-	if ((valuemask & CWWidth) && wc->width >= visual.center + 2 * visual.border)
+	if ((valuemask & CWWidth) && wc->width >= wm.minsize)
 		c->nw = wc->width;
-	if ((valuemask & CWHeight) && wc->height >= visual.center + 2 * visual.border)
+	if ((valuemask & CWHeight) && wc->height >= wm.minsize)
 		c->nh = wc->height;
 	containercalccols(c, 1);
 	containermoveresize(c);
@@ -3197,6 +3216,7 @@ static void
 containerincrmove(struct Container *c, int x, int y)
 {
 	struct Monitor *monto;
+	struct Container *tmp;
 
 	if (c == NULL || c->isminimized || c->ismaximized || c->isfullscreen)
 		return;
@@ -3204,6 +3224,49 @@ containerincrmove(struct Container *c, int x, int y)
 	c->ny += y;
 	c->x = c->nx;
 	c->y = c->ny;
+	if (config.snap > 0) {
+		if (abs(c->y - c->mon->wy) < config.snap) {
+			c->y = c->mon->wy;
+		}
+		if (abs(c->y + c->h - c->mon->wy - c->mon->wh) < config.snap) {
+			c->y = c->mon->wy + c->mon->wh - c->h;
+		}
+		if (abs(c->x - c->mon->wx) < config.snap) {
+			c->x = c->mon->wx;
+		}
+		if (abs(c->x + c->w - c->mon->wx - c->mon->ww) < config.snap) {
+			c->x = c->mon->wx + c->mon->ww - c->w;
+		}
+		for (tmp = wm.c; tmp != NULL; tmp = tmp->next) {
+			if (!tmp->isminimized && tmp->mon == c->mon &&
+		    	    (tmp->issticky || tmp->desk == c->desk)) {
+				if (abs(c->y + c->h - tmp->y) < config.snap) {
+					c->y = tmp->y - c->h;
+				}
+				if (abs(c->y - tmp->y) < config.snap) {
+					c->y = tmp->y;
+				}
+				if (abs(c->y + c->h - tmp->y - tmp->h) < config.snap) {
+					c->y = tmp->y + tmp->h - c->h;
+				}
+				if (abs(c->y - tmp->y - tmp->h) < config.snap) {
+					c->y = tmp->y + tmp->h;
+				}
+				if (abs(c->x + c->w - tmp->x) < config.snap) {
+					c->x = tmp->x - c->w;
+				}
+				if (abs(c->x - tmp->x) < config.snap) {
+					c->x = tmp->x;
+				}
+				if (abs(c->x + c->w - tmp->x - tmp->w) < config.snap) {
+					c->x = tmp->x + tmp->w - c->w;
+				}
+				if (abs(c->x - tmp->x - tmp->w) < config.snap) {
+					c->x = tmp->x + tmp->w;
+				}
+			}
+		}
+	}
 	containermoveresize(c);
 	if (!c->issticky) {
 		monto = getmon(c->nx + c->nw / 2, c->ny + c->nh / 2);
@@ -4641,7 +4704,7 @@ mouseresize(struct Container *c, int xroot, int yroot, enum Octant o)
 			    ((ev.xmotion.x_root < xroot && x > ev.xmotion.x_root - c->nx) ||
 			     (ev.xmotion.x_root > xroot && x < ev.xmotion.x_root - c->nx))) {
 				dx = xroot - ev.xmotion.x_root;
-				if (c->nw + dx >= visual.center + 2 * c->b) {
+				if (c->nw + dx >= wm.minsize) {
 					c->nx -= dx;
 					c->nw += dx;
 				}
@@ -4649,7 +4712,7 @@ mouseresize(struct Container *c, int xroot, int yroot, enum Octant o)
 			    ((ev.xmotion.x_root > xroot && x > c->nx + c->nw - ev.xmotion.x_root) ||
 			     (ev.xmotion.x_root < xroot && x < c->nx + c->nw - ev.xmotion.x_root))) {
 				dx = ev.xmotion.x_root - xroot;
-				if (c->nw + dx >= visual.center + 2 * c->b) {
+				if (c->nw + dx >= wm.minsize) {
 					c->nw += dx;
 				}
 			}
@@ -4657,7 +4720,7 @@ mouseresize(struct Container *c, int xroot, int yroot, enum Octant o)
 			    ((ev.xmotion.y_root < yroot && y > ev.xmotion.y_root - c->ny) ||
 			     (ev.xmotion.y_root > yroot && y < ev.xmotion.y_root - c->ny))) {
 				dy = yroot - ev.xmotion.y_root;
-				if (c->nh + dy >= visual.center + 2 * c->b) {
+				if (c->nh + dy >= wm.minsize) {
 					c->ny -= dy;
 					c->nh += dy;
 				}
@@ -4665,7 +4728,7 @@ mouseresize(struct Container *c, int xroot, int yroot, enum Octant o)
 			    ((ev.xmotion.y_root > yroot && c->ny + c->nh - ev.xmotion.y_root < y) ||
 			     (ev.xmotion.y_root < yroot && c->ny + c->nh - ev.xmotion.y_root > y))) {
 				dy = ev.xmotion.y_root - yroot;
-				if (c->nh + dy >= visual.center + 2 * c->b) {
+				if (c->nh + dy >= wm.minsize) {
 					c->nh += dy;
 				}
 			}

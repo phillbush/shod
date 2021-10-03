@@ -17,6 +17,8 @@
 .IR ndesks ]
 .RB [ \-r
 .IR buttons ]
+.RB [ \-s
+.IR snap ]
 .PP
 .B shodc close
 .RI [ win_id ]
@@ -152,6 +154,10 @@ For example, setting this resource to
 makes windows be raised when clicking on them with the mouse buttons 1 and 3
 (the left and right mouse buttons, respectively).
 By default, raise occurs on mouse click on button 1.
+.TP
+.BI \-s " snap"
+The proximity of edges of a container for the snap attraction to occur when moving the container.
+If set to zero, no snap attraction occurs.
 .PP
 .B shodc
 is the remote controller for
