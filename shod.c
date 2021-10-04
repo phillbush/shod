@@ -3239,30 +3239,34 @@ containerincrmove(struct Container *c, int x, int y)
 		}
 		for (tmp = wm.c; tmp != NULL; tmp = tmp->next) {
 			if (!tmp->isminimized && tmp->mon == c->mon &&
-		    	    (tmp->issticky || tmp->desk == c->desk)) {
-				if (abs(c->y + c->h - tmp->y) < config.snap) {
-					c->y = tmp->y - c->h;
+			    (tmp->issticky || tmp->desk == c->desk)) {
+				if (c->x + c->w >= tmp->x && c->x <= tmp->x + tmp->w) {
+					if (abs(c->y + c->h - tmp->y) < config.snap) {
+						c->y = tmp->y - c->h;
+					}
+					if (abs(c->y - tmp->y) < config.snap) {
+						c->y = tmp->y;
+					}
+					if (abs(c->y + c->h - tmp->y - tmp->h) < config.snap) {
+						c->y = tmp->y + tmp->h - c->h;
+					}
+					if (abs(c->y - tmp->y - tmp->h) < config.snap) {
+						c->y = tmp->y + tmp->h;
+					}
 				}
-				if (abs(c->y - tmp->y) < config.snap) {
-					c->y = tmp->y;
-				}
-				if (abs(c->y + c->h - tmp->y - tmp->h) < config.snap) {
-					c->y = tmp->y + tmp->h - c->h;
-				}
-				if (abs(c->y - tmp->y - tmp->h) < config.snap) {
-					c->y = tmp->y + tmp->h;
-				}
-				if (abs(c->x + c->w - tmp->x) < config.snap) {
-					c->x = tmp->x - c->w;
-				}
-				if (abs(c->x - tmp->x) < config.snap) {
-					c->x = tmp->x;
-				}
-				if (abs(c->x + c->w - tmp->x - tmp->w) < config.snap) {
-					c->x = tmp->x + tmp->w - c->w;
-				}
-				if (abs(c->x - tmp->x - tmp->w) < config.snap) {
-					c->x = tmp->x + tmp->w;
+				if (c->y + c->h >= tmp->y && c->y <= tmp->y + tmp->h) {
+					if (abs(c->x + c->w - tmp->x) < config.snap) {
+						c->x = tmp->x - c->w;
+					}
+					if (abs(c->x - tmp->x) < config.snap) {
+						c->x = tmp->x;
+					}
+					if (abs(c->x + c->w - tmp->x - tmp->w) < config.snap) {
+						c->x = tmp->x + tmp->w - c->w;
+					}
+					if (abs(c->x - tmp->x - tmp->w) < config.snap) {
+						c->x = tmp->x + tmp->w;
+					}
 				}
 			}
 		}
