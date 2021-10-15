@@ -228,6 +228,19 @@ enum {
 	STRUT_LAST              = 12,
 };
 
+/* border */
+enum {
+	BORDER_N,
+	BORDER_S,
+	BORDER_W,
+	BORDER_E,
+	BORDER_NW,
+	BORDER_NE,
+	BORDER_SW,
+	BORDER_SE,
+	BORDER_LAST
+};
+
 /* dock position */
 enum {
 	DOCK_NW,
@@ -307,6 +320,7 @@ struct Row {
 	struct Column *col;                     /* pointer to parent column */
 	struct Tab *tabs;                       /* list of tabs */
 	struct Tab *seltab;                     /* pointer to selected tab */
+	Window div;                             /* horizontal division between rows */
 	Window frame;                           /* where tab frames are */
 	Window bar;                             /* title bar frame */
 	Window bl;                              /* left button */
@@ -326,6 +340,7 @@ struct Column {
 	struct Row *rows;                       /* list of rows */
 	struct Row *selrow;                     /* pointer to selected row */
 	struct Row *maxrow;                     /* maximized row */
+	Window div;                             /* vertical division between columns */
 	int nrows;                              /* number of rows */
 	int x, w;                               /* column geometry */
 };
@@ -339,7 +354,7 @@ struct Container {
 	struct Desktop *desk;                   /* desktop container is on */
 	struct Column *cols;                    /* list of columns in container */
 	struct Column *selcol;                  /* pointer to selected container */
-	Window curswin;                         /* dummy window used for change cursor while hovering borders */
+	Window curswin[BORDER_LAST];            /* dummy window used for change cursor while hovering borders */
 	Window frame;                           /* window to reparent the contents of the container */
 	Pixmap pix;                             /* pixmap to draw the frame */
 	int ncols;                              /* number of columns */
@@ -500,7 +515,6 @@ struct Config {
 static XSetWindowAttributes clientswa = {
 	.event_mask = EnterWindowMask | SubstructureNotifyMask | ExposureMask
 		    | SubstructureRedirectMask | ButtonPressMask | FocusChangeMask
-		    | PointerMotionMask
 };
 static int (*xerrorxlib)(Display *, XErrorEvent *);
 static Display *dpy;
@@ -1060,6 +1074,7 @@ getwin(Window win)
 	struct Tab *t;
 	struct Dialog *d;
 	struct Notification *n;
+	int i;
 
 	res.dock = NULL;
 	res.dapp = NULL;
@@ -1092,9 +1107,15 @@ getwin(Window win)
 		}
 	}
 	for (c = wm.c; c != NULL; c = c->next) {
-		if (win == c->frame || win == c->curswin) {
+		if (win == c->frame) {
 			res.c = c;
 			return res;
+		}
+		for (i = 0; i < BORDER_LAST; i++) {
+			if (win == c->curswin[i]) {
+				res.c = c;
+				return res;
+			}
 		}
 		for (col = c->cols; col != NULL; col = col->next) {
 			for (row = col->rows; row != NULL; row = row->next) {
@@ -2519,11 +2540,30 @@ containermoveresize(struct Container *c)
 	if (c == NULL)
 		return;
 	XMoveResizeWindow(dpy, c->frame, c->x, c->y, c->w, c->h);
-	XMoveResizeWindow(dpy, c->curswin, 0, 0, c->w, c->h);
+	XMoveResizeWindow(dpy, c->curswin[BORDER_N], visual.corner, 0, c->w - 2 * visual.corner, c->b);
+	XMoveResizeWindow(dpy, c->curswin[BORDER_S], visual.corner, c->h - c->b, c->w - 2 * visual.corner, c->b);
+	XMoveResizeWindow(dpy, c->curswin[BORDER_W], 0, visual.corner, c->b, c->h - 2 * visual.corner);
+	XMoveResizeWindow(dpy, c->curswin[BORDER_E], c->w - c->b, visual.corner, c->b, c->h - 2 * visual.corner);
+	XMoveResizeWindow(dpy, c->curswin[BORDER_NW], 0, 0, visual.corner, visual.corner);
+	XMoveResizeWindow(dpy, c->curswin[BORDER_NE], c->w - visual.corner, 0, visual.corner, visual.corner);
+	XMoveResizeWindow(dpy, c->curswin[BORDER_SW], 0, c->h - visual.corner, visual.corner, visual.corner);
+	XMoveResizeWindow(dpy, c->curswin[BORDER_SE], c->w - visual.corner, c->h - visual.corner, visual.corner, visual.corner);
 	for (col = c->cols; col != NULL; col = col->next) {
 		rowy = c->b;
 		rowh = max(1, c->h - 2 * c->b - col->nrows * visual.tab);
+		if (col->next != NULL) {
+			XMoveResizeWindow(dpy, col->div, col->x + col->w, c->b, visual.division, c->h - 2 * c->b);
+			XMapWindow(dpy, col->div);
+		} else {
+			XUnmapWindow(dpy, col->div);
+		}
 		for (row = col->rows; row != NULL; row = row->next) {
+			if (row->next != NULL && col->maxrow == NULL) {
+				XMoveResizeWindow(dpy, row->div, col->x, row->y + row->h, col->w, visual.division);
+				XMapWindow(dpy, row->div);
+			} else {
+				XUnmapWindow(dpy, row->div);
+			}
 			if (col->maxrow == NULL) {              /* regular row */
 				titlebarmoveresize(row, col->x, row->y, col->w);
 				XMoveResizeWindow(dpy, row->frame, col->x, row->y + visual.tab, col->w, row->h - visual.tab);
@@ -2777,6 +2817,7 @@ static struct Container *
 containernew(int x, int y, int w, int h)
 {
 	struct Container *c;
+	int i;
 
 	c = emalloc(sizeof *c);
 	c->prev = c->next = NULL;
@@ -2803,10 +2844,17 @@ containernew(int x, int y, int w, int h)
 	c->frame = XCreateWindow(dpy, root, c->x, c->y, c->w, c->h, 0,
 	                         CopyFromParent, CopyFromParent, CopyFromParent,
 	                         CWEventMask, &clientswa);
-	c->curswin = XCreateWindow(dpy, c->frame, 0, 0, c->w, c->h, 0,
-	                           CopyFromParent, InputOnly, CopyFromParent,
-	                           0, NULL);
-	XMapWindow(dpy, c->curswin);
+
+	c->curswin[BORDER_N] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = visual.cursors[CURSOR_N]});
+	c->curswin[BORDER_S] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = visual.cursors[CURSOR_S]});
+	c->curswin[BORDER_W] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = visual.cursors[CURSOR_W]});
+	c->curswin[BORDER_E] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = visual.cursors[CURSOR_E]});
+	c->curswin[BORDER_NW] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = visual.cursors[CURSOR_NW]});
+	c->curswin[BORDER_NE] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = visual.cursors[CURSOR_NE]});
+	c->curswin[BORDER_SW] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = visual.cursors[CURSOR_SW]});
+	c->curswin[BORDER_SE] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = visual.cursors[CURSOR_SE]});
+	for (i = 0; i < BORDER_LAST; i++)
+		XMapWindow(dpy, c->curswin[i]);
 	if (wm.c)
 		wm.c->prev = c;
 	c->next = wm.c;
@@ -2929,6 +2977,7 @@ rowdel(struct Row *row)
 	XDestroyWindow(dpy, row->bar);
 	XDestroyWindow(dpy, row->bl);
 	XDestroyWindow(dpy, row->br);
+	XDestroyWindow(dpy, row->div);
 	if (row->pixbar != None)
 		XFreePixmap(dpy, row->pixbar);
 	XFreePixmap(dpy, row->pixbl);
@@ -2961,6 +3010,7 @@ coldel(struct Column *col)
 	while (col->rows)
 		rowdel(col->rows);
 	coldetach(col);
+	XDestroyWindow(dpy, col->div);
 	free(col);
 }
 
@@ -2968,6 +3018,8 @@ coldel(struct Column *col)
 static void
 containerdel(struct Container *c)
 {
+	int i;
+
 	containerdelfocus(c);
 	containerdelraise(c);
 	if (wm.focused == c)
@@ -2983,7 +3035,8 @@ containerdel(struct Container *c)
 	if (c->pix != None)
 		XFreePixmap(dpy, c->pix);
 	XDestroyWindow(dpy, c->frame);
-	XDestroyWindow(dpy, c->curswin);
+	for (i = 0; i < BORDER_LAST; i++)
+		XDestroyWindow(dpy, c->curswin[i]);
 	free(c);
 }
 
@@ -3010,6 +3063,7 @@ containeraddcol(struct Container *c, struct Column *col, struct Column *prev)
 		col->prev = prev;
 		prev->next = col;
 	}
+	XReparentWindow(dpy, col->div, c->frame, 0, 0);
 	containercalccols(c, 0);
 	if (oldc != NULL && oldc->ncols == 0) {
 		containerdel(oldc);
@@ -3031,6 +3085,9 @@ colnew(void)
 	col->nrows = 0;
 	col->x = 0;
 	col->w = 0;
+	col->div = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
+	                         CopyFromParent, InputOnly, CopyFromParent, CWCursor,
+	                         &(XSetWindowAttributes){.cursor = visual.cursors[CURSOR_H]});
 	return col;
 }
 
@@ -3060,6 +3117,7 @@ coladdrow(struct Column *col, struct Row *row, struct Row *prev)
 		prev->next = row;
 	}
 	colcalcrows(col, 0);    /* set row->y, row->h, etc */
+	XReparentWindow(dpy, row->div, c->frame, col->x + col->w, c->b);
 	XReparentWindow(dpy, row->bar, c->frame, col->x, row->y);
 	XReparentWindow(dpy, row->frame, c->frame, col->x, row->y);
 	XMapWindow(dpy, row->bar);
@@ -3097,6 +3155,9 @@ rownew(void)
 	row->br = XCreateWindow(dpy, row->bar, 0, 0, visual.button, visual.button, 0,
 	                        CopyFromParent, CopyFromParent, CopyFromParent,
 	                        CWEventMask, &clientswa);
+	row->div = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
+	                         CopyFromParent, InputOnly, CopyFromParent, CWCursor,
+	                         &(XSetWindowAttributes){.cursor = visual.cursors[CURSOR_V]});
 	row->pixbr = XCreatePixmap(dpy, row->bl, visual.button, visual.button, depth);
 	row->pixbar = None;
 	XMapWindow(dpy, row->bl);
@@ -5494,60 +5555,6 @@ xeventmaprequest(XEvent *e)
 	manage(ev->window, &wa, 0);
 }
 
-/* change mouse cursor */
-static void
-xeventmotionnotify(XEvent *e)
-{
-	XMotionEvent *ev;
-	struct Container *c;
-	struct Column *cdiv;
-	struct Row *rdiv;
-	struct Winres res;
-	enum Octant o;
-
-	ev = &e->xmotion;
-	res = getwin(ev->window);
-	if (res.c == NULL || ev->subwindow != res.c->curswin)
-		return;
-	c = res.c;
-	o = getoctant(c, ev->x, ev->y);
-	switch (o) {
-	case NW:
-		XDefineCursor(dpy, c->curswin, visual.cursors[CURSOR_NW]);
-		break;
-	case NE:
-		XDefineCursor(dpy, c->curswin, visual.cursors[CURSOR_NE]);
-		break;
-	case SW:
-		XDefineCursor(dpy, c->curswin, visual.cursors[CURSOR_SW]);
-		break;
-	case SE:
-		XDefineCursor(dpy, c->curswin, visual.cursors[CURSOR_SE]);
-		break;
-	case N:
-		XDefineCursor(dpy, c->curswin, visual.cursors[CURSOR_N]);
-		break;
-	case S:
-		XDefineCursor(dpy, c->curswin, visual.cursors[CURSOR_S]);
-		break;
-	case W:
-		XDefineCursor(dpy, c->curswin, visual.cursors[CURSOR_W]);
-		break;
-	case E:
-		XDefineCursor(dpy, c->curswin, visual.cursors[CURSOR_E]);
-		break;
-	default:
-		getdivisions(c, &cdiv, &rdiv, ev->x, ev->y);
-		if (cdiv != NULL)
-			XDefineCursor(dpy, c->curswin, visual.cursors[CURSOR_H]);
-		else if (rdiv != NULL)
-			XDefineCursor(dpy, c->curswin, visual.cursors[CURSOR_V]);
-		else
-			XDefineCursor(dpy, c->curswin, visual.cursors[CURSOR_NORMAL]);
-		break;
-	}
-}
-
 /* update client properties */
 static void
 xeventpropertynotify(XEvent *e)
@@ -5662,7 +5669,9 @@ cleandock(void)
 	while (dock.head != NULL) {
 		dockappdel(dock.head);
 	}
-	XFreePixmap(dpy, dock.pix);
+	if (dock.pix != None) {
+		XFreePixmap(dpy, dock.pix);
+	}
 	XDestroyWindow(dpy, dock.win);
 }
 
@@ -5723,7 +5732,6 @@ main(int argc, char *argv[])
 		[Expose]           = xeventexpose,
 		[FocusIn]          = xeventfocusin,
 		[MapRequest]       = xeventmaprequest,
-		[MotionNotify]     = xeventmotionnotify,
 		[PropertyNotify]   = xeventpropertynotify,
 		[UnmapNotify]      = xeventunmapnotify
 	};
