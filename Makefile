@@ -19,7 +19,7 @@ CC = cc
 
 # files
 PROGS = shod shodc
-SRCS = ${PROGS}.c
+SRCS = ${PROGS:=.c}
 OBJS = ${SRCS:.c=.o}
 
 all: ${PROGS}
