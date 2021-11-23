@@ -3482,7 +3482,10 @@ tabfocus(struct Tab *t, int gotodesk)
 		if (t->row->col->maxrow != NULL && t->row->col->maxrow != t->row)
 			rowstack(t->row->col, t->row);
 		XRaiseWindow(dpy, t->frame);
-		if (t->ds != NULL) {
+		if (c->isshaded) {
+			XSetInputFocus(dpy, c->frame, RevertToParent, CurrentTime);
+			ewmhsetactivewindow(t->win);
+		} else if (t->ds != NULL) {
 			XRaiseWindow(dpy, t->ds->frame);
 			XSetInputFocus(dpy, t->ds->win, RevertToParent, CurrentTime);
 			ewmhsetactivewindow(t->ds->win);
