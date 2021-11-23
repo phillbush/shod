@@ -160,6 +160,7 @@ enum {
 	_NET_WM_STATE_STICKY,
 	_NET_WM_STATE_MAXIMIZED_VERT,
 	_NET_WM_STATE_MAXIMIZED_HORZ,
+	_NET_WM_STATE_SHADED,
 	_NET_WM_STATE_HIDDEN,
 	_NET_WM_STATE_FULLSCREEN,
 	_NET_WM_STATE_ABOVE,
@@ -358,7 +359,8 @@ struct Container {
 	Window frame;                           /* window to reparent the contents of the container */
 	Pixmap pix;                             /* pixmap to draw the frame */
 	int ncols;                              /* number of columns */
-	int ismaximized, isminimized, issticky; /* window states */
+	int ismaximized, issticky;              /* window states */
+	int isminimized, isshaded;              /* window states */
 	int isfullscreen;                       /* whether container is fullscreen */
 	int ishidden;                           /* whether container is hidden */
 	int layer;                              /* stacking order */
@@ -602,6 +604,7 @@ xerror(Display *dpy, XErrorEvent *e)
 	    (e->request_code == X_PolyFillRectangle && e->error_code == BadDrawable) ||
 	    (e->request_code == X_PolySegment && e->error_code == BadDrawable) ||
 	    (e->request_code == X_ConfigureWindow && e->error_code == BadMatch) ||
+	    (e->request_code == X_ConfigureWindow && e->error_code == BadValue) ||
 	    (e->request_code == X_GrabButton && e->error_code == BadAccess) ||
 	    (e->request_code == X_GrabKey && e->error_code == BadAccess) ||
 	    (e->request_code == X_CopyArea && e->error_code == BadDrawable) ||
@@ -889,6 +892,7 @@ initatoms(void)
 		[_NET_WM_STATE_STICKY]                 = "_NET_WM_STATE_STICKY",
 		[_NET_WM_STATE_MAXIMIZED_VERT]         = "_NET_WM_STATE_MAXIMIZED_VERT",
 		[_NET_WM_STATE_MAXIMIZED_HORZ]         = "_NET_WM_STATE_MAXIMIZED_HORZ",
+		[_NET_WM_STATE_SHADED]                 = "_NET_WM_STATE_SHADED",
 		[_NET_WM_STATE_HIDDEN]                 = "_NET_WM_STATE_HIDDEN",
 		[_NET_WM_STATE_FULLSCREEN]             = "_NET_WM_STATE_FULLSCREEN",
 		[_NET_WM_STATE_ABOVE]                  = "_NET_WM_STATE_ABOVE",
@@ -1698,7 +1702,7 @@ ewmhsetstate(struct Container *c)
 	struct Row *row;
 	struct Tab *t;
 	struct Dialog *d;
-	Atom data[8];
+	Atom data[9];
 	int n = 0;
 
 	if (c == NULL)
@@ -1709,6 +1713,8 @@ ewmhsetstate(struct Container *c)
 		data[n++] = atoms[_NET_WM_STATE_FULLSCREEN];
 	if (c->issticky)
 		data[n++] = atoms[_NET_WM_STATE_STICKY];
+	if (c->isshaded)
+		data[n++] = atoms[_NET_WM_STATE_SHADED];
 	if (c->isminimized)
 		data[n++] = atoms[_NET_WM_STATE_HIDDEN];
 	if (c->ismaximized) {
@@ -1850,6 +1856,13 @@ containergetstyle(struct Container *c)
 	return UNFOCUSED;
 }
 
+/* check if container can be shaded */
+static int
+containerisshaded(struct Container *c)
+{
+	return c->isshaded && !c->isfullscreen;
+}
+
 /* calculate size of dialogs of a tab */
 static void
 dialogcalcsize(struct Dialog *d)
@@ -1952,6 +1965,9 @@ containercalccols(struct Container *c, int recursive)
 		c->h = c->nh;
 		c->b = visual.border;
 	}
+	if (containerisshaded(c)) {
+		c->h = 0;
+	}
 
 	/* check if columns sum up the width of the container */
 	sumw = 0;
@@ -1963,6 +1979,9 @@ containercalccols(struct Container *c, int recursive)
 	w = c->w - 2 * c->b - (c->ncols - 1) * visual.division;
 	x = c->b;
 	for (i = 0, col = c->cols; col != NULL; col = col->next, i++) {
+		if (containerisshaded(c)) {
+			c->h = max(c->h, col->nrows * visual.tab);
+		}
 		if (sumw != c->w)
 			col->w = max(1, ((i + 1) * w / c->ncols) - (i * w / c->ncols));
 		col->x = x;
@@ -1970,6 +1989,9 @@ containercalccols(struct Container *c, int recursive)
 		if (recursive) {
 			colcalcrows(col, 1);
 		}
+	}
+	if (containerisshaded(c)) {
+		c->h += 2 * c->b;
 	}
 }
 
@@ -2264,6 +2286,7 @@ containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, in
 	XGCValues val;
 	int style;              /* decoration style, used as index in the decor array */
 	int w, h;               /* size of the edges */
+	int isshaded;
 
 	if (c == NULL)
 		return;
@@ -2272,6 +2295,7 @@ containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, in
 	decorp = &visual.decor[style][PRESSED];
 	w = c->w - visual.corner * 2;
 	h = c->h - visual.corner * 2;
+	isshaded = containerisshaded(c);
 
 	/* (re)create pixmap */
 	if (c->pw != c->w || c->ph != c->h || c->pix == None) {
@@ -2285,7 +2309,22 @@ containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, in
 	val.fill_style = FillTiled;
 	XChangeGC(dpy, gc, GCFillStyle, &val);
 	if (c->b > 0) {
-	
+		/* draw corners */
+		XCopyArea(dpy, ((o == NW || (isshaded && o & W)) ? decorp->nw : decor->nw),
+		                c->pix, gc, 0, 0, visual.corner, visual.corner, 0, 0);
+
+		XCopyArea(dpy, ((o == NE || (isshaded && o & E)) ? decorp->ne : decor->ne),
+		                c->pix, gc, 0, 0, visual.corner, visual.corner,
+		                c->w - visual.corner, 0);
+
+		XCopyArea(dpy, ((o == SW || (isshaded && o & W)) ? decorp->sw : decor->sw),
+		                c->pix, gc, 0, 0, visual.corner, visual.corner,
+		                0, c->h - visual.corner);
+
+		XCopyArea(dpy, ((o == SE || (isshaded && o & E)) ? decorp->se : decor->se),
+		                c->pix, gc, 0, 0, visual.corner, visual.corner,
+		                c->w - visual.corner, c->h - visual.corner);
+
 		/* draw borders */
 		if (w > 0) {
 			val.tile = (o == N) ? decorp->n : decor->n;
@@ -2299,9 +2338,7 @@ containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, in
 			XCopyArea(dpy, (o == N) ? decorp->nl :
 			                decor->nl, c->pix, gc, 0, 0, visual.edge, visual.border,
 			                visual.corner + w - visual.edge, 0);
-		}
 
-		if (w > 0) {
 			val.tile = (o == S) ? decorp->s : decor->s;
 			val.ts_x_origin = 0;
 			val.ts_y_origin = c->h - c->b;
@@ -2315,48 +2352,39 @@ containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, in
 			                visual.corner + w - visual.edge, c->h - visual.border);
 		}
 
-		if (h > 0) {
+		if (h > 0 || isshaded) {
 			val.tile = (o == W) ? decorp->w : decor->w;
 			val.ts_x_origin = 0;
 			val.ts_y_origin = 0;
 			XChangeGC(dpy, gc, GCTile | GCTileStipYOrigin | GCTileStipXOrigin , &val);
-			XFillRectangle(dpy, c->pix, gc, 0, visual.corner, c->b, h);
-			XCopyArea(dpy, (o == W) ? decorp->wf :
-			                decor->wf, c->pix, gc, 0, 0, visual.border, visual.edge, 0,
-			                visual.corner);
-			XCopyArea(dpy, (o == W) ? decorp->wl :
-			                decor->wl, c->pix, gc, 0, 0, visual.border, visual.edge, 0,
-			                visual.corner + h - visual.edge);
-		}
+			if (isshaded) {
+				XFillRectangle(dpy, c->pix, gc, 0, visual.border, c->b, c->h - 2 * visual.border);
+			} else {
+				XFillRectangle(dpy, c->pix, gc, 0, visual.corner, c->b, h);
+				XCopyArea(dpy, (o == W) ? decorp->wf :
+				                decor->wf, c->pix, gc, 0, 0, visual.border, visual.edge, 0,
+				                visual.corner);
+				XCopyArea(dpy, (o == W) ? decorp->wl :
+				                decor->wl, c->pix, gc, 0, 0, visual.border, visual.edge, 0,
+				                visual.corner + h - visual.edge);
+			}
 
-		if (h > 0) {
 			val.tile = (o == E) ? decorp->e : decor->e;
 			val.ts_x_origin = c->w - c->b;
 			val.ts_y_origin = 0;
 			XChangeGC(dpy, gc, GCTile | GCTileStipYOrigin | GCTileStipXOrigin , &val);
-			XFillRectangle(dpy, c->pix, gc, c->w - c->b, visual.corner, c->b, h);
-			XCopyArea(dpy, (o == E) ? decorp->ef :
-			                decor->ef, c->pix, gc, 0, 0, visual.border, visual.edge,
-			                c->w - visual.border, visual.corner);
-			XCopyArea(dpy, (o == E) ? decorp->el :
-			                decor->el, c->pix, gc, 0, 0, visual.border, visual.edge,
-			                c->w - visual.border, visual.corner + h - visual.edge);
+			if (isshaded) {
+				XFillRectangle(dpy, c->pix, gc, c->w - c->b, visual.border, c->b, c->h - 2 * visual.border);
+			} else {
+				XFillRectangle(dpy, c->pix, gc, c->w - c->b, visual.corner, c->b, h);
+				XCopyArea(dpy, (o == E) ? decorp->ef :
+				                decor->ef, c->pix, gc, 0, 0, visual.border, visual.edge,
+				                c->w - visual.border, visual.corner);
+				XCopyArea(dpy, (o == E) ? decorp->el :
+				                decor->el, c->pix, gc, 0, 0, visual.border, visual.edge,
+				                c->w - visual.border, visual.corner + h - visual.edge);
+			}
 		}
-
-		XCopyArea(dpy, (o == NW) ? decorp->nw :
-		                decor->nw, c->pix, gc, 0, 0, visual.corner, visual.corner, 0, 0);
-
-		XCopyArea(dpy, (o == NE) ? decorp->ne :
-		                decor->ne, c->pix, gc, 0, 0, visual.corner, visual.corner,
-		                c->w - visual.corner, 0);
-
-		XCopyArea(dpy, (o == SW) ? decorp->sw :
-		                decor->sw, c->pix, gc, 0, 0, visual.corner, visual.corner,
-		                0, c->h - visual.corner);
-
-		XCopyArea(dpy, (o == SE) ? decorp->se :
-		                decor->se, c->pix, gc, 0, 0, visual.corner, visual.corner,
-		                c->w - visual.corner, c->h - visual.corner);
 	}
 
 	/* draw background */
@@ -2377,7 +2405,7 @@ containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, in
 			XFillRectangle(dpy, c->pix, gc, col->x + col->w, c->b, visual.division, c->h - 2 * c->b);
 		}
 		for (row = col->rows; row != NULL; row = row->next) {
-			if (col->maxrow == NULL && row->next != NULL) {
+			if (!isshaded && col->maxrow == NULL && row->next != NULL) {
 				val.fill_style = FillTiled;
 				val.tile = (row == rdiv) ? decorp->s : decor->s;
 				val.ts_x_origin = 0;
@@ -2385,7 +2413,6 @@ containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, in
 				XChangeGC(dpy, gc, GCFillStyle | GCTile | GCTileStipYOrigin | GCTileStipXOrigin , &val);
 				XFillRectangle(dpy, c->pix, gc, col->x, row->y + row->h, col->w, visual.division);
 			}
-
 
 			/* (re)create titlebar pixmap */
 			if (row->pw != col->w || row->pixbar == None) {
@@ -2536,6 +2563,7 @@ containermoveresize(struct Container *c)
 	struct Tab *t;
 	struct Dialog *d;
 	int rowy, rowh;
+	int isshaded;
 
 	if (c == NULL)
 		return;
@@ -2548,6 +2576,7 @@ containermoveresize(struct Container *c)
 	XMoveResizeWindow(dpy, c->curswin[BORDER_NE], c->w - visual.corner, 0, visual.corner, visual.corner);
 	XMoveResizeWindow(dpy, c->curswin[BORDER_SW], 0, c->h - visual.corner, visual.corner, visual.corner);
 	XMoveResizeWindow(dpy, c->curswin[BORDER_SE], c->w - visual.corner, c->h - visual.corner, visual.corner, visual.corner);
+	isshaded = containerisshaded(c);
 	for (col = c->cols; col != NULL; col = col->next) {
 		rowy = c->b;
 		rowh = max(1, c->h - 2 * c->b - col->nrows * visual.tab);
@@ -2558,17 +2587,17 @@ containermoveresize(struct Container *c)
 			XUnmapWindow(dpy, col->div);
 		}
 		for (row = col->rows; row != NULL; row = row->next) {
-			if (row->next != NULL && col->maxrow == NULL) {
+			if (!isshaded && row->next != NULL && col->maxrow == NULL) {
 				XMoveResizeWindow(dpy, row->div, col->x, row->y + row->h, col->w, visual.division);
 				XMapWindow(dpy, row->div);
 			} else {
 				XUnmapWindow(dpy, row->div);
 			}
-			if (col->maxrow == NULL) {              /* regular row */
+			if (!isshaded && col->maxrow == NULL) {              /* regular row */
 				titlebarmoveresize(row, col->x, row->y, col->w);
 				XMoveResizeWindow(dpy, row->frame, col->x, row->y + visual.tab, col->w, row->h - visual.tab);
 				XMapWindow(dpy, row->frame);
-			} else if (row == col->maxrow) {        /* maximized row */
+			} else if (!isshaded && row == col->maxrow) {        /* maximized row */
 				titlebarmoveresize(row, col->x, rowy, col->w);
 				XMoveResizeWindow(dpy, row->frame, col->x, rowy + visual.tab, col->w, rowh);
 				XMapWindow(dpy, row->frame);
@@ -2769,6 +2798,36 @@ containermaximize(struct Container *c, int maximize)
 	ewmhsetstate(c);
 }
 
+/* shade container title bar */
+static void
+containershade(struct Container *c, int shade)
+{
+	void tabfocus(struct Tab *t, int gotodesk);
+
+	if (shade != REMOVE && !c->isshaded) {
+		c->isshaded = 1;
+		XDefineCursor(dpy, c->curswin[BORDER_NW], visual.cursors[CURSOR_W]);
+		XDefineCursor(dpy, c->curswin[BORDER_SW], visual.cursors[CURSOR_W]);
+		XDefineCursor(dpy, c->curswin[BORDER_NE], visual.cursors[CURSOR_E]);
+		XDefineCursor(dpy, c->curswin[BORDER_SE], visual.cursors[CURSOR_E]);
+	} else if (shade != ADD && c->isshaded) {
+		c->isshaded = 0;
+		XDefineCursor(dpy, c->curswin[BORDER_NW], visual.cursors[CURSOR_NW]);
+		XDefineCursor(dpy, c->curswin[BORDER_SW], visual.cursors[CURSOR_SW]);
+		XDefineCursor(dpy, c->curswin[BORDER_NE], visual.cursors[CURSOR_NE]);
+		XDefineCursor(dpy, c->curswin[BORDER_SE], visual.cursors[CURSOR_SE]);
+	} else {
+		return;
+	}
+	containercalccols(c, 1);
+	containermoveresize(c);
+	containerredecorate(c, NULL, NULL, 0);
+	ewmhsetstate(c);
+	if (c == wm.focused) {
+		tabfocus(c->selcol->selrow->seltab, 0);
+	}
+}
+
 /* stick a container on the monitor */
 static void
 containerstick(struct Container *c, int stick)
@@ -2831,6 +2890,7 @@ containernew(int x, int y, int w, int h)
 	c->ismaximized = 0;
 	c->isminimized = 0;
 	c->issticky = 0;
+	c->isshaded = 0;
 	c->ishidden = 0;
 	c->layer = 0;
 	c->desk = NULL;
@@ -4703,6 +4763,14 @@ mouseresize(struct Container *c, int xroot, int yroot, enum Octant o)
 	Time lasttime;
 	int x, y, dx, dy;
 
+	if (containerisshaded(c)) {
+		if (o & W) {
+			o = W;
+		} else if (o & E) {
+			o = E;
+		}
+	}
+
 	switch (o) {
 	case NW:
 		curs = visual.cursors[CURSOR_NW];
@@ -5237,6 +5305,8 @@ xeventclientmessage(XEvent *e)
 		for (i = 1; i < 3; i++) {
 			if ((Atom)ev->data.l[i] == atoms[_NET_WM_STATE_FULLSCREEN]) {
 				containerfullscreen(res.c, ev->data.l[0]);
+			} else if ((Atom)ev->data.l[i] == atoms[_NET_WM_STATE_SHADED]) {
+				containershade(res.c, ev->data.l[0]);
 			} else if ((Atom)ev->data.l[i] == atoms[_NET_WM_STATE_STICKY]) {
 				containerstick(res.c, ev->data.l[0]);
 			} else if ((Atom)ev->data.l[i] == atoms[_NET_WM_STATE_HIDDEN]) {

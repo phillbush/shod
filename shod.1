@@ -57,7 +57,7 @@
 .br
 .B shodc state
 .RB [ \-ATR ]
-.RB [ \-abfMms ]
+.RB [ \-abfMmsy ]
 .RI [ win_id ]
 .SH DESCRIPTION
 .B shod
@@ -344,13 +344,17 @@ The fifth character is
 to indicate that the window's container is fullscreen.
 .IP \(bu 2
 The sixth character is
+.B s
+to indicate that the window's container is shaded.
+.IP \(bu 2
+The seventh character is
 .B a
 to indicate that the window's container is above others,
 or
 .B b
 to indicate that the window's container is below others.
 .IP \(bu 2
-The seventh character is
+The eighth character is
 .B u
 to indicate that the window has the urgency hint set,
 .B a
@@ -359,7 +363,7 @@ or
 .B U
 to indicate that the window is both urgent and demands attention.
 .IP \(bu 2
-The eighth and last character is
+The ninth and last character is
 .B a
 to indicate that the window is active,
 .B f
@@ -411,6 +415,10 @@ Set state minimized.
 Minimize container.
 .TP
 .B \-s
+Set state shaded.
+The container is resized to fit its titlebars.
+.TP
+.B \-y
 Set state sticky.
 Stick container to the monitor.
 .TP
@@ -669,6 +677,10 @@ Minimized
 Minimized containers are not shown on the screen.
 When a minimized container is unminimized,
 it goes to the focused monitor.
+.TP
+Shaded
+Shaded containers have the size of its titlebars,
+so no content is shown.
 .TP
 Sticky
 Sticky containers are \(lqsticked\(rq to the monitor,

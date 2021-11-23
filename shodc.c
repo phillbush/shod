@@ -20,14 +20,16 @@ enum {
 
 /* long list char positions */
 enum {
-	LIST_DIALOG = 0,
-	LIST_STICKY = 1,
-	LIST_MAXIMIZED = 2,
-	LIST_MINIMIZED = 3,
-	LIST_FULLSCREEN = 4,
-	LIST_LAYER = 5,
-	LIST_URGENCY = 6,
-	LIST_ACTIVE = 7
+	LIST_DIALOG,
+	LIST_STICKY,
+	LIST_MAXIMIZED,
+	LIST_MINIMIZED,
+	LIST_FULLSCREEN,
+	LIST_SHADED,
+	LIST_LAYER,
+	LIST_URGENCY,
+	LIST_ACTIVE,
+	LIST_LAST
 };
 
 /* focus relative direction */
@@ -66,6 +68,7 @@ enum {
 	_NET_WM_STATE_MAXIMIZED_VERT,
 	_NET_WM_STATE_MAXIMIZED_HORZ,
 	_NET_WM_STATE_HIDDEN,
+	_NET_WM_STATE_SHADED,
 	_NET_WM_STATE_FULLSCREEN,
 	_NET_WM_STATE_ABOVE,
 	_NET_WM_STATE_BELOW,
@@ -310,6 +313,7 @@ initatoms(void)
 		[_NET_WM_STATE_MAXIMIZED_VERT]    = "_NET_WM_STATE_MAXIMIZED_VERT",
 		[_NET_WM_STATE_MAXIMIZED_HORZ]    = "_NET_WM_STATE_MAXIMIZED_HORZ",
 		[_NET_WM_STATE_HIDDEN]            = "_NET_WM_STATE_HIDDEN",
+		[_NET_WM_STATE_SHADED]            = "_NET_WM_STATE_SHADED",
 		[_NET_WM_STATE_FULLSCREEN]        = "_NET_WM_STATE_FULLSCREEN",
 		[_NET_WM_STATE_ABOVE]             = "_NET_WM_STATE_ABOVE",
 		[_NET_WM_STATE_BELOW]             = "_NET_WM_STATE_BELOW",
@@ -480,7 +484,7 @@ longlist(Window win)
 	unsigned int w, h, b, du;
 	int desk;
 	unsigned long i, natoms, l;
-	char state[] = "--------";
+	char state[] = "---------";
 	char *name;
 	XWMHints *wmhints = NULL;
 	Window *list = NULL;
@@ -532,6 +536,8 @@ longlist(Window win)
 					state[LIST_MAXIMIZED] = 'h';
 				}
 			} else if (as[i] == atoms[_NET_WM_STATE_HIDDEN]) {
+				state[LIST_SHADED] = 's';
+			} else if (as[i] == atoms[_NET_WM_STATE_SHADED]) {
 				state[LIST_MINIMIZED] = 'm';
 			} else if (as[i] == atoms[_NET_WM_STATE_FULLSCREEN]) {
 				state[LIST_FULLSCREEN] = 'F';
@@ -691,7 +697,7 @@ state(int argc, char *argv[])
 
 	action = TOGGLE;
 	state1 = state2 = None;
-	while ((c = getopt(argc, argv, "ATRabfMms")) != -1) {
+	while ((c = getopt(argc, argv, "ATRabfMmsy")) != -1) {
 		switch (c) {
 		case 'A':
 			action = ADD;
@@ -723,6 +729,10 @@ state(int argc, char *argv[])
 			state2 = None;
 			break;
 		case 's':
+			state1 = atoms[_NET_WM_STATE_SHADED];
+			state2 = None;
+			break;
+		case 'y':
 			state1 = atoms[_NET_WM_STATE_STICKY];
 			state2 = None;
 			break;
