@@ -329,6 +329,7 @@ struct Row {
 	Pixmap pixbar;                          /* pixmap for the title bar */
 	Pixmap pixbl;                           /* pixmap for left button */
 	Pixmap pixbr;                           /* pixmap for right button */
+	float fact;                             /* factor of height relative to container */
 	int ntabs;                              /* number of tabs */
 	int y, h;                               /* row geometry */
 	int pw;
@@ -342,6 +343,7 @@ struct Column {
 	struct Row *selrow;                     /* pointer to selected row */
 	struct Row *maxrow;                     /* maximized row */
 	Window div;                             /* vertical division between columns */
+	float fact;                             /* factor of width relative to container */
 	int nrows;                              /* number of rows */
 	int x, w;                               /* column geometry */
 };
@@ -1902,24 +1904,35 @@ rowcalctabs(struct Row *row)
 
 /* calculate position and height of rows of a column */
 static void
-colcalcrows(struct Column *col, int recursive)
+colcalcrows(struct Column *col, int recalcfact, int recursive)
 {
 	struct Container *c;
 	struct Row *row;
 	int i, y, h, sumh;
+	int content;
+	int recalc;
 
 	c = col->c;
 
 	/* check if rows sum up the height of the container */
+	content = c->h - (col->nrows - 1) * visual.division - 2 * c->b;
 	sumh = 0;
+	recalc = 0;
 	for (row = col->rows; row != NULL; row = row->next) {
-		if (row->h <= visual.tab) {
-			sumh = 0;
-			break;
+		if (!recalcfact) {
+			if (row->next == NULL) {
+				row->h = content - sumh;
+			} else {
+				row->h = row->fact * content;
+			}
+			if (row->h <= visual.tab) {
+				recalc = 1;
+			}
 		}
 		sumh += row->h;
 	}
-	sumh += (col->nrows - 1) * visual.division + 2 * c->b;
+	if (sumh != content)
+		recalc = 1;
 
 	if (col->c->isfullscreen && col->c->ncols == 1 && col->nrows == 1) {
 		h = col->c->h + visual.tab;
@@ -1929,8 +1942,10 @@ colcalcrows(struct Column *col, int recursive)
 		y = c->b;
 	}
 	for (i = 0, row = col->rows; row != NULL; row = row->next, i++) {
-		if (sumh != c->h)
+		if (recalc)
 			row->h = max(1, ((i + 1) * h / col->nrows) - (i * h / col->nrows));
+		if (recalc || recalcfact)
+			row->fact = (double)row->h/(double)c->h;
 		row->y = y;
 		y += row->h + visual.division;
 		if (recursive) {
@@ -1941,10 +1956,13 @@ colcalcrows(struct Column *col, int recursive)
 
 /* calculate position and width of columns of a container */
 static void
-containercalccols(struct Container *c, int recursive)
+containercalccols(struct Container *c, int recalcfact, int recursive)
 {
 	struct Column *col;
-	int i, x, w, sumw;
+	int i, x, w;
+	int sumw;
+	int content;
+	int recalc;
 
 	if (c->isfullscreen) {
 		c->x = c->mon->mx;
@@ -1970,11 +1988,24 @@ containercalccols(struct Container *c, int recursive)
 	}
 
 	/* check if columns sum up the width of the container */
+	content = c->w - (c->ncols - 1) * visual.division - 2 * c->b;
 	sumw = 0;
+	recalc = 0;
 	for (col = c->cols; col != NULL; col = col->next) {
+		if (!recalcfact) {
+			if (col->next == NULL) {
+				col->w = content - sumw;
+			} else {
+				col->w = col->fact * content;
+			}
+			if (col->w == 0) {
+				recalc = 1;
+			}
+		}
 		sumw += col->w;
 	}
-	sumw += (c->ncols - 1) * visual.division + 2 * c->b;
+	if (sumw != content)
+		recalc = 1;
 
 	w = c->w - 2 * c->b - (c->ncols - 1) * visual.division;
 	x = c->b;
@@ -1982,12 +2013,14 @@ containercalccols(struct Container *c, int recursive)
 		if (containerisshaded(c)) {
 			c->h = max(c->h, col->nrows * visual.tab);
 		}
-		if (sumw != c->w)
+		if (recalc)
 			col->w = max(1, ((i + 1) * w / c->ncols) - (i * w / c->ncols));
+		if (recalc || recalcfact)
+			col->fact = (double)col->w/(double)c->w;
 		col->x = x;
 		x += col->w + visual.division;
 		if (recursive) {
-			colcalcrows(col, 1);
+			colcalcrows(col, recalcfact, 1);
 		}
 	}
 	if (containerisshaded(c)) {
@@ -2095,7 +2128,7 @@ containerplace(struct Container *c, struct Desktop *desk, int userplaced)
 	subh = subh * mon->wh / DIV;
 	c->nx = min(mon->wx + mon->ww - c->nw, max(mon->wx, mon->wx + subx + subw / 2 - c->nw / 2));
 	c->ny = min(mon->wy + mon->wh - c->nh, max(mon->wy, mon->wy + suby + subh / 2 - c->nh / 2));
-	containercalccols(c, 1);
+	containercalccols(c, 0, 1);
 }
 
 /* decorate dialog window */
@@ -2388,12 +2421,10 @@ containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, in
 	}
 
 	/* draw background */
-	if (o == 0) {
-		val.foreground = decor->bg;
-		val.fill_style = FillSolid;
-		XChangeGC(dpy, gc, GCFillStyle | GCForeground, &val);
-		XFillRectangle(dpy, c->pix, gc, c->b, c->b, c->w - 2 * c->b, c->h - 2 * c->b);
-	}
+	val.foreground = decor->bg;
+	val.fill_style = FillSolid;
+	XChangeGC(dpy, gc, GCFillStyle | GCForeground, &val);
+	XFillRectangle(dpy, c->pix, gc, c->b, c->b, c->w - 2 * c->b, c->h - 2 * c->b);
 
 	for (col = c->cols; col != NULL; col = col->next) {
 		if (col->next != NULL) {
@@ -2644,7 +2675,7 @@ containerconfigure(struct Container *c, unsigned int valuemask, XWindowChanges *
 		c->nw = wc->width;
 	if ((valuemask & CWHeight) && wc->height >= wm.minsize)
 		c->nh = wc->height;
-	containercalccols(c, 1);
+	containercalccols(c, 0, 1);
 	containermoveresize(c);
 	containerredecorate(c, NULL, NULL, 0);
 }
@@ -2776,7 +2807,7 @@ containerfullscreen(struct Container *c, int fullscreen)
 	else
 		return;
 	containerraise(c);
-	containercalccols(c, 1);
+	containercalccols(c, 0, 1);
 	containermoveresize(c);
 	containerredecorate(c, NULL, NULL, 0);
 	ewmhsetstate(c);
@@ -2792,7 +2823,7 @@ containermaximize(struct Container *c, int maximize)
 		c->ismaximized = 0;
 	else
 		return;
-	containercalccols(c, 1);
+	containercalccols(c, 0, 1);
 	containermoveresize(c);
 	containerredecorate(c, NULL, NULL, 0);
 	ewmhsetstate(c);
@@ -2819,7 +2850,7 @@ containershade(struct Container *c, int shade)
 	} else {
 		return;
 	}
-	containercalccols(c, 1);
+	containercalccols(c, 0, 1);
 	containermoveresize(c);
 	containerredecorate(c, NULL, NULL, 0);
 	ewmhsetstate(c);
@@ -3022,7 +3053,7 @@ rowdetach(struct Row *row, int recalc)
 	row->next = NULL;
 	row->prev = NULL;
 	if (recalc) {
-		colcalcrows(row->col, 0);
+		colcalcrows(row->col, 1, 0);
 	}
 }
 
@@ -3060,7 +3091,7 @@ coldetach(struct Column *col)
 		col->c->cols = col->next;
 	col->next = NULL;
 	col->prev = NULL;
-	containercalccols(col->c, 0);
+	containercalccols(col->c, 1, 0);
 }
 
 /* delete column */
@@ -3124,7 +3155,7 @@ containeraddcol(struct Container *c, struct Column *col, struct Column *prev)
 		prev->next = col;
 	}
 	XReparentWindow(dpy, col->div, c->frame, 0, 0);
-	containercalccols(c, 0);
+	containercalccols(c, 1, 0);
 	if (oldc != NULL && oldc->ncols == 0) {
 		containerdel(oldc);
 	}
@@ -3145,6 +3176,7 @@ colnew(void)
 	col->nrows = 0;
 	col->x = 0;
 	col->w = 0;
+	col->fact = 0.0;
 	col->div = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
 	                         CopyFromParent, InputOnly, CopyFromParent, CWCursor,
 	                         &(XSetWindowAttributes){.cursor = visual.cursors[CURSOR_H]});
@@ -3176,7 +3208,7 @@ coladdrow(struct Column *col, struct Row *row, struct Row *prev)
 		row->prev = prev;
 		prev->next = row;
 	}
-	colcalcrows(col, 0);    /* set row->y, row->h, etc */
+	colcalcrows(col, 1, 0);    /* set row->y, row->h, etc */
 	XReparentWindow(dpy, row->div, c->frame, col->x + col->w, c->b);
 	XReparentWindow(dpy, row->bar, c->frame, col->x, row->y);
 	XReparentWindow(dpy, row->frame, c->frame, col->x, row->y);
@@ -3540,7 +3572,7 @@ tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 					nrow = rownew();
 					coladdrow(col, nrow, NULL);
 					rowaddtab(nrow, det, NULL);
-					colcalcrows(col, 1);
+					colcalcrows(col, 1, 1);
 					goto done;
 				}
 				rowy = c->b;
@@ -3575,7 +3607,7 @@ tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 						nrow = rownew();
 						coladdrow(col, nrow, row);
 						rowaddtab(nrow, det, NULL);
-						colcalcrows(col, 1);
+						colcalcrows(col, 1, 1);
 						goto done;
 					}
 					rowy += rowh + visual.division;
@@ -3588,7 +3620,7 @@ tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 				containeraddcol(c, ncol, col);
 				coladdrow(ncol, nrow, NULL);
 				rowaddtab(nrow, det, NULL);
-				containercalccols(c, 1);
+				containercalccols(c, 1, 1);
 				goto done;
 			}
 		}
@@ -3598,7 +3630,7 @@ tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 			containeraddcol(c, ncol, NULL);
 			coladdrow(ncol, nrow, NULL);
 			rowaddtab(nrow, det, NULL);
-			containercalccols(c, 1);
+			containercalccols(c, 1, 1);
 			goto done;
 		}
 		break;
@@ -3868,7 +3900,7 @@ monupdatearea(void)
 	}
 	for (c = wm.c; c != NULL; c = c->next) {
 		if (c->ismaximized) {
-			containercalccols(c, 1);
+			containercalccols(c, 0, 1);
 			containermoveresize(c);
 			containerredecorate(c, NULL, NULL, 0);
 		}
@@ -4629,7 +4661,7 @@ unmanage(struct Tab *t)
 		}
 	}
 	if (moveresize) {
-		containercalccols(c, 1);
+		containercalccols(c, 1, 1);
 		containermoveresize(c);
 		containerredecorate(c, NULL, NULL, 0);
 		shodgrouptab(c);
@@ -4746,7 +4778,7 @@ done:
 		recalc = 0;
 	}
 	if (recalc) {
-		containercalccols(c, 1);
+		containercalccols(c, 1, 1);
 		containermoveresize(c);
 		shodgrouptab(c);
 		shodgroupcontainer(c);
@@ -4869,7 +4901,7 @@ mouseresize(struct Container *c, int xroot, int yroot, enum Octant o)
 				}
 			}
 			if (ev.xmotion.time - lasttime > RESIZETIME) {
-				containercalccols(c, 1);
+				containercalccols(c, 0, 1);
 				containermoveresize(c);
 				containerredecorate(c, NULL, NULL, o);
 				lasttime = ev.xmotion.time;
@@ -4880,7 +4912,7 @@ mouseresize(struct Container *c, int xroot, int yroot, enum Octant o)
 		}
 	}
 done:
-	containercalccols(c, 1);
+	containercalccols(c, 0, 1);
 	containermoveresize(c);
 	containerdecorate(c, NULL, NULL, 0, 0);
 	XUngrabPointer(dpy, CurrentTime);
@@ -5004,7 +5036,7 @@ done:
 			row->prev->h += dy;
 		}
 	}
-	containercalccols(c, 1);
+	containercalccols(c, 0, 1);
 	containermoveresize(c);
 	buttondecorate(row, BUTTON_LEFT, 0);
 	containerdecorate(c, NULL, NULL, 0, 0);
@@ -5110,7 +5142,7 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 				}
 			}
 			if (update) {
-				containercalccols(c, 1);
+				containercalccols(c, 1, 1);
 				containermoveresize(c);
 				containerdecorate(c, cdiv, rdiv, 0, 0);
 				lasttime = ev.xmotion.time;
@@ -5122,7 +5154,7 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 		}
 	}
 done:
-	containercalccols(c, 1);
+	containercalccols(c, 1, 1);
 	containermoveresize(c);
 	containerdecorate(c, NULL, NULL, 0, 0);
 	XUngrabPointer(dpy, CurrentTime);
