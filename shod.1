@@ -7,16 +7,10 @@
 .RB [ \-c ]
 .RB [ \-D
 .IR dockspec ]
-.RB [ \-f
-.IR buttons ]
-.RB [ \-m
-.IR modifier ]
 .RB [ \-N
 .IR notificationspec ]
 .RB [ \-n
 .IR ndesks ]
-.RB [ \-r
-.IR buttons ]
 .RB [ \-s
 .IR snap ]
 .PP
@@ -63,7 +57,7 @@
 .B shod
 is a multi\-monitor floating reparenting X11 window manager which supports tiled and tabbed containers.
 .B shod
-sets no keybindings, reads no configuration,
+sets no keybindings, reads no configuration other than X resources,
 and works only via mouse with a given key modifier (Alt by default)
 and by responding to client messages
 (it is needed
@@ -104,28 +98,26 @@ If dockspec is
 (de default value)
 The dock will be placed in the east side of the screen, at the center, with a width of 64 pixels.
 .TP
-.BI \-f " buttons"
-Which mouse buttons are used to focus a window when clicking on it.
-The argument of this option is a string of numbers 1 to 5 (corresponding to mouse buttons 1 to 5).
-For example, setting this resource to
+.BI \-M " mousespec"
+Specify the mouse behavior.
+.I mousespec
+is a string composed of three groups of digits delimited with colons.
+The default value is
+.B 1:1:1
+(Mod1/Alt as modifier, Button 1 for windows focusing, and Button 1 for windows raising).
+The first digit is a number from 1 to 5 specifying the modifier (Mod1/Alt to Mod5) used to move and resize windows with the mouse pointer.
+The second group of digits specify the mouse buttons that are used to focus a window when clicking on it;
+for example,
 .B 13
-makes windows be focused when clicking on them with the mouse buttons 1 and 3
-(the left and right mouse buttons, respectively).
-If this is set to a blank string, no mouse button is used to focus windows,
+makes windows be focused when clicking on them with the mouse buttons 1 and 3;
+if this is part is blank or zero, no mouse button is used to focus windos,
 and
 .B shod
 uses the focus\-follow\-cursor focusing style.
-By default, focus follows mouse click on button 1.
-.TP
-.BI \-m " modifier"
-Which modifier, from
-.B Mod1
-to
-.B Mod5
-is used to move and resize windows with the mouse pointer.
-By default,
-.B shod
-uses Mod1 (Alt) as modifier.
+The last group of digits specify the mouse buttons that are used to raise a window when clicking on it;
+for example,
+.B 13
+makes windows be raised when clicking on them with the mouse buttons 1 and 3.
 .TP
 .BI \-N " notificationspec"
 This option is used to specify the placement of notification windows.
@@ -145,15 +137,6 @@ to manage.
 By default,
 .B shod
 manages 10 desktops.
-.TP
-.BI \-r " buttons"
-Which mouse buttons are used to raise a window when clicking on it.
-The argument of this option is a string of numbers 1 to 5 (corresponding to mouse buttons 1 to 5).
-For example, setting this resource to
-.B 13
-makes windows be raised when clicking on them with the mouse buttons 1 and 3
-(the left and right mouse buttons, respectively).
-By default, raise occurs on mouse click on button 1.
 .TP
 .BI \-s " snap"
 The proximity of edges of a container for the snap attraction to occur when moving the container.
@@ -447,248 +430,80 @@ The size and position of a monitor's container area can be changed by bars and t
 .PP
 Most client windows are displayed in containers;
 but some windows are special and are displayed in different ways.
-.SH CONTAINERS
-Containers are floating windows where the windows of clients are mapped in.
-A container contains client\-windows organized in columns, rows, and tabs;
-each client\-window can also contain dialog windows associated with it.
-A new client\-window is mapped inside a new container that floats in the focused desktop of the focused monitor.
-This new container is placed in a empty area of the screen or in an area with few windows over it.
-.SS Components of a container
+.SS Containers
+Containers are floating windows.
+A container contains sub\-windows (called tiles) organized in columns, rows, and tabs;
+each tile represents a client and can have dialog windows associated with it.
+A new container is created in the focused desktop of the focused monitor;
+this new container is placed in a empty area of the screen.
 .PP
-The components of a container are listed below.
-.TP
-Border
-Around each container lies its border, that is used to resize and move the container.
-Borders are always visible, except when the container is fullscreen
-(in which case the border is hidden until the container loses its fullscreen state).
-A border is composed of eight handles: four edges and four corners.
-The mouse cursor changes when hovering a handle; there is one cursor for each handle.
-Dragging a handle with the mouse button 1 (the left mouse button) resizes the container to the direction of that handle.
-Dragging a handle with the mouse button 3 (the right mouse button) moves the container.
-.TP
-Divisors
-When a container has more than one column, a column divisor appears to separate those columns.
-Dragging a column divisor with the mouse button 1 (the left mouse button)
-resizes the columns it divides.
-When a column has more than one row, a row divisor appears to separate those rows.
-Dragging a row divisor with the mouse button 1 (the left mouse button)
-resizes the rows it divides.
-When a column has a maximized row, row divisors are hidden.
-.TP
-Columns
-A container can have one or more columns.
-Columns split a conteiner horizontally, and each container appears next to the other.
-Columns are divided into rows.
-A column can have either no maximized row, in which case all rows are visible;
-or can have a single maximized row, in which case only that row is visible.
-The process of maximizing a row or unmaximizing it is called restacking.
-Restacking is controlled with the left title bar button.
-.TP
-Rows
-A column can have one or more rows.
-Rows split a column vertically, and each row appears on top of the other.
-Rows are divided into tabs.
-At the top of the row is the title bar.
-The title bar lists the tabs of the row and contains two buttons:
-the left button (used to restack the column of the row)
-and the right button (used to close the active tab of the row).
-The title bar is always visible, even when the content of the row is hidden by another
-maximized row.
-.TP
-Title-bar
-Title-bar is a region of the container where the tabs of the client\-windows are placed and
-the left and right title-bar buttons appear.
-There is one title bar for each row.
-.TP
-Left title-bar button
-The left title-bar button is used to control its row and container.
-Clicking on the left title-bar button with the mouse button 1 (the left mouse button)
-restacks the column by maximizing its row (and minimizing the other rows in the same column)
-or by returning the rows to their usual size.
-Dragging the left title-bar button with the mouse button 3 (the right mouse button)
-moves the row through the column or to other columns.
-.TP
-Tabs
-A row can have one or more tabs.
-Tabs split a column in the Z axis, and each tab appears above the other.
-A tab contain a client\-window and all the dialogs associated to that client\-window.
-A tab contains the current title of the client\-window and is placed on the title bar of a row.
-Dragging a tab with the mouse button 1 (the left mouse button) moves the container.
-Dragging a tab with the mouse button 3 (the right mouse button) dettach the tab from the container.
-A dettached tab, while being dragged, can be reattached in other container (or the same container)
-in the title bar of a row (and be part of that row), on a row divisor (and create a new row),
-or on a column divisor (and create a new column).
-.TP
-Client\-window.
-A client\-window is the actual window where the actual content of the client
-(such as a terminal emulator) is drawn.
-A client\-window can have one or more dialogs associated with it;
-however only one dialog is visible per time.
-.TP
-Dialogs
-A client\-window can have a dialog.
-A dialog appears above the client window, and is centered on it.
+.B Container Structure.
+A container has borders (four edge handles and four corner handles) around it; borders are always visible, except when the container is fullscreen.
+Borders are used to move and resize containers; more information on that below.
+A container has divisors between its columns, and between the rows within each column.
+Divisors are used to resize the tiles by dragging them with the first mouse button.
+A container has title bars above each row; title bars contains tabs, the left (stack) button and the right (close) button.
+More information on those below.
 .PP
-The following illustration is an example of a container with several client\-windows in it.
-This container contains two columns: one column in the left and another in the right.
-The column in the left contain three rows, the top row is maximized and visible
-(and has a dialog above it), while
-the two rows on the bottom (one of them with two tabs) are hidden.
-The column in the right contain two rows:
-the top row with a single tab, and the bottom row with two tabs.
-The border handles and divisors are represented by double line.
-The title-bar buttons are represented by two squares around the title-bars.
-.IP
-.EX
-╔═╤═════════════════════════╤═╦═╤═════════════════════════╤═╗
-╟─┴─────────────────────────┴─╫─┴─────────────────────────┴─╢
-║                             ║                             ║
-║                             ║                             ║
-║                             ║                             ║
-║                             ║                             ║
-║ ╔═════════════════════════╗ ║                             ║
-║ ║                         ║ ║                             ║
-║ ║                         ║ ║                             ║
-║ ║                         ║ ║                             ║
-║ ║                         ║ ╠═╤════════════╤════════════╤═╣
-║ ║                         ║ ╟─┴────────────┴────────────┴─╢
-║ ║                         ║ ║                             ║
-║ ╚═════════════════════════╝ ║                             ║
-║                             ║                             ║
-║                             ║                             ║
-║                             ║                             ║
-║                             ║                             ║
-╟─┬─────────────────────────┬─╢                             ║
-╟─┼────────────┬────────────┼─╢                             ║
-╚═╧════════════╧════════════╧═╩═════════════════════════════╝
-.EE
-.SS Focus history
-.PP
-When a client\-window is focused it gets keyboard input.
-A focused client\-window continues to get keyboard input until it is closed,
-its container is hidden, or another client\-window is explicitly selected to be focused.
-Only one client\-window can be focused at a time.
-Each container has a client\-window, called the selected client\-window
-that is focused when the focus goes to that container.
-.PP
-The container of the focused client\-window is called the focused container
-and is decorated with a visually distinct decoration (blue in the default theme);
+.B Focus.
+Keyboard input goes to the focused client of the focused container.
+A container can be focused by clicking on it with the 1st mouse button;
+the click is passed to the application, which can process it in a particular way.
+The focused container is decorated with a visually distinct decoration (blue in the default theme);
 while other containers have either the common decoration (gray in the default theme),
 or have the urgent decoration (red in the default theme).
 .PP
-.B shod
-maintains a list of focused containers called the focus history.  The
-focused container is the first container in the focus history.  When a
-client\-window gains focus, its container is moved to the beginning of
-the focus history.  When a focused client\-window loses focus, the focus
-goes to another client\-window in the same container, or (if there's no
-other client\-window in that container) to the selected client\-window
-of the next container in the focus history that is visible and in the
-same desktop or monitor, or (if there's no other container to focus), no
-window gets the focus.
-.PP
-A container can be focused with the mouse.
-The mouse buttons set with the
-.B \-f
-command-line option are used to focus a container when clicking on it.
-If no mouse button is specified, the focus follows the mouse pointer.
-.SS Stacking order
+.B Stacking Order.
 Containers are stacked one above the other in the virtual Z axis.
 The position of the container in this Z axis can be changed by a operation called raising.
-.PP
+A container can be raised by clicking on it with the 1st mouse button.
 The list of containers in this Z axis, from the one in the bottom to the topmost,
 is called the stacking order.
-The stacking order is organized in four layers.
-When a container in is raised, it moves to the top of the other
-containers in the same layer.
-.TP
-The bottom layer
-At the bottom of the stacking order, lays the containers with the
-bottom state set.  They appear below any other container.
-.TP
-The normal layer
-Above the containers in the bottom layer, lays the containers that have
-not set any of the states that change the stacking order (that is, the
-below, above or fullscreen states).
-.TP
-The above layer
-Above the containers in the normal layer, lays the container with the
-above state set.
-.TP
-The fullscreen layer
-Above the containers in the above layer, lays the container with the
-fullscreen state set.  They appear above any other container.
+The stacking order is organized in four layers:
+the bottom layer (for containers below others);
+the middle layer (for normal containers);
+the upper layer (for containers above others); and
+the fullscreen layer (for fullscreen containers, independent of also being below or above others).
+When a container in is raised, it moves to the top of its layer.
 .PP
-A container can have either the above state or the below state set, but not both.
-When a container has the fullscreen state set and either the above or the below state also set,
-the fullscreen state has priority (so the container belongs to the fullscreen layer).
+.B Container States.
+Each container can have one or more of the following states:
+maximized (the container occupies the entire container area);
+fullscreen (the container occupies the entire monitor and its borders are hidden);
+minimized (the container is not shown on the monitor);
+shaded (the container is resized to show only the title bars, the clients are hidden);
+sticky (the container is stickied to the monitor and appears on the screen no matter which desktop is selected); and
+above/below (the container is raised above or lowered below other containers).
 .PP
-A container can be raised with the mouse.
-The mouse buttons set with the
-.B \-r
-command-line option are used to raise a container to the top of its layer when clicking on it.
-.SS Moving and Resizing
+.B Container Movement.
+A non-fullscreen, non-maximized container can be moved by the following methods:
+by dragging the container border with the mouse button 3;
+by dragging a title bar with the mouse button 1; or
+by pressing the modifier key and dragging any part of the container with the mouse button 1.
 .PP
-A container can be moved by various methods, which are listed below.
-When a container is moved from one monitor to another, that
-container moves from the desktop it is in to the focused desktop of the monitor it is moved to.
-Container moving can only be performed if the container is not fullscreen
-and not maximized.
-.IP \(bu 2
-By pressing the modifier key (set with the
-.B \-m
-command-line option) and dragging any part of a container with the mouse button 1
-(the left mouse button).
-.IP \(bu 2
-By dragging the container border with the mouse button 3 (the right mouse button),
-without pressing any modifier.
-.IP \(bu 2
-By dragging a tab with the mouse button 1 (the left mouse button),
-without pressing any modifier.
+.B Container Resizing.
+A non-fullscreen, non-maximized container can be resized by the following methods:
+by dragging the container border with the mouse button 1; or
+by pressing the modifier key and dragging any part of the container with the mouse button 3.
 .PP
-A container can be resized by various methods, which are listed below.
-Container resizing can only be performed if the container is not fullscreen
-and not maximized.
-.IP \(bu 2
-By pressing the modifier key (set with the
-.B \-m
-command-line option) and dragging any part of a container with the mouse button 3
-(the right mouse button).
-.IP \(bu 2
-By dragging the container border with the mouse button 1 (the left mouse button),
-without pressing any modifier.
-.SS Container states
+.B The Title\-Bar.
+Each title\-bar has tabs, which display the title of its client.
+Dragging a tab with the mouse button 1 moves the entire container.
+Dragging a tab with the mouse button 3 dettaches the tab from the container.
+A detached tab, while being dragged,
+can be reattached in other container (or the same container) by dropping it on the title bar or on a divisor,
+or can be made into a new container by dropping it elsewhere.
 .PP
-Each container can or not have each one of the following states.
-By default, a container has no state.
-.TP
-Maximized
-Maximized containers occupies the entire space on the monitor available for windows
-(a region called container area).
-When a maximized container is unmaximized,
-it restores its previous size and position.
-.TP
-Fullscreen
-Fullscreen containers occupies the entire monitor space.
-When a fullscreen container is made not full,
-it restores its previous size and position.
-.TP
-Minimized
-Minimized containers are not shown on the screen.
-When a minimized container is unminimized,
-it goes to the focused monitor.
-.TP
-Shaded
-Shaded containers have the size of its titlebars,
-so no content is shown.
-.TP
-Sticky
-Sticky containers are \(lqsticked\(rq to the monitor,
-and they appear on the screen no matter which desktop is focused on that monitor.
-.TP
-Above or below.
-A container can be raised above or lowered below other containers.
-.SH PROMPT
+.B The Left Title\-Bar Button.
+Each title bar has a left button.
+Clicking on the left title\-bar button with the first mouse button restacks the column
+by maximizing its row (and minimizing the other rows in the same column) or undoes this state.
+Dragging the left title\-bar button with the third mouse button moves the row through the columns.
+.PP
+.B The Right Title\-Bar Button.
+Each title bar has a right button.
+Clicking on the right title-bar button with the first mouse button closes the focused client or its top dialog.
+.SS Prompt
 A window of type
 .B _NET_WM_WINDOW_TYPE_PROMPT
 (called prompt window)
@@ -701,7 +516,7 @@ only used by
 .B shod
 does not change the size of the prompt window.
 However, shod changes its position.
-.SH DESKTOP WINDOWS
+.SS Desktop windows
 Windows of type
 .B _NET_WM_WINDOW_TYPE_DESKTOP
 (called desktop windows)
@@ -716,7 +531,7 @@ and windows that manage desktop icons.
 .PP
 .B shod
 does not change the size nor the position of desktop windows.
-.SH NOTIFICATIONS
+.SS Notifications
 Windows of type
 .B _NET_WM_WINDOW_TYPE_NOTIFICATION
 (called notifications)
@@ -735,7 +550,7 @@ command-line option.
 .PP
 .B shod
 can change the size and the position of notification windows.
-.SH BARS
+.SS Bars
 Windows of type
 .B _NET_WM_WINDOW_TYPE_DOCK
 (called, panels, bars, or external docks (to distinguish them from shod's internal dock))
@@ -751,7 +566,7 @@ and a statusbar (that shows information about the system, such as memory usage a
 .PP
 .B shod
 does not change the size nor the position of bar windows.
-.SH DOCKAPPS
+.SS Dockapps
 Windows that initiates in the WithdrawnState (called dockapps) are mapped inside the dock.
 The dock is a panel or bar that appears on the edge of the first monitor.
 Inside the dock, dockapps are organized by order of map request.
@@ -790,3 +605,6 @@ They are mapped inside a rectangular container.
 Dockapps are mapped into the dock in the order they spawn.
 There is no way to control the order of the dockapps inside the dock.
 This may be fixed in a future version of shod.
+.PP
+The focus buttons and raise buttons settings, that were presented in earlier versions of shod, are removed in recent versions.
+It is also not possible anymore to have a focus-follow-pointer focus behavior.

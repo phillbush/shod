@@ -16,12 +16,29 @@
 #include <X11/extensions/Xinerama.h>
 #include "theme.xpm"
 
-#define WMNAME          "shod"
-#define DIV             15      /* number to divide the screen into grids */
-#define FONT            "-misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-iso8859-1"
 #define MODIFIER        Mod1Mask
-#define FOCUS_BUTTONS   1
-#define RAISE_BUTTONS   1
+
+/*
+ * The container area is the region of the screen where containers live,
+ * that is, the area of the monitor not occupied by bars or the dock; it
+ * corresponds to the region occupied by a maximized container.
+ *
+ * Shod tries to find an empty region on the container area or a region
+ * with few containers in it to place a new container.  To do that, shod
+ * cuts the container area in DIV divisions horizontally and vertically,
+ * creating DIV*DIV regions; shod then counts how many containers are on
+ * each region; and places the new container on those regions with few
+ * containers over them.
+ *
+ * After some trial and error, I found out that a DIV equals to 15 is
+ * optimal.  It is not too low to provide a incorrect placement, nor too
+ * high to take so much computer time.
+ *
+ * For more information, see the containerplace() function.
+ */
+#define DIV             15
+
+#define FONT            "-misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-iso8859-1"
 #define NDESKTOPS       10
 #define NOTIFGRAVITY    "NE"
 #define NOTIFGAP        3
@@ -501,7 +518,6 @@ struct WM {
 
 /* configuration */
 struct Config {
-	unsigned int modifier;
 	unsigned int focusbuttons;
 	unsigned int raisebuttons;
 	int ndesktops;
@@ -517,7 +533,7 @@ struct Config {
 
 /* global variables */
 static XSetWindowAttributes clientswa = {
-	.event_mask = EnterWindowMask | SubstructureNotifyMask | ExposureMask
+	.event_mask = SubstructureNotifyMask | ExposureMask
 		    | SubstructureRedirectMask | ButtonPressMask | FocusChangeMask
 };
 static int (*xerrorxlib)(Display *, XErrorEvent *);
@@ -532,6 +548,7 @@ static struct WM wm;
 static struct Dock dock = {.pix = None, .win = None, .pos = DEF_DOCKPOS, .width = DEF_DOCKWIDTH, .space = DEF_DOCKSPACE};
 static struct Config config;
 static int cflag = 0;
+static char *wmname;
 volatile sig_atomic_t running = 1;
 
 /* show usage and exit */
@@ -629,43 +646,6 @@ copypixmap(Pixmap src, int sx, int sy, int w, int h)
 	return pix;
 }
 
-/* parse buttons string */
-static unsigned int
-parsebuttons(const char *s)
-{
-	const char *origs;
-	unsigned int buttons;
-
-	origs = s;
-	buttons = 0;
-	while (*s != '\0') {
-		if (*s < '1' || *s > '5')
-			errx(1, "improper buttons string %s", origs);
-		buttons |= 1 << (*s - '1');
-		s++;
-	}
-	return buttons;
-}
-
-/* parse modifier string */
-static unsigned int
-parsemodifier(const char *s)
-{
-	if (strcasecmp(s, "Mod1") == 0)
-		return Mod1Mask;
-	else if (strcasecmp(s, "Mod2") == 0)
-		return Mod2Mask;
-	else if (strcasecmp(s, "Mod3") == 0)
-		return Mod3Mask;
-	else if (strcasecmp(s, "Mod4") == 0)
-		return Mod4Mask;
-	else if (strcasecmp(s, "Mod5") == 0)
-		return Mod5Mask;
-	else
-		errx(1, "improper modifier string %s", s);
-	return 0;
-}
-
 /* parse dock specification */
 static void
 parsedock(const char *s)
@@ -736,11 +716,12 @@ getoptions(int argc, char *argv[])
 	config.notifgravity = NOTIFGRAVITY;
 	config.notifgap = NOTIFGAP;
 	config.ndesktops = NDESKTOPS;
-	config.modifier = MODIFIER;
-	config.focusbuttons = FOCUS_BUTTONS;
-	config.raisebuttons = RAISE_BUTTONS;
 	config.snap = SNAP_PROXIMITY;
 
+	if ((wmname = strrchr(argv[0], '/')) != NULL)
+		wmname++;
+	else
+		wmname = argv[0];
 	while ((c = getopt(argc, argv, "cD:f:m:N:n:r:s:")) != -1) {
 		switch (c) {
 		case 'c':
@@ -748,12 +729,6 @@ getoptions(int argc, char *argv[])
 			break;
 		case 'D':
 			parsedock(optarg);
-			break;
-		case 'f':
-			config.focusbuttons = parsebuttons(optarg);
-			break;
-		case 'm':
-			config.modifier = parsemodifier(optarg);
 			break;
 		case 'N':
 			config.notifgravity = optarg;
@@ -766,9 +741,6 @@ getoptions(int argc, char *argv[])
 		case 'n':
 			if ((n = strtol(optarg, NULL, 10)) > 0)
 				config.ndesktops = n;
-			break;
-		case 'r':
-			config.raisebuttons = parsebuttons(optarg);
 			break;
 		case 's':
 			if ((n = strtol(optarg, NULL, 10)) > 0)
@@ -1524,7 +1496,7 @@ ewmhinit(void)
 {
 	/* set window and property that indicates that the wm is ewmh compliant */
 	XChangeProperty(dpy, wm.wmcheckwin, atoms[_NET_SUPPORTING_WM_CHECK], XA_WINDOW, 32, PropModeReplace, (unsigned char *)&wm.wmcheckwin, 1);
-	XChangeProperty(dpy, wm.wmcheckwin, atoms[_NET_WM_NAME], atoms[UTF8_STRING], 8, PropModeReplace, (unsigned char *) WMNAME, sizeof(WMNAME)-1);
+	XChangeProperty(dpy, wm.wmcheckwin, atoms[_NET_WM_NAME], atoms[UTF8_STRING], 8, PropModeReplace, (unsigned char *)wmname, strlen(wmname));
 	XChangeProperty(dpy, root, atoms[_NET_SUPPORTING_WM_CHECK], XA_WINDOW, 32, PropModeReplace, (unsigned char *)&wm.wmcheckwin, 1);
 
 	/* set properties that the window manager supports */
@@ -3911,8 +3883,7 @@ monupdatearea(void)
 static void
 preparewin(Window win)
 {
-	XSelectInput(dpy, win, EnterWindowMask | StructureNotifyMask
-	                     | PropertyChangeMask | FocusChangeMask);
+	XSelectInput(dpy, win, StructureNotifyMask | PropertyChangeMask | FocusChangeMask);
 	XGrabButton(dpy, AnyButton, AnyModifier, win, False, ButtonPressMask,
 	            GrabModeSync, GrabModeSync, None, None);
 	XSetWindowBorderWidth(dpy, win, 0);
@@ -5236,22 +5207,11 @@ xeventbuttonpress(XEvent *e)
 	}
 
 	/* focus client */
-	if ((wm.focused == NULL || t != wm.focused->selcol->selrow->seltab) &&
-	    ((ev->window == t->title && ev->button == Button1) ||
-	     (ev->button == Button1 && config.focusbuttons & 1 << 0) ||
-	     (ev->button == Button2 && config.focusbuttons & 1 << 1) ||
-	     (ev->button == Button3 && config.focusbuttons & 1 << 2) ||
-	     (ev->button == Button4 && config.focusbuttons & 1 << 3) ||
-	     (ev->button == Button5 && config.focusbuttons & 1 << 4)))
+	if ((wm.focused == NULL || t != wm.focused->selcol->selrow->seltab) && ev->button == Button1)
 		tabfocus(t, 1);
 
 	/* raise client */
-	if ((c != wm.abovelist || c != wm.centerlist || c != wm.belowlist) &&
-	    ((ev->button == Button1 && config.raisebuttons & 1 << 0) ||
-	     (ev->button == Button2 && config.raisebuttons & 1 << 1) ||
-	     (ev->button == Button3 && config.raisebuttons & 1 << 2) ||
-	     (ev->button == Button4 && config.raisebuttons & 1 << 3) ||
-	     (ev->button == Button5 && config.raisebuttons & 1 << 4)))
+	if ((c != wm.abovelist || c != wm.centerlist || c != wm.belowlist) && ev->button == Button1)
 		containerraise(c);
 
 	/* do action performed by mouse on non-maximized windows */
@@ -5272,11 +5232,11 @@ xeventbuttonpress(XEvent *e)
 			mouseretile(c, cdiv, rdiv, ev->x_root, ev->y_root);
 		}
 	} else if (!c->isfullscreen && !c->isminimized && !c->ismaximized) {
-		if (ev->state == config.modifier && ev->button == Button1) {
+		if (ev->state == MODIFIER && ev->button == Button1) {
 			mousemove(c, ev->x_root, ev->y_root, 0);
 		} else if (ev->window == c->frame && ev->button == Button3) {
 			mousemove(c, ev->x_root, ev->y_root, o);
-		} else if ((ev->state == config.modifier && ev->button == Button3) ||
+		} else if ((ev->state == MODIFIER && ev->button == Button3) ||
 		           (o != C && ev->window == c->frame && ev->button == Button1)) {
 			if (o == C) {
 				if (x >= c->w / 2 && y >= c->h / 2) {
@@ -5599,22 +5559,6 @@ xeventdestroynotify(XEvent *e)
 	ewmhsetclientsstacking();
 }
 
-/* focus window when cursor enter it (only if there is no focus button) */
-static void
-xevententernotify(XEvent *e)
-{
-	struct Winres res;
-
-	if (config.focusbuttons)
-		return;
-	while (XCheckTypedEvent(dpy, EnterNotify, e))
-		;
-	res = getwin(e->xcrossing.window);
-	if (res.t != NULL) {
-		tabfocus(res.t, 1);
-	}
-}
-
 /* redraw window decoration */
 static void
 xeventexpose(XEvent *e)
@@ -5833,7 +5777,6 @@ main(int argc, char *argv[])
 		[ConfigureNotify]  = xeventconfigurenotify,
 		[ConfigureRequest] = xeventconfigurerequest,
 		[DestroyNotify]    = xeventdestroynotify,
-		[EnterNotify]      = xevententernotify,
 		[Expose]           = xeventexpose,
 		[FocusIn]          = xeventfocusin,
 		[MapRequest]       = xeventmaprequest,
