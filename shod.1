@@ -57,7 +57,7 @@
 .B shod
 is a multi\-monitor floating reparenting X11 window manager which supports tiled and tabbed containers.
 .B shod
-sets no keybindings, reads no configuration other than X resources,
+sets no keybindings, reads no configuration,
 and works only via mouse with a given key modifier (Alt by default)
 and by responding to client messages
 (it is needed
@@ -86,49 +86,30 @@ with the
 command-line option.
 .TP
 .BI \-D " dockspec"
-Specify the position and width of the dock.
+Specify the placement and width of the dock.
 If dockspec is
-.BR NE56 ,
-The dock will be placed in the north side of the screen, at the east edge, with a width of 56 pixels.
+.BR NE:56 ,
+the dock will be placed in the north side of the screen, at the east edge, with a width of 56 pixels.
 If dockspec is
-.BR W32 ,
-The dock will be placed in the west side of the screen, at the center, with a width of 32 pixels.
+.BR WN:32 ,
+the dock will be placed in the west side of the screen, at the north edge, with a width of 32 pixels.
 If dockspec is
-.B E64
-(de default value)
-The dock will be placed in the east side of the screen, at the center, with a width of 64 pixels.
-.TP
-.BI \-M " mousespec"
-Specify the mouse behavior.
-.I mousespec
-is a string composed of three groups of digits delimited with colons.
-The default value is
-.B 1:1:1
-(Mod1/Alt as modifier, Button 1 for windows focusing, and Button 1 for windows raising).
-The first digit is a number from 1 to 5 specifying the modifier (Mod1/Alt to Mod5) used to move and resize windows with the mouse pointer.
-The second group of digits specify the mouse buttons that are used to focus a window when clicking on it;
-for example,
-.B 13
-makes windows be focused when clicking on them with the mouse buttons 1 and 3;
-if this is part is blank or zero, no mouse button is used to focus windos,
-and
-.B shod
-uses the focus\-follow\-cursor focusing style.
-The last group of digits specify the mouse buttons that are used to raise a window when clicking on it;
-for example,
-.B 13
-makes windows be raised when clicking on them with the mouse buttons 1 and 3.
+.B E:64
+(de default value),
+the dock will be placed in the east side of the screen, at the center, with a width of 64 pixels.
 .TP
 .BI \-N " notificationspec"
-This option is used to specify the placement of notification windows.
-The argument of this option is a string of the form POS:GAP;
-where POS is a cardinal position such as NW (northwest), SE (southeast) or C (center);
-and GAP is a positive number.
-For example, if this option is called with
+Specify the placement of notification windows and the gap between them.
+If notificationspec is
+.BR NW:0 ,
+notifications will appear at the northwest corner of the screen and will have no gap between them.
+If notificationspec is
+.BR C:7 ,
+notifications will appear at the center of the screen and will have a 7 pixels gap between them.
+If notificationspec is
 .B NE:3
-(the default value)
-notifications are placed in the top right (northeast) corner of the screen,
-and have a gap of 3 pixels between them.
+(de default value),
+notifications will be placed in the northeast corner of the screen and will have a 3 pixels gap between them.
 .TP
 .BI \-n " ndesks"
 Specify the number of desktops for

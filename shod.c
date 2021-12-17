@@ -18,38 +18,24 @@
 
 #define MODIFIER        Mod1Mask
 
+#define DIV             15      /* see containerplace() for details */
+
 /*
- * The container area is the region of the screen where containers live,
- * that is, the area of the monitor not occupied by bars or the dock; it
- * corresponds to the region occupied by a maximized container.
- *
- * Shod tries to find an empty region on the container area or a region
- * with few containers in it to place a new container.  To do that, shod
- * cuts the container area in DIV divisions horizontally and vertically,
- * creating DIV*DIV regions; shod then counts how many containers are on
- * each region; and places the new container on those regions with few
- * containers over them.
- *
- * After some trial and error, I found out that a DIV equals to 15 is
- * optimal.  It is not too low to provide a incorrect placement, nor too
- * high to take so much computer time.
- *
- * For more information, see the containerplace() function.
+ * default values
  */
-#define DIV             15
+#define DEF_DOCKGRAVITY         "E"     /* default dock gravity */
+#define DEF_DOCKWIDTH           64      /* default dock width */
+#define DEF_DOCKSPACE           64      /* default size of the space for dockapps */
+#define DEF_NOTIFGRAVITY        "NE"
 
 #define FONT            "-misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-iso8859-1"
 #define NDESKTOPS       10
-#define NOTIFGRAVITY    "NE"
 #define NOTIFGAP        3
 #define SNAP_PROXIMITY  8       /* default proximity of container edges to perform snap attraction */
 #define IGNOREUNMAP     6       /* number of unmap notifies to ignore while scanning existing clients */
 #define NAMEMAXLEN      1024    /* maximum length of window's name */
 #define DROPPIXELS      30      /* number of pixels from the border where a tab can be dropped in */
 #define RESIZETIME      64      /* time to redraw containers during resizing */
-#define DEF_DOCKPOS     DOCK_E  /* default dock position */
-#define DEF_DOCKWIDTH   64      /* default dock width */
-#define DEF_DOCKSPACE   64      /* default size of the space for dockapps */
 #define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
 
 /* window type */
@@ -129,12 +115,6 @@ enum {
 	LAYER_DOCK,
 	LAYER_FULLSCREEN,
 	LAYER_LAST
-};
-
-/* notification spawning direction */
-enum {
-	DOWNWARDS,
-	UPWARDS
 };
 
 /* atoms */
@@ -259,22 +239,6 @@ enum {
 	BORDER_LAST
 };
 
-/* dock position */
-enum {
-	DOCK_NW,
-	DOCK_N,
-	DOCK_NE,
-	DOCK_SW,
-	DOCK_S,
-	DOCK_SE,
-	DOCK_WN,
-	DOCK_W,
-	DOCK_WS,
-	DOCK_EN,
-	DOCK_E,
-	DOCK_ES,
-};
-
 /* window eight sections (aka octants) */
 enum Octant {
 	C  = 0,
@@ -346,7 +310,7 @@ struct Row {
 	Pixmap pixbar;                          /* pixmap for the title bar */
 	Pixmap pixbl;                           /* pixmap for left button */
 	Pixmap pixbr;                           /* pixmap for right button */
-	float fact;                             /* factor of height relative to container */
+	double fact;                            /* factor of height relative to container */
 	int ntabs;                              /* number of tabs */
 	int y, h;                               /* row geometry */
 	int pw;
@@ -360,7 +324,7 @@ struct Column {
 	struct Row *selrow;                     /* pointer to selected row */
 	struct Row *maxrow;                     /* maximized row */
 	Window div;                             /* vertical division between columns */
-	float fact;                             /* factor of width relative to container */
+	double fact;                            /* factor of width relative to container */
 	int nrows;                              /* number of rows */
 	int x, w;                               /* column geometry */
 };
@@ -486,11 +450,8 @@ struct Dock {
 	struct Dockapp *head, *tail;    /* list of dockapps */
 	Window win;                     /* dock window */
 	Pixmap pix;                     /* dock pixmap */
-	int width;                      /* dock width */
-	int space;                      /* dock space for dockapps */
 	int x, y, w, h;                 /* dock geometry */
 	int pw, ph;                     /* dock pixmap size */
-	int pos;                        /* dock position */
 	int mapped;                     /* whether dock is mapped */
 };
 
@@ -518,17 +479,13 @@ struct WM {
 
 /* configuration */
 struct Config {
-	unsigned int focusbuttons;
-	unsigned int raisebuttons;
 	int ndesktops;
 	int notifgap;
+	int dockwidth, dockspace;
 	int snap;
 	const char *font;
 	const char *notifgravity;
-
-	/* the following elements are computed from elements above */
-	int gravity;
-	int direction;
+	const char *dockgravity;
 };
 
 /* global variables */
@@ -545,7 +502,7 @@ static int screen, screenw, screenh;
 static Atom atoms[ATOM_LAST];
 static struct Visual visual;
 static struct WM wm;
-static struct Dock dock = {.pix = None, .win = None, .pos = DEF_DOCKPOS, .width = DEF_DOCKWIDTH, .space = DEF_DOCKSPACE};
+static struct Dock dock;
 static struct Config config;
 static int cflag = 0;
 static char *wmname;
@@ -646,56 +603,6 @@ copypixmap(Pixmap src, int sx, int sy, int w, int h)
 	return pix;
 }
 
-/* parse dock specification */
-static void
-parsedock(const char *s)
-{
-	int n;
-	char *t;
-
-	switch (s[0]) {
-	case 'N':
-		if (s[1] == 'W')
-			dock.pos = DOCK_NW;
-		else if (s[1] == 'E')
-			dock.pos = DOCK_NE;
-		else
-			dock.pos = DOCK_N;
-		break;
-	case 'S':
-		if (s[1] == 'W')
-			dock.pos = DOCK_SW;
-		else if (s[1] == 'E')
-			dock.pos = DOCK_SE;
-		else
-			dock.pos = DOCK_S;
-		break;
-	case 'W':
-		if (s[1] == 'N')
-			dock.pos = DOCK_WN;
-		else if (s[1] == 'S')
-			dock.pos = DOCK_WS;
-		else
-			dock.pos = DOCK_W;
-		break;
-	case 'E':
-		if (s[1] == 'N')
-			dock.pos = DOCK_EN;
-		else if (s[1] == 'S')
-			dock.pos = DOCK_ES;
-		else
-			dock.pos = DOCK_E;
-		break;
-	}
-	if ((n = strtol(optarg, &t, 10)) > 0) {
-		dock.space = dock.width = n;
-	}
-	if (*t == '/' && (n = strtol(&t[1], NULL, 10)) > 0) {
-		dock.space = n;
-	}
-	dock.width++;
-}
-
 /* stop running */
 static void
 siginthandler(int signo)
@@ -713,7 +620,10 @@ getoptions(int argc, char *argv[])
 	char *s;
 
 	config.font = FONT;
-	config.notifgravity = NOTIFGRAVITY;
+	config.dockgravity = DEF_DOCKGRAVITY;
+	config.dockwidth = DEF_DOCKWIDTH;
+	config.dockspace = DEF_DOCKSPACE;
+	config.notifgravity = DEF_NOTIFGRAVITY;
 	config.notifgap = NOTIFGAP;
 	config.ndesktops = NDESKTOPS;
 	config.snap = SNAP_PROXIMITY;
@@ -728,9 +638,18 @@ getoptions(int argc, char *argv[])
 			cflag = 1;
 			break;
 		case 'D':
-			parsedock(optarg);
+			if (*optarg == '\0' || *optarg == ':')
+				break;
+			config.dockgravity = optarg;
+			if ((s = strchr(optarg, ':')) == NULL)
+				break;
+			*(s++) = '\0';
+			if ((n = strtol(s, NULL, 10)) > 0)
+				config.dockwidth = n;
 			break;
 		case 'N':
+			if (*optarg == '\0' || *optarg == ':')
+				break;
 			config.notifgravity = optarg;
 			if ((s = strchr(optarg, ':')) == NULL)
 				break;
@@ -884,42 +803,6 @@ initatoms(void)
 	XInternAtoms(dpy, atomnames, ATOM_LAST, False, atoms);
 }
 
-/* initialize gravity and direction values for notifications */
-static void
-initnotif(void)
-{
-	if (config.notifgravity == NULL || strcmp(config.notifgravity, "NE") == 0) {
-		config.gravity = NorthEastGravity;
-		config.direction = DOWNWARDS;
-	} else if (strcmp(config.notifgravity, "NW") == 0) {
-		config.gravity = NorthWestGravity;
-		config.direction = DOWNWARDS;
-	} else if (strcmp(config.notifgravity, "SW") == 0) {
-		config.gravity = SouthWestGravity;
-		config.direction = UPWARDS;
-	} else if (strcmp(config.notifgravity, "SE") == 0) {
-		config.gravity = SouthEastGravity;
-		config.direction = UPWARDS;
-	} else if (strcmp(config.notifgravity, "N") == 0) {
-		config.gravity = NorthGravity;
-		config.direction = DOWNWARDS;
-	} else if (strcmp(config.notifgravity, "W") == 0) {
-		config.gravity = WestGravity;
-		config.direction = DOWNWARDS;
-	} else if (strcmp(config.notifgravity, "C") == 0) {
-		config.gravity = CenterGravity;
-		config.direction = DOWNWARDS;
-	} else if (strcmp(config.notifgravity, "E") == 0) {
-		config.gravity = EastGravity;
-		config.direction = DOWNWARDS;
-	} else if (strcmp(config.notifgravity, "S") == 0) {
-		config.gravity = SouthGravity;
-		config.direction = UPWARDS;
-	} else {
-		errx(1, "unknown gravity %s", config.notifgravity);
-	}
-}
-
 /* set up root window */
 static void
 initroot(void)
@@ -1032,6 +915,8 @@ initdock(void)
 {
 	XSetWindowAttributes swa;
 
+	dock.pix = None;
+	dock.win = None;
 	swa.event_mask = SubstructureNotifyMask | SubstructureRedirectMask | ExposureMask;
 	swa.background_pixel = visual.dock_bg;
 	dock.win = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
@@ -1909,6 +1794,7 @@ colcalcrows(struct Column *col, int recalcfact, int recursive)
 	if (col->c->isfullscreen && col->c->ncols == 1 && col->nrows == 1) {
 		h = col->c->h + visual.tab;
 		y = -visual.tab;
+		recalc = 1;
 	} else {
 		h = col->c->h - 2 * c->b - (col->nrows - 1) * visual.division;
 		y = c->b;
@@ -2038,6 +1924,23 @@ containerplace(struct Container *c, struct Desktop *desk, int userplaced)
 	/* if the user placed the window, we should not re-place it */
 	if (userplaced)
 		return;
+
+	/*
+	 * The container area is the region of the screen where containers live,
+	 * that is, the area of the monitor not occupied by bars or the dock; it
+	 * corresponds to the region occupied by a maximized container.
+	 *
+	 * Shod tries to find an empty region on the container area or a region
+	 * with few containers in it to place a new container.  To do that, shod
+	 * cuts the container area in DIV divisions horizontally and vertically,
+	 * creating DIV*DIV regions; shod then counts how many containers are on
+	 * each region; and places the new container on those regions with few
+	 * containers over them.
+	 *
+	 * After some trial and error, I found out that a DIV equals to 15 is
+	 * optimal.  It is not too low to provide a incorrect placement, nor too
+	 * high to take so much computer time.
+	 */
 
 	/* increment cells of grid a window is in */
 	for (tmp = wm.c; tmp; tmp = tmp->next) {
@@ -3815,18 +3718,19 @@ monupdatearea(void)
 		mon->wh = mon->mh;
 		t = b = l = r = 0;
 		if (mon == wm.monhead && dock.mapped) {
-			switch (dock.pos) {
-			case DOCK_N: case DOCK_NW: case DOCK_NE:
-				t = dock.width;
+			switch (config.dockgravity[0]) {
+			case 'N':
+				t = config.dockwidth;
 				break;
-			case DOCK_S: case DOCK_SW: case DOCK_SE:
-				b = dock.width;
+			case 'S':
+				b = config.dockwidth;
 				break;
-			case DOCK_W: case DOCK_WN: case DOCK_WS:
-				l = dock.width;
+			case 'W':
+				l = config.dockwidth;
 				break;
-			case DOCK_E: case DOCK_EN: case DOCK_ES:
-				r = dock.width;
+			case 'E':
+			default:
+				r = config.dockwidth;
 				break;
 			}
 		}
@@ -4059,43 +3963,54 @@ notifplace(void)
 	for (n = wm.nhead; n; n = n->next) {
 		x = wm.monhead->wx;
 		y = wm.monhead->wy;
-		switch (config.gravity) {
-		case NorthWestGravity:
+		switch (config.notifgravity[0]) {
+		case 'N':
+			switch (config.notifgravity[1]) {
+			case 'W':
+				break;
+			case 'E':
+				x += wm.monhead->ww - n->w;
+				break;
+			default:
+				x += (wm.monhead->ww - n->w) / 2;
+				break;
+			}
 			break;
-		case NorthGravity:
-			x += (wm.monhead->ww - n->w) / 2;
+		case 'S':
+			switch(config.notifgravity[1]) {
+			case 'W':
+				y += wm.monhead->wh - n->h;
+				break;
+			case 'E':
+				x += wm.monhead->ww - n->w;
+				y += wm.monhead->wh - n->h;
+				break;
+			default:
+				x += (wm.monhead->ww - n->w) / 2;
+				y += wm.monhead->wh - n->h;
+				break;
+			}
 			break;
-		case NorthEastGravity:
-			x += wm.monhead->ww - n->w;
-			break;
-		case WestGravity:
+		case 'W':
 			y += (wm.monhead->wh - n->h) / 2;
 			break;
-		case CenterGravity:
+		case 'C':
 			x += (wm.monhead->ww - n->w) / 2;
 			y += (wm.monhead->wh - n->h) / 2;
 			break;
-		case EastGravity:
+		case 'E':
 			x += wm.monhead->ww - n->w;
 			y += (wm.monhead->wh - n->h) / 2;
 			break;
-		case SouthWestGravity:
-			y += wm.monhead->wh - n->h;
-			break;
-		case SouthGravity:
-			x += (wm.monhead->ww - n->w) / 2;
-			y += wm.monhead->wh - n->h;
-			break;
-		case SouthEastGravity:
+		default:
 			x += wm.monhead->ww - n->w;
-			y += wm.monhead->wh - n->h;
 			break;
 		}
 
-		if (config.direction == DOWNWARDS)
-			y += h;
-		else
+		if (config.notifgravity[0] == 'S')
 			y -= h;
+		else
+			y += h;
 		h += n->h + config.notifgap + visual.border * 2;
 
 		XMoveResizeWindow(dpy, n->frame, x, y, n->w, n->h);
@@ -4185,23 +4100,24 @@ dockdecorate(void)
 
 	val.foreground = visual.dock_border;
 	XChangeGC(dpy, gc, GCFillStyle | GCForeground, &val);
-	switch (dock.pos) {
-	case DOCK_N: case DOCK_NW: case DOCK_NE:
+	switch (config.dockgravity[0]) {
+	case 'N':
 		XFillRectangle(dpy, dock.pix, gc, 0, 0, 1, dock.h);
 		XFillRectangle(dpy, dock.pix, gc, dock.w - 1, 0, 1, dock.h);
 		XFillRectangle(dpy, dock.pix, gc, 1, dock.h - 1, dock.w - 2, 1);
 		break;
-	case DOCK_S: case DOCK_SW: case DOCK_SE:
+	case 'S':
 		XFillRectangle(dpy, dock.pix, gc, 0, 0, 1, dock.h);
 		XFillRectangle(dpy, dock.pix, gc, dock.w - 1, 0, 1, dock.h);
 		XFillRectangle(dpy, dock.pix, gc, 1, 0, dock.w - 2, 1);
 		break;
-	case DOCK_W: case DOCK_WN: case DOCK_WS:
+	case 'W':
 		XFillRectangle(dpy, dock.pix, gc, 0, 0, dock.w, 1);
 		XFillRectangle(dpy, dock.pix, gc, 0, dock.h - 1, dock.w, 1);
 		XFillRectangle(dpy, dock.pix, gc, dock.w - 1, 1, 1, dock.h - 2);
 		break;
-	case DOCK_E: case DOCK_EN: case DOCK_ES:
+	case 'E':
+	default:
 		XFillRectangle(dpy, dock.pix, gc, 0, 0, dock.w, 1);
 		XFillRectangle(dpy, dock.pix, gc, 0, dock.h - 1, dock.w, 1);
 		XFillRectangle(dpy, dock.pix, gc, 0, 1, 1, dock.h - 2);
@@ -4220,24 +4136,25 @@ dockupdate(void)
 
 	size = 0;
 	for (dapp = dock.head; dapp != NULL; dapp = dapp->next) {
-		switch (dock.pos) {
-		case DOCK_N: case DOCK_NW: case DOCK_NE:
+		switch (config.dockgravity[0]) {
+		case 'N':
 			dapp->x = 1 + size + dapp->gw / 2 - dapp->w / 2;
-			dapp->y = dock.space / 2 - dapp->h / 2;
+			dapp->y = config.dockspace / 2 - dapp->h / 2;
 			size += dapp->gw;
 			break;
-		case DOCK_S: case DOCK_SW: case DOCK_SE:
+		case 'S':
 			dapp->x = 1 + size + dapp->gw / 2 - dapp->w / 2;
-			dapp->y = 1 + dock.space / 2 - dapp->h / 2;
+			dapp->y = 1 + config.dockspace / 2 - dapp->h / 2;
 			size += dapp->gw;
 			break;
-		case DOCK_W: case DOCK_WN: case DOCK_WS:
-			dapp->x = dock.space / 2 - dapp->w / 2;
+		case 'W':
+			dapp->x = config.dockspace / 2 - dapp->w / 2;
 			dapp->y = 1 + size + dapp->gh / 2 - dapp->h / 2;
 			size += dapp->gh;
 			break;
-		case DOCK_E: case DOCK_EN: case DOCK_ES:
-			dapp->x = 1 + dock.space / 2 - dapp->w / 2;
+		case 'E':
+		default:
+			dapp->x = 1 + config.dockspace / 2 - dapp->w / 2;
 			dapp->y = 1 + size + dapp->gh / 2 - dapp->h / 2;
 			size += dapp->gh;
 			break;
@@ -4250,79 +4167,57 @@ dockupdate(void)
 	}
 	dock.mapped = 1;
 	size += 2;
-	switch (dock.pos) {
-	case DOCK_NW:
-		dock.h = dock.width;
-		dock.w = min(size, wm.monhead->mw);
+	switch (config.dockgravity[0]) {
+	case 'N':
+		dock.h = config.dockwidth;
+		dock.y = 0;
+		break;
+	case 'S':
+		dock.h = config.dockwidth;
+		dock.y = wm.monhead->mh - config.dockwidth;
+		break;
+	case 'W':
+		dock.w = config.dockwidth;
 		dock.x = 0;
-		dock.y = 0;
 		break;
-	case DOCK_N:
-		dock.h = dock.width;
-		dock.w = min(size, wm.monhead->mw);
-		dock.x = wm.monhead->mw / 2 - size / 2;
-		dock.y = 0;
-		break;
-	case DOCK_NE:
-		dock.h = dock.width;
-		dock.w = min(size, wm.monhead->mw);
-		dock.x = wm.monhead->mw - size;
-		dock.y = 0;
-		break;
-	case DOCK_SW:
-		dock.h = dock.width;
-		dock.w = min(size, wm.monhead->mw);
-		dock.x = 0;
-		dock.y = wm.monhead->mh - dock.width;
-		break;
-	case DOCK_S:
-		dock.h = dock.width;
-		dock.w = min(size, wm.monhead->mw);
-		dock.x = wm.monhead->mw / 2 - size / 2;
-		dock.y = wm.monhead->mh - dock.width;
-		break;
-	case DOCK_SE:
-		dock.h = dock.width;
-		dock.w = min(size, wm.monhead->mw);
-		dock.x = wm.monhead->mw - size;
-		dock.y = wm.monhead->mh - dock.width;
-		break;
-	case DOCK_WN:
-		dock.w = dock.width;
+	case 'E':
+	default:
+		dock.w = config.dockwidth;
+		dock.x = wm.monhead->mw - config.dockwidth;
 		dock.h = min(size, wm.monhead->mh);
-		dock.x = 0;
-		dock.y = 0;
-		break;
-	case DOCK_W:
-		dock.w = dock.width;
-		dock.h = min(size, wm.monhead->mh);
-		dock.x = 0;
 		dock.y = wm.monhead->mh / 2 - size / 2;
 		break;
-	case DOCK_WS:
-		dock.w = dock.width;
-		dock.h = min(size, wm.monhead->mh);
-		dock.x = 0;
-		dock.y = wm.monhead->mh - size;
-		break;
-	case DOCK_EN:
-		dock.w = dock.width;
-		dock.h = min(size, wm.monhead->mh);
-		dock.x = wm.monhead->mw - dock.width;
-		dock.y = 0;
-		break;
-	case DOCK_E:
-		dock.w = dock.width;
-		dock.h = min(size, wm.monhead->mh);
-		dock.x = wm.monhead->mw - dock.width;
-		dock.y = wm.monhead->mh / 2 - size / 2;
-		break;
-	case DOCK_ES:
-		dock.w = dock.width;
-		dock.h = min(size, wm.monhead->mh);
-		dock.x = wm.monhead->mw - dock.width;
-		dock.y = wm.monhead->mh - size;
-		break;
+	}
+	if (config.dockgravity[0] == 'N' || config.dockgravity[0] == 'S') {
+		switch (config.dockgravity[1]) {
+		case 'W':
+			dock.w = min(size, wm.monhead->mw);
+			dock.x = 0;
+			break;
+		case 'E':
+			dock.w = min(size, wm.monhead->mw);
+			dock.x = wm.monhead->mw - size;
+			break;
+		default:
+			dock.w = min(size, wm.monhead->mw);
+			dock.x = wm.monhead->mw / 2 - size / 2;
+			break;
+		}
+	} else if (config.dockgravity[0] != '\0') {
+		switch (config.dockgravity[1]) {
+		case 'N':
+			dock.h = min(size, wm.monhead->mh);
+			dock.y = 0;
+			break;
+		case 'S':
+			dock.h = min(size, wm.monhead->mh);
+			dock.y = wm.monhead->mh - size;
+			break;
+		default:
+			dock.h = min(size, wm.monhead->mh);
+			dock.y = wm.monhead->mh / 2 - size / 2;
+			break;
+		}
 	}
 	for (dapp = dock.head; dapp != NULL; dapp = dapp->next) {
 		XMoveWindow(dpy, dapp->win, dapp->x, dapp->y);
@@ -4347,8 +4242,8 @@ dockappnew(Window win, int w, int h, int ignoreunmap)
 	dapp->x = dapp->y = 0;
 	dapp->w = w;
 	dapp->h = h;
-	dapp->gw = dock.space * (((w - 1) / dock.space) + 1);
-	dapp->gh = dock.space * (((h - 1) / dock.space) + 1);
+	dapp->gw = config.dockspace * (((w - 1) / config.dockspace) + 1);
+	dapp->gh = config.dockspace * (((h - 1) / config.dockspace) + 1);
 	dapp->prev = dock.tail;
 	dapp->next = NULL;
 	dapp->ignoreunmap = ignoreunmap;
@@ -5806,7 +5701,6 @@ main(int argc, char *argv[])
 	initfontset();
 	initcursors();
 	initatoms();
-	initnotif();
 	initroot();
 	inittheme();
 	initdock();
