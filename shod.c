@@ -16,26 +16,20 @@
 #include <X11/extensions/Xinerama.h>
 #include "theme.xpm"
 
-#define MODIFIER        Mod1Mask
-
-#define DIV             15      /* see containerplace() for details */
-
-/*
- * default values
- */
+#define MODIFIER                Mod1Mask
 #define DEF_DOCKGRAVITY         "E"     /* default dock gravity */
 #define DEF_DOCKWIDTH           64      /* default dock width */
 #define DEF_DOCKSPACE           64      /* default size of the space for dockapps */
 #define DEF_NOTIFGRAVITY        "NE"
-
-#define FONT            "-misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-iso8859-1"
-#define NDESKTOPS       10
-#define NOTIFGAP        3
-#define SNAP_PROXIMITY  8       /* default proximity of container edges to perform snap attraction */
-#define IGNOREUNMAP     6       /* number of unmap notifies to ignore while scanning existing clients */
-#define NAMEMAXLEN      1024    /* maximum length of window's name */
-#define DROPPIXELS      30      /* number of pixels from the border where a tab can be dropped in */
-#define RESIZETIME      64      /* time to redraw containers during resizing */
+#define DEF_FONT                "-misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-iso8859-1"
+#define DEF_NDESKTOPS           10
+#define DEF_NOTIFGAP            3
+#define DEF_SNAP                8       /* default proximity of container edges to perform snap attraction */
+#define DIV                     15      /* see containerplace() for details */
+#define IGNOREUNMAP             6       /* number of unmap notifies to ignore while scanning existing clients */
+#define NAMEMAXLEN              1024    /* maximum length of window's name */
+#define DROPPIXELS              30      /* number of pixels from the border where a tab can be dropped in */
+#define RESIZETIME              64      /* time to redraw containers during resizing */
 #define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
 
 /* window type */
@@ -619,14 +613,14 @@ getoptions(int argc, char *argv[])
 	int c;
 	char *s;
 
-	config.font = FONT;
+	config.font = DEF_FONT;
 	config.dockgravity = DEF_DOCKGRAVITY;
 	config.dockwidth = DEF_DOCKWIDTH;
 	config.dockspace = DEF_DOCKSPACE;
 	config.notifgravity = DEF_NOTIFGRAVITY;
-	config.notifgap = NOTIFGAP;
-	config.ndesktops = NDESKTOPS;
-	config.snap = SNAP_PROXIMITY;
+	config.notifgap = DEF_NOTIFGAP;
+	config.ndesktops = DEF_NDESKTOPS;
+	config.snap = DEF_SNAP;
 
 	if ((wmname = strrchr(argv[0], '/')) != NULL)
 		wmname++;
