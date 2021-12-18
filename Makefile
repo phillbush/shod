@@ -27,7 +27,7 @@ all: ${PROGS}
 shod: shod.o
 	${CC} -o $@ shod.o ${LDFLAGS}
 
-shod.o: theme.xpm
+shod.o: config.h
 
 shodc: shodc.o
 	${CC} -o $@ shodc.o ${LDFLAGS}
