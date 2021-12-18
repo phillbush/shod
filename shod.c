@@ -2560,19 +2560,19 @@ promptdecorate(struct Prompt *prompt, int w, int h)
 	int partw, parth;
 	int doubleshadow;
 
-	doubleshadow = (config.borderwidth - 4 > 0);
+	if (prompt->pw == w && prompt->ph == h && prompt->pix != None)
+		goto done;
 
 	/* (re)create pixmap */
-	if (prompt->pw != w || prompt->ph != h || prompt->pix == None) {
-		if (prompt->pix != None)
-			XFreePixmap(dpy, prompt->pix);
-		prompt->pix = XCreatePixmap(dpy, prompt->frame, w, h, depth);
-	}
+	if (prompt->pix != None)
+		XFreePixmap(dpy, prompt->pix);
+	prompt->pix = XCreatePixmap(dpy, prompt->frame, w, h, depth);
 	prompt->pw = w;
 	prompt->ph = h;
 
 	partw = w - 2 * config.borderwidth;
 	parth = h - 2 * config.borderwidth;
+	doubleshadow = (config.borderwidth - 4 > 0);
 
 	/* draw background */
 	val.foreground = visual.prompt[COLOR_MID];
@@ -2635,6 +2635,7 @@ promptdecorate(struct Prompt *prompt, int w, int h)
 	XChangeGC(dpy, gc, GCForeground, &val);
 	XFillRectangles(dpy, prompt->pix, gc, recs, doubleshadow ? 6 : 3);
 
+done:
 	XCopyArea(dpy, prompt->pix, prompt->frame, gc, 0, 0, w, h, 0, 0);
 }
 
