@@ -14,17 +14,8 @@
 #include <X11/cursorfont.h>
 #include <X11/xpm.h>
 #include <X11/extensions/Xinerama.h>
-#include "theme.xpm"
 
 #define MODIFIER                Mod1Mask
-#define DEF_DOCKGRAVITY         "E"     /* default dock gravity */
-#define DEF_DOCKWIDTH           64      /* default dock width */
-#define DEF_DOCKSPACE           64      /* default size of the space for dockapps */
-#define DEF_NOTIFGRAVITY        "NE"
-#define DEF_FONT                "-misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-iso8859-1"
-#define DEF_NDESKTOPS           10
-#define DEF_NOTIFGAP            3
-#define DEF_SNAP                8       /* default proximity of container edges to perform snap attraction */
 #define DIV                     15      /* see containerplace() for details */
 #define IGNOREUNMAP             6       /* number of unmap notifies to ignore while scanning existing clients */
 #define NAMEMAXLEN              1024    /* maximum length of window's name */
@@ -54,6 +45,14 @@ enum {
 	REMOVE = 0,
 	ADD    = 1,
 	TOGGLE = 2
+};
+
+/* colors */
+enum {
+	COLOR_MID,
+	COLOR_LIGHT,
+	COLOR_DARK,
+	COLOR_LAST
 };
 
 /* decoration style */
@@ -392,51 +391,20 @@ struct Notification {
 /* prompt structure, used only when calling promptisvalid() */
 struct Prompt {
 	Window win, frame;                      /* actual client window and its frame */
-};
-
-/* decoration pixmaps and colors */
-struct Decor {
-	Pixmap bl;                              /* left button */
-	Pixmap br;                              /* right button */
-	Pixmap tl;                              /* title left end */
-	Pixmap tlt;                             /* title left text end */
-	Pixmap t;                               /* title middle */
-	Pixmap trt;                             /* title right text end */
-	Pixmap tr;                              /* title right end */
-	Pixmap nw;                              /* northwest corner */
-	Pixmap nf;                              /* north first edge */
-	Pixmap n;                               /* north border */
-	Pixmap nl;                              /* north last edge */
-	Pixmap ne;                              /* northeast corner */
-	Pixmap wf;                              /* west first edge */
-	Pixmap w;                               /* west border */
-	Pixmap wl;                              /* west last edge */
-	Pixmap ef;                              /* east first edge */
-	Pixmap e;                               /* east border */
-	Pixmap el;                              /* east last edge */
-	Pixmap sw;                              /* southwest corner */
-	Pixmap sf;                              /* south first edge */
-	Pixmap s;                               /* south border */
-	Pixmap sl;                              /* south last edge */
-	Pixmap se;                              /* southeast corner */
-	unsigned long fg;                       /* foreground color */
-	unsigned long bg;                       /* background color */
+	Pixmap pix;                             /* pixmap to draw the frame */
+	int pw, ph;                             /* pixmap width and height */
 };
 
 /* cursors, fonts, decorations, and decoration sizes */
 struct Visual {
-	struct Decor decor[STYLE_LAST][DECOR_LAST];
 	Cursor cursors[CURSOR_LAST];
 	XFontSet fontset;
-	unsigned long dock_bg;                  /* background color of the dock */
-	unsigned long dock_border;              /* border color of the dock */
-	int edge;                               /* size of the decoration edge */
-	int corner;                             /* size of the decoration corner */
-	int border;                             /* size of the decoration border */
-	int center;                             /* size of the decoration center */
-	int division;                           /* size of the decoration division */
-	int button;                             /* size of the buttons (actually, it's equal to .tab) */
-	int tab;                                /* height of the tab bar */
+	unsigned long fg[STYLE_LAST];
+	unsigned long title[STYLE_LAST][COLOR_LAST];
+	unsigned long border[STYLE_LAST][COLOR_LAST];
+	unsigned long dock[COLOR_LAST];
+	unsigned long notif[COLOR_LAST];
+	unsigned long prompt[COLOR_LAST];
 };
 
 /* the dock */
@@ -477,30 +445,46 @@ struct Config {
 	int notifgap;
 	int dockwidth, dockspace;
 	int snap;
+	int borderwidth;
+	int titlewidth;
 	const char *font;
 	const char *notifgravity;
 	const char *dockgravity;
+	const char *foreground[STYLE_LAST];
+	const char *titlecolors[STYLE_LAST];
+	const char *bordercolors[STYLE_LAST];
+	const char *dockcolors;
+	const char *notifcolors;
+	const char *promptcolors;
+
+	/* the values below are computed from the values above */
+	int corner;
+	int divwidth;
+	int minsize;
 };
 
 /* global variables */
 static XSetWindowAttributes clientswa = {
 	.event_mask = SubstructureNotifyMask | ExposureMask
-		    | SubstructureRedirectMask | ButtonPressMask | FocusChangeMask
+	            | SubstructureRedirectMask | ButtonPressMask | FocusChangeMask
 };
 static int (*xerrorxlib)(Display *, XErrorEvent *);
+static XrmDatabase xdb;
 static Display *dpy;
 static Window root;
 static GC gc;
-static int depth;
-static int screen, screenw, screenh;
 static Atom atoms[ATOM_LAST];
 static struct Visual visual;
 static struct WM wm;
 static struct Dock dock;
-static struct Config config;
+static int depth;
+static int screen, screenw, screenh;
 static int cflag = 0;
 static char *wmname;
+static char *xrm;
 volatile sig_atomic_t running = 1;
+
+#include "config.h"
 
 /* show usage and exit */
 static void
@@ -559,6 +543,19 @@ ecalloc(size_t nmemb, size_t size)
 	return p;
 }
 
+/* get color from color string */
+static unsigned long
+ealloccolor(const char *s)
+{
+	XColor color;
+
+	if(!XAllocNamedColor(dpy, DefaultColormap(dpy, screen), s, &color, &color)) {
+		warnx("could not allocate color: %s", s);
+		return BlackPixel(dpy, screen);
+	}
+	return color.pixel;
+}
+
 /* error handler */
 static int
 xerror(Display *dpy, XErrorEvent *e)
@@ -586,23 +583,55 @@ xerror(Display *dpy, XErrorEvent *e)
 	return xerrorxlib(dpy, e);
 }
 
-/* create and copy pixmap */
-static Pixmap
-copypixmap(Pixmap src, int sx, int sy, int w, int h)
-{
-	Pixmap pix;
-
-	pix = XCreatePixmap(dpy, root, w, h, depth);
-	XCopyArea(dpy, src, pix, gc, sx, sy, w, h, 0, 0);
-	return pix;
-}
-
 /* stop running */
 static void
 siginthandler(int signo)
 {
 	(void)signo;
 	running = 0;
+}
+
+/* read xrdb for configuration options */
+static void
+getresources(void)
+{
+	long n;
+	char *type;
+	XrmValue xval;
+
+	if (xrm == NULL || xdb == NULL)
+		return;
+	if (XrmGetResource(xdb, "shod.dockColors", "*", &type, &xval) == True)
+		config.dockcolors = xval.addr;
+	if (XrmGetResource(xdb, "shod.notifColors", "*", &type, &xval) == True)
+		config.notifcolors = xval.addr;
+	if (XrmGetResource(xdb, "shod.promptColors", "*", &type, &xval) == True)
+		config.promptcolors = xval.addr;
+	if (XrmGetResource(xdb, "shod.title.font", "*", &type, &xval) == True)
+		config.font = xval.addr;
+	if (XrmGetResource(xdb, "shod.title.foreground", "*", &type, &xval) == True) {
+		config.foreground[0] = xval.addr;
+		config.foreground[1] = xval.addr;
+		config.foreground[2] = xval.addr;
+	}
+	if (XrmGetResource(xdb, "shod.title.activeColors", "*", &type, &xval) == True)
+		config.titlecolors[FOCUSED] = xval.addr;
+	if (XrmGetResource(xdb, "shod.title.inactiveColors", "*", &type, &xval) == True)
+		config.titlecolors[UNFOCUSED] = xval.addr;
+	if (XrmGetResource(xdb, "shod.title.urgentColors", "*", &type, &xval) == True)
+		config.titlecolors[URGENT] = xval.addr;
+	if (XrmGetResource(xdb, "shod.border.activeColors", "*", &type, &xval) == True)
+		config.bordercolors[FOCUSED] = xval.addr;
+	if (XrmGetResource(xdb, "shod.border.inactiveColors", "*", &type, &xval) == True)
+		config.bordercolors[UNFOCUSED] = xval.addr;
+	if (XrmGetResource(xdb, "shod.border.urgentColors", "*", &type, &xval) == True)
+		config.bordercolors[URGENT] = xval.addr;
+	if (XrmGetResource(xdb, "shod.borderWidth", "*", &type, &xval) == True)
+		if ((n = strtol(xval.addr, NULL, 10)) > 0 && n < 100)
+			config.borderwidth = n;
+	if (XrmGetResource(xdb, "shod.titleWidth", "*", &type, &xval) == True)
+		if ((n = strtol(xval.addr, NULL, 10)) > 0 && n < 100)
+			config.titlewidth = n;
 }
 
 /* read command-line options */
@@ -612,15 +641,6 @@ getoptions(int argc, char *argv[])
 	long n;
 	int c;
 	char *s;
-
-	config.font = DEF_FONT;
-	config.dockgravity = DEF_DOCKGRAVITY;
-	config.dockwidth = DEF_DOCKWIDTH;
-	config.dockspace = DEF_DOCKSPACE;
-	config.notifgravity = DEF_NOTIFGRAVITY;
-	config.notifgap = DEF_NOTIFGAP;
-	config.ndesktops = DEF_NDESKTOPS;
-	config.snap = DEF_SNAP;
 
 	if ((wmname = strrchr(argv[0], '/')) != NULL)
 		wmname++;
@@ -813,94 +833,44 @@ initroot(void)
 	XSetInputFocus(dpy, root, RevertToParent, CurrentTime);
 }
 
+/* allocate the three colors of an object */
+static void
+createcolors(unsigned long *colors, const char *str)
+{
+	int i;
+	char *s, *t, *p;
+
+	p = t = s = estrndup(str, strlen(str));
+	for (i = 0; i < COLOR_LAST; i++) {
+		while (*p && *p != ':')
+			p++;
+		*(p++) = '\0';
+		if (t == 0 || *t != '\0')
+			colors[i] = ealloccolor(t);
+		else
+			colors[i] = colors[i - 1];
+		t = p;
+	}
+	free(s);
+}
+
 /* initialize decoration pixmap */
 static void
-inittheme(void)
+initvisual(void)
 {
-	XGCValues val;
-	XpmAttributes xa;
-	XImage *img;
-	Pixmap pix;
-	struct Decor *d;
-	unsigned int sizew, sizeh;      /* size of each square in the .xpm file */
-	unsigned int x, y;
-	unsigned int i, j;
-	int status;
+	int i;
 
-	memset(&xa, 0, sizeof xa);
-	status = XpmCreateImageFromData(dpy, theme, &img, NULL, &xa);
-	if (status != XpmSuccess)
-		errx(1, "could not load theme");
-
-	/* create Pixmap from XImage */
-	pix = XCreatePixmap(dpy, root, img->width, img->height, img->depth);
-	val.foreground = 1;
-	val.background = 0;
-	XChangeGC(dpy, gc, GCForeground | GCBackground, &val);
-	XPutImage(dpy, pix, gc, img, 0, 0, 0, 0, img->width, img->height);
-
-	/* check whether the theme has the correct proportions and hotspots */
-	sizeh = sizew = 0;
-	if (xa.valuemask & (XpmSize | XpmHotspot) &&
-	    xa.width % 3 == 0 && (xa.height - 2) % 3 == 0 &&
-	    (xa.width / 3) % 2 == 1 && ((xa.height - 2) / 3) % 2 == 1 &&
-	    xa.x_hotspot < ((xa.width / 3) - 3) / 2) {
-		sizew = xa.width / 3;
-		sizeh = (xa.height - 2) / 3;
-		visual.division = visual.border = xa.x_hotspot;
-		visual.button = visual.tab = xa.y_hotspot;
-		visual.corner = visual.border + visual.tab;
-		visual.edge = (sizew - 3) / 2 - visual.corner;
-		visual.center = sizew - visual.border * 2;
-		wm.minsize = visual.center + visual.border * 2;
-	}
-	if (!sizew || !sizeh || !visual.division || !visual.border || !visual.button ||
-	    !visual.tab || !visual.corner || !visual.edge || !visual.center) {
-		XDestroyImage(img);
-		XFreePixmap(dpy, pix);
-		errx(1, "theme in wrong format");
-	}
-
-	/* destroy pixmap into decoration parts and copy them into the decor array */
-	y = 0;
+	config.corner = config.borderwidth + config.titlewidth;
+	config.divwidth = config.borderwidth;
+	config.minsize = config.corner * 2 + 10;
 	for (i = 0; i < STYLE_LAST; i++) {
-		x = 0;
-		for (j = 0; j < DECOR_LAST; j++) {
-			d = &visual.decor[i][j];
-			d->bl   = copypixmap(pix, x + visual.border, y + visual.border, visual.button, visual.button);
-			d->tl   = copypixmap(pix, x + visual.border + visual.button, y + visual.border, visual.edge, visual.tab);
-			d->tlt  = copypixmap(pix, x + visual.border + visual.button + visual.edge, y + visual.border, 1, visual.tab);
-			d->t    = copypixmap(pix, x + visual.border + visual.button + visual.edge + 1, y + visual.border, 1, visual.tab);
-			d->trt  = copypixmap(pix, x + visual.border + visual.button + visual.edge + 2, y + visual.border, 1, visual.tab);
-			d->tr   = copypixmap(pix, x + visual.border + visual.button + visual.edge + 3, y + visual.border, visual.edge, visual.tab);
-			d->br   = copypixmap(pix, x + visual.border + visual.button + 2 * visual.edge + 3, y + visual.border, visual.button, visual.button);
-			d->nw   = copypixmap(pix, x, y, visual.corner, visual.corner);
-			d->nf   = copypixmap(pix, x + visual.corner, y, visual.edge, visual.border);
-			d->n    = copypixmap(pix, x + visual.corner + visual.edge + 1, y, 1, visual.border);
-			d->nl   = copypixmap(pix, x + visual.corner + visual.edge + 3, y, visual.edge, visual.border);
-			d->ne   = copypixmap(pix, x + sizew - visual.corner, y, visual.corner, visual.corner);
-			d->wf   = copypixmap(pix, x, y + visual.corner, visual.border, visual.edge);
-			d->w    = copypixmap(pix, x, y + visual.corner + visual.edge, visual.border, 1);
-			d->wl   = copypixmap(pix, x, y + visual.corner + visual.edge + 1, visual.border, visual.edge);
-			d->ef   = copypixmap(pix, x + sizew - visual.border, y + visual.corner, visual.border, visual.edge);
-			d->e    = copypixmap(pix, x + sizew - visual.border, y + visual.corner + visual.edge, visual.border, 1);
-			d->el   = copypixmap(pix, x + sizew - visual.border, y + visual.corner + visual.edge + 1, visual.border, visual.edge);
-			d->sw   = copypixmap(pix, x, y + sizeh - visual.corner, visual.corner, visual.corner);
-			d->sf   = copypixmap(pix, x + visual.corner, y + sizeh - visual.border, visual.edge, visual.border);
-			d->s    = copypixmap(pix, x + visual.corner + visual.edge + 1, y + sizeh - visual.border, 1, visual.border);
-			d->sl   = copypixmap(pix, x + visual.corner + visual.edge + 3, y + sizeh - visual.border, visual.edge, visual.border);
-			d->se   = copypixmap(pix, x + sizew - visual.corner, y + sizeh - visual.corner, visual.corner, visual.corner);
-			d->fg   = XGetPixel(img, x + sizew / 2, y + visual.corner + visual.edge);
-			d->bg   = XGetPixel(img, x + sizew / 2, y + visual.border + visual.tab / 2);
-			x += sizew;
-		}
-		y += sizeh;
+		createcolors(visual.title[i], config.titlecolors[i]);
+		createcolors(visual.border[i], config.bordercolors[i]);
+		visual.fg[i] = ealloccolor(config.foreground[i]);
 	}
-	visual.dock_bg = XGetPixel(img, 0, xa.height - 2);
-	visual.dock_border = XGetPixel(img, 0, xa.height - 1);
-
-	XDestroyImage(img);
-	XFreePixmap(dpy, pix);
+	createcolors(visual.dock, config.dockcolors);
+	createcolors(visual.notif, config.notifcolors);
+	createcolors(visual.prompt, config.promptcolors);
 }
 
 /* create dock window */
@@ -912,7 +882,7 @@ initdock(void)
 	dock.pix = None;
 	dock.win = None;
 	swa.event_mask = SubstructureNotifyMask | SubstructureRedirectMask | ExposureMask;
-	swa.background_pixel = visual.dock_bg;
+	swa.background_pixel = visual.dock[0];
 	dock.win = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
 		                     CopyFromParent, CopyFromParent, CopyFromParent,
 		                     CWEventMask | CWBackPixel, &swa);
@@ -1274,13 +1244,13 @@ getoctant(struct Container *c, int x, int y)
 {
 	if (c == NULL || c->isminimized)
 		return 0;
-	if ((y < c->b && x <= visual.corner) || (x < c->b && y <= visual.corner)) {
+	if ((y < c->b && x <= config.corner) || (x < c->b && y <= config.corner)) {
 		return NW;
-	} else if ((y < c->b && x >= c->w - visual.corner) || (x > c->w - c->b && y <= visual.corner)) {
+	} else if ((y < c->b && x >= c->w - config.corner) || (x > c->w - c->b && y <= config.corner)) {
 		return NE;
-	} else if ((y > c->h - c->b && x <= visual.corner) || (x < c->b && y >= c->h - visual.corner)) {
+	} else if ((y > c->h - c->b && x <= config.corner) || (x < c->b && y >= c->h - config.corner)) {
 		return SW;
-	} else if ((y > c->h - c->b && x >= c->w - visual.corner) || (x > c->w - c->b && y >= c->h - visual.corner)) {
+	} else if ((y > c->h - c->b && x >= c->w - config.corner) || (x > c->w - c->b && y >= c->h - config.corner)) {
 		return SE;
 	} else if (y < c->b) {
 		return N;
@@ -1304,13 +1274,13 @@ getdivisions(struct Container *c, struct Column **cdiv, struct Row **rdiv, int x
 	*cdiv = NULL;
 	*rdiv = NULL;
 	for (col = c->cols; col != NULL; col = col->next) {
-		if (col->next != NULL && x >= col->x + col->w && x < col->x + col->w + visual.division) {
+		if (col->next != NULL && x >= col->x + col->w && x < col->x + col->w + config.divwidth) {
 			*cdiv = col;
 			return;
 		}
 		if (x >= col->x && x < col->x + col->w) {
 			for (row = col->rows; row != NULL; row = row->next) {
-				if (row->next != NULL && y >= row->y + row->h && y < row->y + row->h + visual.division) {
+				if (row->next != NULL && y >= row->y + row->h && y < row->y + row->h + config.divwidth) {
 					*rdiv = row;
 					return;
 				}
@@ -1723,8 +1693,8 @@ dialogcalcsize(struct Dialog *d)
 	struct Tab *t;
 
 	t = d->t;
-	d->w = max(1, min(d->maxw, t->winw - 2 * visual.border));
-	d->h = max(1, min(d->maxh, t->winh - 2 * visual.border));
+	d->w = max(1, min(d->maxw, t->winw - 2 * config.borderwidth));
+	d->h = max(1, min(d->maxh, t->winh - 2 * config.borderwidth));
 	d->x = t->winw / 2 - d->w / 2;
 	d->y = t->winh / 2 - d->h / 2;
 }
@@ -1737,14 +1707,14 @@ rowcalctabs(struct Row *row)
 	struct Tab *t;
 	int i, x;
 
-	x = visual.button;
+	x = config.titlewidth;
 	for (i = 0, t = row->tabs; t != NULL; t = t->next, i++) {
 		if (row == row->col->maxrow)
-			t->winh = max(1, row->col->c->h - 2 * row->col->c->b - row->col->nrows * visual.tab);
+			t->winh = max(1, row->col->c->h - 2 * row->col->c->b - row->col->nrows * config.titlewidth);
 		else
-			t->winh = max(1, row->h - visual.tab);
+			t->winh = max(1, row->h - config.titlewidth);
 		t->winw = row->col->w;
-		t->w = max(1, ((i + 1) * (t->winw - 2 * visual.button) / row->ntabs) - (i * (t->winw - 2 * visual.button) / row->ntabs));
+		t->w = max(1, ((i + 1) * (t->winw - 2 * config.titlewidth) / row->ntabs) - (i * (t->winw - 2 * config.titlewidth) / row->ntabs));
 		t->x = x;
 		x += t->w;
 		for (d = t->ds; d != NULL; d = d->next) {
@@ -1766,7 +1736,7 @@ colcalcrows(struct Column *col, int recalcfact, int recursive)
 	c = col->c;
 
 	/* check if rows sum up the height of the container */
-	content = c->h - (col->nrows - 1) * visual.division - 2 * c->b;
+	content = c->h - (col->nrows - 1) * config.divwidth - 2 * c->b;
 	sumh = 0;
 	recalc = 0;
 	for (row = col->rows; row != NULL; row = row->next) {
@@ -1776,7 +1746,7 @@ colcalcrows(struct Column *col, int recalcfact, int recursive)
 			} else {
 				row->h = row->fact * content;
 			}
-			if (row->h <= visual.tab) {
+			if (row->h <= config.titlewidth) {
 				recalc = 1;
 			}
 		}
@@ -1786,11 +1756,11 @@ colcalcrows(struct Column *col, int recalcfact, int recursive)
 		recalc = 1;
 
 	if (col->c->isfullscreen && col->c->ncols == 1 && col->nrows == 1) {
-		h = col->c->h + visual.tab;
-		y = -visual.tab;
+		h = col->c->h + config.titlewidth;
+		y = -config.titlewidth;
 		recalc = 1;
 	} else {
-		h = col->c->h - 2 * c->b - (col->nrows - 1) * visual.division;
+		h = col->c->h - 2 * c->b - (col->nrows - 1) * config.divwidth;
 		y = c->b;
 	}
 	for (i = 0, row = col->rows; row != NULL; row = row->next, i++) {
@@ -1799,7 +1769,7 @@ colcalcrows(struct Column *col, int recalcfact, int recursive)
 		if (recalc || recalcfact)
 			row->fact = (double)row->h/(double)c->h;
 		row->y = y;
-		y += row->h + visual.division;
+		y += row->h + config.divwidth;
 		if (recursive) {
 			rowcalctabs(row);
 		}
@@ -1827,20 +1797,20 @@ containercalccols(struct Container *c, int recalcfact, int recursive)
 		c->y = c->mon->wy;
 		c->w = c->mon->ww;
 		c->h = c->mon->wh;
-		c->b = visual.border;
+		c->b = config.borderwidth;
 	} else {
 		c->x = c->nx;
 		c->y = c->ny;
 		c->w = c->nw;
 		c->h = c->nh;
-		c->b = visual.border;
+		c->b = config.borderwidth;
 	}
 	if (containerisshaded(c)) {
 		c->h = 0;
 	}
 
 	/* check if columns sum up the width of the container */
-	content = c->w - (c->ncols - 1) * visual.division - 2 * c->b;
+	content = c->w - (c->ncols - 1) * config.divwidth - 2 * c->b;
 	sumw = 0;
 	recalc = 0;
 	for (col = c->cols; col != NULL; col = col->next) {
@@ -1859,18 +1829,18 @@ containercalccols(struct Container *c, int recalcfact, int recursive)
 	if (sumw != content)
 		recalc = 1;
 
-	w = c->w - 2 * c->b - (c->ncols - 1) * visual.division;
+	w = c->w - 2 * c->b - (c->ncols - 1) * config.divwidth;
 	x = c->b;
 	for (i = 0, col = c->cols; col != NULL; col = col->next, i++) {
 		if (containerisshaded(c)) {
-			c->h = max(c->h, col->nrows * visual.tab);
+			c->h = max(c->h, col->nrows * config.titlewidth);
 		}
 		if (recalc)
 			col->w = max(1, ((i + 1) * w / c->ncols) - (i * w / c->ncols));
 		if (recalc || recalcfact)
 			col->fact = (double)col->w/(double)c->w;
 		col->x = x;
-		x += col->w + visual.division;
+		x += col->w + config.divwidth;
 		if (recursive) {
 			colcalcrows(col, recalcfact, 1);
 		}
@@ -2000,20 +1970,131 @@ containerplace(struct Container *c, struct Desktop *desk, int userplaced)
 	containercalccols(c, 0, 1);
 }
 
+/* draw rectangle shadows */
+static void
+drawrectangle(Pixmap pix, int doubleshadow, int x, int y, int w, int h, unsigned long top, unsigned long bot)
+{
+	XGCValues val;
+	XRectangle recs[4];
+
+	if (w <= 0 || h <= 0)
+		return;
+
+	/* draw light shadow */
+	recs[0] = (XRectangle){.x = x + 0, .y = y + 0, .width = 1, .height = h - 1};
+	recs[1] = (XRectangle){.x = x + 0, .y = y + 0, .width = w - 1, .height = 1};
+	recs[2] = (XRectangle){.x = x + 1, .y = y + 1, .width = 1, .height = h - 3};
+	recs[3] = (XRectangle){.x = x + 1, .y = y + 1, .width = w - 3, .height = 1};
+	val.foreground = top;
+	XChangeGC(dpy, gc, GCForeground, &val);
+	XFillRectangles(dpy, pix, gc, recs, doubleshadow ? 4 : 2);
+
+	/* draw dark shadow */
+	recs[0] = (XRectangle){.x = x + w - 1, .y = y + 0, .width = 1, .height = h};
+	recs[1] = (XRectangle){.x = x + 0, .y = y + h - 1, .width = w, .height = 1};
+	recs[2] = (XRectangle){.x = x + w - 2, .y = y + 1, .width = 1, .height = h - 2};
+	recs[3] = (XRectangle){.x = x + 1, .y = y + h - 2, .width = w - 2, .height = 1};
+	val.foreground = bot;
+	XChangeGC(dpy, gc, GCForeground, &val);
+	XFillRectangles(dpy, pix, gc, recs, doubleshadow ? 4 : 2);
+}
+
+/* draw borders with shadows */
+static void
+drawborders(Pixmap pix, int doubleshadow, int w, int h, unsigned long *decor)
+{
+	XGCValues val;
+	XRectangle recs[8];
+	int partw, parth;
+
+	if (w <= 0 || h <= 0)
+		return;
+
+	partw = w - 2 * config.borderwidth;
+	parth = h - 2 * config.borderwidth;
+
+	/* draw background */
+	val.foreground = decor[COLOR_MID];
+	XChangeGC(dpy, gc, GCForeground, &val);
+	XFillRectangle(dpy, pix, gc, 0, 0, w, h);
+
+	/* draw light shadow */
+	recs[0] = (XRectangle){.x = 0, .y = 0, .width = 1, .height = h - 1};
+	recs[1] = (XRectangle){.x = 0, .y = 0, .width = w - 1, .height = 1};
+	recs[2] = (XRectangle){
+		.x = w - config.borderwidth,
+		.y = config.borderwidth - 1,
+		.width = 1,
+		.height = parth + 2
+	};
+	recs[3] = (XRectangle){
+		.x = config.borderwidth - 1,
+		.y = h - config.borderwidth,
+		.width = partw + 2,
+		.height = 1
+	};
+	recs[4] = (XRectangle){.x = 1, .y = 1, .width = 1, .height = h - 2};
+	recs[5] = (XRectangle){.x = 1, .y = 1, .width = w - 2, .height = 1};
+	recs[6] = (XRectangle){
+		.x = w - config.borderwidth + 1,
+		.y = config.borderwidth - 2,
+		.width = 1,
+		.height = parth + 4
+	};
+	recs[7] = (XRectangle){
+		.x = config.borderwidth - 2,
+		.y = h - config.borderwidth + 1,
+		.width = partw + 4,
+		.height = 1
+	};
+	val.foreground = decor[COLOR_LIGHT];
+	XChangeGC(dpy, gc, GCForeground, &val);
+	XFillRectangles(dpy, pix, gc, recs, doubleshadow ? 8 : 4);
+
+	/* draw dark shadow */
+	recs[0] = (XRectangle){.x = w - 1, .y = 0, .width = 1, .height = h};
+	recs[1] = (XRectangle){.x = 0, .y = h - 1, .width = w, .height = 1};
+	recs[2] = (XRectangle){
+		.x = config.borderwidth - 1,
+		.y = config.borderwidth - 1,
+		.width = 1,
+		.height = parth + 1
+	};
+	recs[3] = (XRectangle){
+		.x = config.borderwidth - 1,
+		.y = config.borderwidth - 1,
+		.width = partw + 1,
+		.height = 1
+	};
+	recs[4] = (XRectangle){.x = w - 2, .y = 1, .width = 1, .height = h - 2};
+	recs[5] = (XRectangle){.x = 1, .y = h - 2, .width = w - 2, .height = 1};
+	recs[6] = (XRectangle){
+		.x = config.borderwidth - 2,
+		.y = config.borderwidth - 2,
+		.width = 1,
+		.height = parth + 3
+	};
+	recs[7] = (XRectangle){
+		.x = config.borderwidth - 2,
+		.y = config.borderwidth - 2,
+		.width = partw + 3,
+		.height = 1
+	};
+	val.foreground = decor[COLOR_DARK];
+	XChangeGC(dpy, gc, GCForeground, &val);
+	XFillRectangles(dpy, pix, gc, recs, doubleshadow ? 8 : 4);
+}
+
 /* decorate dialog window */
 static void
 dialogdecorate(struct Dialog *d)
 {
-	XGCValues val;
-	struct Decor *decor;    /* unpressed decoration */
+	unsigned long *decor;
 	int fullw, fullh;       /* size of dialog window + borders */
-	int partw, parth;       /* size of dialog window + borders - corners */
 
-	decor = &visual.decor[tabgetstyle(d->t)][DIALOG];
-	fullw = d->w + 2 * visual.border;
-	fullh = d->h + 2 * visual.border;
-	partw = fullw - 2 * visual.corner;
-	parth = fullh - 2 * visual.corner;
+	decor = visual.border[tabgetstyle(d->t)];
+	fullw = d->w + 2 * config.borderwidth;
+	fullh = d->h + 2 * config.borderwidth;
 
 	/* (re)create pixmap */
 	if (d->pw != fullw || d->ph != fullh || d->pix == None) {
@@ -2024,40 +2105,7 @@ dialogdecorate(struct Dialog *d)
 	d->pw = fullw;
 	d->ph = fullh;
 
-	val.fill_style = FillTiled;
-	val.tile = decor->w;
-	val.ts_x_origin = 0;
-	val.ts_y_origin = 0;
-	XChangeGC(dpy, gc, GCFillStyle | GCTile | GCTileStipYOrigin | GCTileStipXOrigin, &val);
-	XFillRectangle(dpy, d->pix, gc, 0, visual.corner, visual.border, parth);
-
-	val.tile = decor->e;
-	val.ts_x_origin = visual.border + d->w;
-	val.ts_y_origin = 0;
-	XChangeGC(dpy, gc, GCTile | GCTileStipYOrigin | GCTileStipXOrigin, &val);
-	XFillRectangle(dpy, d->pix, gc, visual.border + d->w, visual.corner, visual.border, parth);
-
-	val.tile = decor->n;
-	val.ts_x_origin = 0;
-	val.ts_y_origin = 0;
-	XChangeGC(dpy, gc, GCTile | GCTileStipYOrigin | GCTileStipXOrigin, &val);
-	XFillRectangle(dpy, d->pix, gc, visual.corner, 0, partw, visual.border);
-
-	val.tile = decor->s;
-	val.ts_x_origin = 0;
-	val.ts_y_origin = visual.border + d->h;
-	XChangeGC(dpy, gc, GCTile | GCTileStipYOrigin | GCTileStipXOrigin, &val);
-	XFillRectangle(dpy, d->pix, gc, visual.corner, visual.border + d->h, partw, visual.border);
-
-	XCopyArea(dpy, decor->nw, d->pix, gc, 0, 0, visual.corner, visual.corner, 0, 0);
-	XCopyArea(dpy, decor->ne, d->pix, gc, 0, 0, visual.corner, visual.corner, fullw - visual.corner, 0);
-	XCopyArea(dpy, decor->sw, d->pix, gc, 0, 0, visual.corner, visual.corner, 0, fullh - visual.corner);
-	XCopyArea(dpy, decor->se, d->pix, gc, 0, 0, visual.corner, visual.corner, fullw - visual.corner, fullh - visual.corner);
-
-	val.fill_style = FillSolid;
-	val.foreground = decor->bg;
-	XChangeGC(dpy, gc, GCFillStyle | GCForeground, &val);
-	XFillRectangle(dpy, d->pix, gc, visual.border, visual.border, d->w, d->h);
+	drawborders(d->pix, (config.borderwidth - 4 > 0), fullw, fullh, decor);
 
 	XCopyArea(dpy, d->pix, d->frame, gc, 0, 0, fullw, fullh, 0, 0);
 }
@@ -2068,24 +2116,33 @@ tabdecorate(struct Tab *t, int pressed)
 {
 	XGCValues val;
 	XRectangle box, dr;
-	struct Decor *decor;
+	unsigned long mid, top, bot;
 	size_t len;
 	int style;
-	int x, y;
+	int drawlines = 0;
+	int x, y, i;
 
 	style = tabgetstyle(t);
-	if (t->row != NULL && t != t->row->col->c->selcol->selrow->seltab)
-		decor = &visual.decor[style][TAB_UNFOCUSED];
-	else if (t->row != NULL && pressed)
-		decor = &visual.decor[style][TAB_PRESSED];
-	else
-		decor = &visual.decor[style][TAB_FOCUSED];
+	mid = visual.title[style][COLOR_MID];
+	if (t->row != NULL && t != t->row->col->c->selcol->selrow->seltab) {
+		top = visual.title[style][COLOR_LIGHT];
+		bot = visual.title[style][COLOR_DARK];
+		drawlines = 0;
+	} else if (t->row != NULL && pressed) {
+		top = visual.title[style][COLOR_DARK];
+		bot = visual.title[style][COLOR_LIGHT];
+		drawlines = 1;
+	} else {
+		top = visual.title[style][COLOR_LIGHT];
+		bot = visual.title[style][COLOR_DARK];
+		drawlines = 1;
+	}
 
 	/* (re)create pixmap */
 	if (t->ptw != t->w || t->pixtitle == None) {
 		if (t->pixtitle != None)
 			XFreePixmap(dpy, t->pixtitle);
-		t->pixtitle = XCreatePixmap(dpy, t->title, t->w, visual.tab, depth);
+		t->pixtitle = XCreatePixmap(dpy, t->title, t->w, config.titlewidth, depth);
 	}
 	t->ptw = t->w;
 
@@ -2097,106 +2154,176 @@ tabdecorate(struct Tab *t, int pressed)
 	t->pw = t->winw;
 	t->ph = t->winh;
 
-		/* draw tab */
+	/* draw background */
+	val.foreground = mid;
+	XChangeGC(dpy, gc, GCForeground, &val);
+	XFillRectangle(dpy, t->pixtitle, gc, 0, 0, t->w, config.titlewidth);
 
 	/* write tab title */
 	if (t->name != NULL) {
 		len = strlen(t->name);
 		XmbTextExtents(visual.fontset, t->name, len, &dr, &box);
 		x = (t->w - box.width) / 2 - box.x;
-		y = (visual.tab - box.height) / 2 - box.y;
+		y = (config.titlewidth - box.height) / 2 - box.y;
 
-		val.ts_x_origin = 0;
-		val.ts_y_origin = 0;
-		val.fill_style = FillTiled;
+		for (i = 3; drawlines && i < config.titlewidth - 3; i += 3) {
+			val.foreground = top;
+			XChangeGC(dpy, gc, GCForeground, &val);
+			XFillRectangle(dpy, t->pixtitle, gc, 4, i, x - 8, 1);
+			XFillRectangle(dpy, t->pixtitle, gc, t->w - x + 2, i, x - 6, 1);
+		}
 
-		val.tile = decor->tlt;
-		XChangeGC(dpy, gc, GCTile | GCTileStipYOrigin | GCTileStipXOrigin | GCFillStyle, &val);
-		XFillRectangle(dpy, t->pixtitle, gc, visual.edge, 0, x - visual.edge, visual.tab);
+		for (i = 4; drawlines && i < config.titlewidth - 2; i += 3) {
+			val.foreground = bot;
+			XChangeGC(dpy, gc, GCForeground, &val);
+			XFillRectangle(dpy, t->pixtitle, gc, 4, i, x - 8, 1);
+			XFillRectangle(dpy, t->pixtitle, gc, t->w - x + 2, i, x - 6, 1);
+		}
 
-		val.tile = decor->t;
-		XChangeGC(dpy, gc, GCTile | GCTileStipYOrigin | GCTileStipXOrigin | GCFillStyle, &val);
-		XFillRectangle(dpy, t->pixtitle, gc, x, 0, box.width, visual.tab);
-
-		val.tile = decor->trt;
-		XChangeGC(dpy, gc, GCTile | GCTileStipYOrigin | GCTileStipXOrigin | GCFillStyle, &val);
-		XFillRectangle(dpy, t->pixtitle, gc, x + box.width, 0, t->w - visual.edge - x - box.width, visual.tab);
-
-		val.fill_style = FillSolid;
-		val.foreground = decor->fg;
-		XChangeGC(dpy, gc, GCFillStyle | GCForeground, &val);
+		val.foreground = visual.fg[style];
+		XChangeGC(dpy, gc, GCForeground, &val);
 		XmbDrawString(dpy, t->pixtitle, visual.fontset, gc, x, y, t->name, len);
-	} else {
-		val.ts_x_origin = 0;
-		val.ts_y_origin = 0;
-		val.fill_style = FillTiled;
-
-		val.tile = decor->tlt;
-		XChangeGC(dpy, gc, GCTile | GCTileStipYOrigin | GCTileStipXOrigin | GCFillStyle, &val);
-		XFillRectangle(dpy, t->pixtitle, gc, visual.edge, 0, t->w / 2, visual.tab);
-
-		val.tile = decor->trt;
-		XChangeGC(dpy, gc, GCTile | GCTileStipYOrigin | GCTileStipXOrigin | GCFillStyle, &val);
-		XFillRectangle(dpy, t->pixtitle, gc, t->w / 2, 0, t->w - visual.edge, visual.tab);
 	}
-	XCopyArea(dpy, decor->tl, t->pixtitle, gc, 0, 0, visual.edge, visual.tab, 0, 0);
-	XCopyArea(dpy, decor->tr, t->pixtitle, gc, 0, 0, visual.edge, visual.tab, t->w - visual.edge, 0);
+
+	drawrectangle(t->pixtitle, (config.borderwidth - 4 > 0), 0, 0, t->w, config.titlewidth, top, bot);
 
 	/* draw frame background */
 	if (!pressed) {
-		val.foreground = decor->bg;
-		val.fill_style = FillSolid;
-		XChangeGC(dpy, gc, GCFillStyle | GCForeground, &val);
+		val.foreground = mid;
+		XChangeGC(dpy, gc, GCForeground, &val);
 		XFillRectangle(dpy, t->pix, gc, 0, 0, t->winw, t->winh);
 	}
 
-	XCopyArea(dpy, t->pixtitle, t->title, gc, 0, 0, t->w, visual.tab, 0, 0);
+	XCopyArea(dpy, t->pixtitle, t->title, gc, 0, 0, t->w, config.titlewidth, 0, 0);
 	XCopyArea(dpy, t->pix, t->frame, gc, 0, 0, t->winw, t->winh, 0, 0);
 }
 
 /* draw title bar buttons */
 static void
-buttondecorate(struct Row *row, int button, int pressed)
+buttonleftdecorate(struct Row *row, int pressed)
 {
-	struct Decor *decor;    /* decoration */
-	int style;              /* decoration style, used as index in the decor array */
+	XGCValues val;
+	XRectangle recs[2];
+	unsigned long mid, top, bot;
+	int style;
+	int x, y, w;
 
+	w = config.titlewidth - 9;
 	style = (row->seltab) ? tabgetstyle(row->seltab) : UNFOCUSED;
-	decor = pressed ? &visual.decor[style][PRESSED] : &visual.decor[style][UNPRESSED];
-
-	if (button == BUTTON_LEFT) {
-		XCopyArea(dpy, decor->bl, row->pixbl, gc, 0, 0, visual.button, visual.button, 0, 0);
-		XCopyArea(dpy, row->pixbl, row->bl, gc, 0, 0, visual.button, visual.button, 0, 0);
+	mid = visual.title[style][COLOR_MID];
+	if (pressed) {
+		top = visual.title[style][COLOR_DARK];
+		bot = visual.title[style][COLOR_LIGHT];
+	} else {
+		top = visual.title[style][COLOR_LIGHT];
+		bot = visual.title[style][COLOR_DARK];
 	}
 
-	if (button == BUTTON_RIGHT) {
-		XCopyArea(dpy, decor->br, row->pixbr, gc, 0, 0, visual.button, visual.button, 0, 0);
-		XCopyArea(dpy, row->pixbr, row->br, gc, 0, 0, visual.button, visual.button, 0, 0);
+	/* draw background */
+	val.foreground = mid;
+	XChangeGC(dpy, gc, GCForeground, &val);
+	XFillRectangle(dpy, row->pixbl, gc, 0, 0, config.titlewidth, config.titlewidth);
+
+	drawrectangle(row->pixbl, (config.borderwidth - 4 > 0), 0, 0, config.titlewidth, config.titlewidth, top, bot);
+
+	if (w > 0) {
+		x = 4;
+		y = config.titlewidth / 2 - 1;
+		recs[0] = (XRectangle){.x = x, .y = y, .width = w, .height = 1};
+		recs[1] = (XRectangle){.x = x, .y = y, .width = 1, .height = 3};
+		val.foreground = (pressed) ? bot : top;
+		XChangeGC(dpy, gc, GCForeground, &val);
+		XFillRectangles(dpy, row->pixbl, gc, recs, 2);
+		recs[0] = (XRectangle){.x = x + 1, .y = y + 2, .width = w, .height = 1};
+		recs[1] = (XRectangle){.x = x + w, .y = y, .width = 1, .height = 3};
+		val.foreground = (pressed) ? top : bot;
+		XChangeGC(dpy, gc, GCForeground, &val);
+		XFillRectangles(dpy, row->pixbl, gc, recs, 2);
 	}
+
+	XCopyArea(dpy, row->pixbl, row->bl, gc, 0, 0, config.titlewidth, config.titlewidth, 0, 0);
+}
+
+/* draw title bar buttons */
+static void
+buttonrightdecorate(struct Row *row, int pressed)
+{
+	XGCValues val;
+	XPoint pts[9];
+	unsigned long mid, top, bot;
+	int style;
+	int w;
+
+	w = (config.titlewidth - 11) / 2;
+	style = (row->seltab) ? tabgetstyle(row->seltab) : UNFOCUSED;
+	mid = visual.title[style][COLOR_MID];
+	if (pressed) {
+		top = visual.title[style][COLOR_DARK];
+		bot = visual.title[style][COLOR_LIGHT];
+	} else {
+		top = visual.title[style][COLOR_LIGHT];
+		bot = visual.title[style][COLOR_DARK];
+	}
+
+	/* draw background */
+	val.foreground = mid;
+	XChangeGC(dpy, gc, GCForeground, &val);
+	XFillRectangle(dpy, row->pixbr, gc, 0, 0, config.titlewidth, config.titlewidth);
+
+	drawrectangle(row->pixbr, (config.borderwidth - 4 > 0), 0, 0, config.titlewidth, config.titlewidth, top, bot);
+
+	if (w > 0) {
+		pts[0] = (XPoint){.x = 3, .y = config.titlewidth - 5};
+		pts[1] = (XPoint){.x = 0, .y = - 1};
+		pts[2] = (XPoint){.x = w, .y = -w};
+		pts[3] = (XPoint){.x = -w, .y = -w};
+		pts[4] = (XPoint){.x = 0, .y = -2};
+		pts[5] = (XPoint){.x = 2, .y = 0};
+		pts[6] = (XPoint){.x = w, .y = w};
+		pts[7] = (XPoint){.x = w, .y = -w};
+		pts[8] = (XPoint){.x = 1, .y = 0};
+		val.foreground = (pressed) ? bot : top;
+		XChangeGC(dpy, gc, GCForeground, &val);
+		XDrawLines(dpy, row->pixbr, gc, pts, 9, CoordModePrevious);
+
+		pts[0] = (XPoint){.x = 3, .y = config.titlewidth - 4};
+		pts[1] = (XPoint){.x = 2, .y = 0};
+		pts[2] = (XPoint){.x = w, .y = -w};
+		pts[3] = (XPoint){.x = w, .y = w};
+		pts[4] = (XPoint){.x = 2, .y = 0};
+		pts[5] = (XPoint){.x = 0, .y = -2};
+		pts[6] = (XPoint){.x = -w, .y = -w};
+		pts[7] = (XPoint){.x = w, .y = -w};
+		pts[8] = (XPoint){.x = 0, .y = -2};
+		val.foreground = (pressed) ? top : bot;
+		XChangeGC(dpy, gc, GCForeground, &val);
+		XDrawLines(dpy, row->pixbr, gc, pts, 9, CoordModePrevious);
+	}
+
+	XCopyArea(dpy, row->pixbr, row->br, gc, 0, 0, config.titlewidth, config.titlewidth, 0, 0);
 }
 
 /* draw decoration on container frame */
 static void
 containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, int recursive, enum Octant o)
 {
-	struct Decor *decor;    /* unpressed decoration */
-	struct Decor *decorp;   /* pressed decoration */
 	struct Column *col;
 	struct Row *row;
 	struct Tab *t;
 	struct Dialog *d;
+	XRectangle recs[10];
 	XGCValues val;
-	int style;              /* decoration style, used as index in the decor array */
-	int w, h;               /* size of the edges */
+	unsigned long *decor;
+	int doubleshadow;
+	int x, y, w, h;
 	int isshaded;
 
 	if (c == NULL)
 		return;
-	style = containergetstyle(c);
-	decor = &visual.decor[style][UNPRESSED];
-	decorp = &visual.decor[style][PRESSED];
-	w = c->w - visual.corner * 2;
-	h = c->h - visual.corner * 2;
+	doubleshadow = config.borderwidth - 4 > 0;
+	decor = visual.border[containergetstyle(c)];
+	w = c->w - config.corner * 2;
+	h = c->h - config.corner * 2;
 	isshaded = containerisshaded(c);
 
 	/* (re)create pixmap */
@@ -2208,128 +2335,208 @@ containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, in
 	c->pw = c->w;
 	c->ph = c->h;
 
-	val.fill_style = FillTiled;
-	XChangeGC(dpy, gc, GCFillStyle, &val);
+	/* draw background */
+	val.foreground = decor[COLOR_MID];
+	XChangeGC(dpy, gc, GCForeground, &val);
+	XFillRectangle(dpy, c->pix, gc, 0, 0, c->w, c->h);
+
 	if (c->b > 0) {
-		/* draw corners */
-		XCopyArea(dpy, ((o == NW || (isshaded && o & W)) ? decorp->nw : decor->nw),
-		                c->pix, gc, 0, 0, visual.corner, visual.corner, 0, 0);
+		/* top edge */
+		drawrectangle(c->pix, doubleshadow, config.corner, 0, w, config.borderwidth,
+		              (o == N ? decor[COLOR_DARK] : decor[COLOR_LIGHT]),
+		              (o == N ? decor[COLOR_LIGHT] : decor[COLOR_DARK]));
 
-		XCopyArea(dpy, ((o == NE || (isshaded && o & E)) ? decorp->ne : decor->ne),
-		                c->pix, gc, 0, 0, visual.corner, visual.corner,
-		                c->w - visual.corner, 0);
+		/* bottom edge */
+		drawrectangle(c->pix, doubleshadow, config.corner, c->h - config.borderwidth, w, config.borderwidth,
+		              (o == S ? decor[COLOR_DARK] : decor[COLOR_LIGHT]),
+		              (o == S ? decor[COLOR_LIGHT] : decor[COLOR_DARK]));
 
-		XCopyArea(dpy, ((o == SW || (isshaded && o & W)) ? decorp->sw : decor->sw),
-		                c->pix, gc, 0, 0, visual.corner, visual.corner,
-		                0, c->h - visual.corner);
+		/* left edge */
+		drawrectangle(c->pix, doubleshadow, 0, config.corner, config.borderwidth, h,
+		              (o == W ? decor[COLOR_DARK] : decor[COLOR_LIGHT]),
+		              (o == W ? decor[COLOR_LIGHT] : decor[COLOR_DARK]));
 
-		XCopyArea(dpy, ((o == SE || (isshaded && o & E)) ? decorp->se : decor->se),
-		                c->pix, gc, 0, 0, visual.corner, visual.corner,
-		                c->w - visual.corner, c->h - visual.corner);
+		/* left edge */
+		drawrectangle(c->pix, doubleshadow, c->w - config.borderwidth, config.corner, config.borderwidth, h,
+		              (o == E ? decor[COLOR_DARK] : decor[COLOR_LIGHT]),
+		              (o == E ? decor[COLOR_LIGHT] : decor[COLOR_DARK]));
 
-		/* draw borders */
-		if (w > 0) {
-			val.tile = (o == N) ? decorp->n : decor->n;
-			val.ts_x_origin = 0;
-			val.ts_y_origin = 0;
-			XChangeGC(dpy, gc, GCTile | GCTileStipYOrigin | GCTileStipXOrigin, &val);
-			XFillRectangle(dpy, c->pix, gc, visual.corner, 0, w, c->b);
-			XCopyArea(dpy, (o == N) ? decorp->nf :
-			                decor->nf, c->pix, gc, 0, 0, visual.edge, visual.border,
-			                visual.corner, 0);
-			XCopyArea(dpy, (o == N) ? decorp->nl :
-			                decor->nl, c->pix, gc, 0, 0, visual.edge, visual.border,
-			                visual.corner + w - visual.edge, 0);
+		if (isshaded) {
+			/* left corner */
+			x = 0;
+			recs[0] = (XRectangle){.x = x + 0, .y = 0, .width = 1, .height = c->h - 1};
+			recs[1] = (XRectangle){.x = x + 0, .y = 0, .width = config.corner - 1, .height = 1};
+			recs[2] = (XRectangle){.x = x + config.borderwidth - 1, .y = c->h - config.borderwidth, .width = config.titlewidth, .height = 1};
+			recs[3] = (XRectangle){.x = x + 1, .y = 0, .width = 1, .height = c->h - 2};
+			recs[4] = (XRectangle){.x = x + 0, .y = 1, .width = config.corner - 2, .height = 1};
+			recs[5] = (XRectangle){.x = x + config.borderwidth - 2, .y = c->h - config.borderwidth + 1, .width = config.titlewidth, .height = 1};
+			val.foreground = (o & W) ? decor[COLOR_DARK] : decor[COLOR_LIGHT];
+			XChangeGC(dpy, gc, GCForeground, &val);
+			XFillRectangles(dpy, c->pix, gc, recs, doubleshadow ? 6 : 3);
+			recs[0] = (XRectangle){.x = x + config.borderwidth - 1, .y = config.borderwidth - 1, .width = 1, .height = c->h - config.borderwidth * 2 + 1};
+			recs[1] = (XRectangle){.x = x + config.borderwidth - 1, .y = config.borderwidth - 1, .width = config.titlewidth + 1, .height = 1};
+			recs[2] = (XRectangle){.x = x + config.corner - 1, .y = 0, .width = 1, .height = config.borderwidth};
+			recs[3] = (XRectangle){.x = x + config.corner - 1, .y = c->h - config.borderwidth, .width = 1, .height = config.borderwidth};
+			recs[4] = (XRectangle){.x = x + 0, .y = c->h - 1, .width = config.corner, .height = 1};
+			recs[5] = (XRectangle){.x = x + config.borderwidth - 2, .y = config.borderwidth - 2, .width = 1, .height = c->h - config.borderwidth * 2 + 3};
+			recs[6] = (XRectangle){.x = x + config.borderwidth - 2, .y = config.borderwidth - 2, .width = config.titlewidth + 2, .height = 1};
+			recs[7] = (XRectangle){.x = x + config.corner - 2, .y = 1, .width = 1, .height = config.borderwidth - 1};
+			recs[8] = (XRectangle){.x = x + config.corner - 2, .y = c->h - config.borderwidth + 1, .width = 1, .height = config.borderwidth - 1};
+			recs[9] = (XRectangle){.x = x + 1, .y = c->h - 2, .width = config.corner - 1, .height = 1};
+			val.foreground = (o & W) ? decor[COLOR_LIGHT] : decor[COLOR_DARK];
+			XChangeGC(dpy, gc, GCForeground, &val);
+			XFillRectangles(dpy, c->pix, gc, recs, doubleshadow ? 10 : 5);
 
-			val.tile = (o == S) ? decorp->s : decor->s;
-			val.ts_x_origin = 0;
-			val.ts_y_origin = c->h - c->b;
-			XChangeGC(dpy, gc, GCTile | GCTileStipYOrigin | GCTileStipXOrigin , &val);
-			XFillRectangle(dpy, c->pix, gc, visual.corner, c->h - c->b, w, c->b);
-			XCopyArea(dpy, (o == S) ? decorp->sf :
-			                decor->sf, c->pix, gc, 0, 0, visual.edge, visual.border,
-			                visual.corner, c->h - visual.border);
-			XCopyArea(dpy, (o == S) ? decorp->sl :
-			                decor->sl, c->pix, gc, 0, 0, visual.edge, visual.border,
-			                visual.corner + w - visual.edge, c->h - visual.border);
-		}
+			/* right corner */
+			x = c->w - config.corner;
+			recs[0] = (XRectangle){.x = x + 0, .y = 0, .width = 1, .height = config.borderwidth - 1};
+			recs[1] = (XRectangle){.x = x + 0, .y = 0, .width = config.corner - 1, .height = 1};
+			recs[2] = (XRectangle){.x = x + config.titlewidth, .y = config.borderwidth - 1, .width = 1, .height = c->h - config.borderwidth * 2 + 3};
+			recs[3] = (XRectangle){.x = x + 0, .y = c->h - config.borderwidth, .width = config.titlewidth + 1, .height = 1};
+			recs[4] = (XRectangle){.x = x + 0, .y = c->h - config.borderwidth, .width = 1, .height = config.borderwidth - 1};
+			recs[5] = (XRectangle){.x = x + 1, .y = 0, .width = 1, .height = config.borderwidth - 2};
+			recs[6] = (XRectangle){.x = x + 0, .y = 1, .width = config.corner - 2, .height = 1};
+			recs[7] = (XRectangle){.x = x + config.titlewidth + 1, .y = config.borderwidth - 2, .width = 1, .height = c->h - config.borderwidth * 2 + 4};
+			recs[8] = (XRectangle){.x = x + 1, .y = c->h - config.borderwidth + 1, .width = config.titlewidth + 1, .height = 1};
+			recs[9] = (XRectangle){.x = x + 1, .y = c->h - config.borderwidth + 1, .width = 1, .height = config.borderwidth - 3};
+			val.foreground = (o == NE) ? decor[COLOR_DARK] : decor[COLOR_LIGHT];
+			XChangeGC(dpy, gc, GCForeground, &val);
+			XFillRectangles(dpy, c->pix, gc, recs, doubleshadow ? 10 : 5);
+			recs[0] = (XRectangle){.x = x + config.corner - 1, .y = 0, .width = 1, .height = c->h};
+			recs[1] = (XRectangle){.x = x + 0, .y = config.borderwidth - 1, .width = config.titlewidth, .height = 1};
+			recs[2] = (XRectangle){.x = x + 0, .y = c->h - 1, .width = config.corner, .height = 1};
+			recs[3] = (XRectangle){.x = x + config.corner - 2, .y = 1, .width = 1, .height = c->h - 1};
+			recs[4] = (XRectangle){.x = x + 1, .y = config.borderwidth - 2, .width = config.titlewidth, .height = 1};
+			recs[5] = (XRectangle){.x = x + 1, .y = c->h - 2, .width = config.corner - 1, .height = 1};
+			val.foreground = (o == NE) ? decor[COLOR_LIGHT] : decor[COLOR_DARK];
+			XChangeGC(dpy, gc, GCForeground, &val);
+			XFillRectangles(dpy, c->pix, gc, recs, doubleshadow ? 6 : 3);
+		} else {
+			/* top left corner */
+			x = y = 0;
+			recs[0] = (XRectangle){.x = x + 0, .y = y + 0, .width = 1, .height = config.corner - 1};
+			recs[1] = (XRectangle){.x = x + 0, .y = y + 0, .width = config.corner - 1, .height = 1};
+			recs[2] = (XRectangle){.x = x + 1, .y = y + 0, .width = 1, .height = config.corner - 2};
+			recs[3] = (XRectangle){.x = x + 0, .y = y + 1, .width = config.corner - 2, .height = 1};
+			val.foreground = (o == NW) ? decor[COLOR_DARK] : decor[COLOR_LIGHT];
+			XChangeGC(dpy, gc, GCForeground, &val);
+			XFillRectangles(dpy, c->pix, gc, recs, doubleshadow ? 4: 2);
+			recs[0] = (XRectangle){.x = x + config.borderwidth - 1, .y = y + config.borderwidth - 1, .width = 1, .height = config.titlewidth + 1};
+			recs[1] = (XRectangle){.x = x + config.borderwidth - 1, .y = y + config.borderwidth - 1, .width = config.titlewidth + 1, .height = 1};
+			recs[2] = (XRectangle){.x = x + config.corner - 1, .y = y, .width = 1, .height = config.borderwidth};
+			recs[3] = (XRectangle){.x = x, .y = y + config.corner - 1, .width = config.borderwidth, .height = 1};
+			recs[4] = (XRectangle){.x = x + config.borderwidth - 2, .y = y + config.borderwidth - 2, .width = 1, .height = config.titlewidth + 2};
+			recs[5] = (XRectangle){.x = x + config.borderwidth - 2, .y = y + config.borderwidth - 2, .width = config.titlewidth + 2, .height = 1};
+			recs[6] = (XRectangle){.x = x + config.corner - 2, .y = y + 1, .width = 1, .height = config.borderwidth - 1};
+			recs[7] = (XRectangle){.x = x + 1, .y = y + config.corner - 2, .width = config.borderwidth - 1, .height = 1};
+			val.foreground = (o == NW) ? decor[COLOR_LIGHT] : decor[COLOR_DARK];
+			XChangeGC(dpy, gc, GCForeground, &val);
+			XFillRectangles(dpy, c->pix, gc, recs, doubleshadow ? 8 : 4);
 
-		if (h > 0 || isshaded) {
-			val.tile = (o == W) ? decorp->w : decor->w;
-			val.ts_x_origin = 0;
-			val.ts_y_origin = 0;
-			XChangeGC(dpy, gc, GCTile | GCTileStipYOrigin | GCTileStipXOrigin , &val);
-			if (isshaded) {
-				XFillRectangle(dpy, c->pix, gc, 0, visual.border, c->b, c->h - 2 * visual.border);
-			} else {
-				XFillRectangle(dpy, c->pix, gc, 0, visual.corner, c->b, h);
-				XCopyArea(dpy, (o == W) ? decorp->wf :
-				                decor->wf, c->pix, gc, 0, 0, visual.border, visual.edge, 0,
-				                visual.corner);
-				XCopyArea(dpy, (o == W) ? decorp->wl :
-				                decor->wl, c->pix, gc, 0, 0, visual.border, visual.edge, 0,
-				                visual.corner + h - visual.edge);
-			}
+			/* bottom left corner */
+			x = 0;
+			y = c->h - config.corner;
+			recs[0] = (XRectangle){.x = x + 0, .y = y + 0, .width = 1, .height = config.corner - 1};
+			recs[1] = (XRectangle){.x = x + 0, .y = y + 0, .width = config.borderwidth - 1, .height = 1};
+			recs[2] = (XRectangle){.x = x + config.borderwidth - 1, .y = y + config.titlewidth, .width = config.titlewidth, .height = 1};
+			recs[3] = (XRectangle){.x = x + 1, .y = y + 0, .width = 1, .height = config.corner - 2};
+			recs[4] = (XRectangle){.x = x + 0, .y = y + 1, .width = config.borderwidth - 2, .height = 1};
+			recs[5] = (XRectangle){.x = x + config.borderwidth - 2, .y = y + config.titlewidth + 1, .width = config.titlewidth, .height = 1};
+			val.foreground = (o == SW) ? decor[COLOR_DARK] : decor[COLOR_LIGHT];
+			XChangeGC(dpy, gc, GCForeground, &val);
+			XFillRectangles(dpy, c->pix, gc, recs, doubleshadow ? 6 : 3);
+			recs[0] = (XRectangle){.x = x + config.borderwidth - 1, .y = y + 0, .width = 1, .height = config.titlewidth};
+			recs[1] = (XRectangle){.x = x + 0, .y = y + config.corner - 1, .width = config.corner, .height = 1};
+			recs[2] = (XRectangle){.x = x + config.corner - 1, .y = y + config.titlewidth, .width = 1, .height = config.borderwidth};
+			recs[3] = (XRectangle){.x = x + config.borderwidth - 2, .y = y + 1, .width = 1, .height = config.titlewidth};
+			recs[4] = (XRectangle){.x = x + 1, .y = y + config.corner - 2, .width = config.corner - 1, .height = 1};
+			recs[5] = (XRectangle){.x = x + config.corner - 2, .y = y + config.titlewidth + 1, .width = 1, .height = config.borderwidth - 1};
+			val.foreground = (o == SW) ? decor[COLOR_LIGHT] : decor[COLOR_DARK];
+			XChangeGC(dpy, gc, GCForeground, &val);
+			XFillRectangles(dpy, c->pix, gc, recs, doubleshadow ? 6 : 3);
 
-			val.tile = (o == E) ? decorp->e : decor->e;
-			val.ts_x_origin = c->w - c->b;
-			val.ts_y_origin = 0;
-			XChangeGC(dpy, gc, GCTile | GCTileStipYOrigin | GCTileStipXOrigin , &val);
-			if (isshaded) {
-				XFillRectangle(dpy, c->pix, gc, c->w - c->b, visual.border, c->b, c->h - 2 * visual.border);
-			} else {
-				XFillRectangle(dpy, c->pix, gc, c->w - c->b, visual.corner, c->b, h);
-				XCopyArea(dpy, (o == E) ? decorp->ef :
-				                decor->ef, c->pix, gc, 0, 0, visual.border, visual.edge,
-				                c->w - visual.border, visual.corner);
-				XCopyArea(dpy, (o == E) ? decorp->el :
-				                decor->el, c->pix, gc, 0, 0, visual.border, visual.edge,
-				                c->w - visual.border, visual.corner + h - visual.edge);
-			}
+			/* top right corner */
+			x = c->w - config.corner;
+			y = 0;
+			recs[0] = (XRectangle){.x = x + 0, .y = y + 0, .width = 1, .height = config.borderwidth - 1};
+			recs[1] = (XRectangle){.x = x + 0, .y = y + 0, .width = config.corner - 1, .height = 1};
+			recs[2] = (XRectangle){.x = x + config.titlewidth, .y = y + config.borderwidth - 1, .width = 1, .height = config.titlewidth};
+			recs[3] = (XRectangle){.x = x + 1, .y = y + 0, .width = 1, .height = config.borderwidth - 2};
+			recs[4] = (XRectangle){.x = x + 0, .y = y + 1, .width = config.corner - 2, .height = 1};
+			recs[5] = (XRectangle){.x = x + config.titlewidth + 1, .y = y + config.borderwidth - 2, .width = 1, .height = config.titlewidth};
+			val.foreground = (o == NE) ? decor[COLOR_DARK] : decor[COLOR_LIGHT];
+			XChangeGC(dpy, gc, GCForeground, &val);
+			XFillRectangles(dpy, c->pix, gc, recs, doubleshadow ? 6 : 3);
+			recs[0] = (XRectangle){.x = x + config.corner - 1, .y = y + 0, .width = 1, .height = config.corner};
+			recs[1] = (XRectangle){.x = x + 0, .y = y + config.borderwidth - 1, .width = config.titlewidth, .height = 1};
+			recs[2] = (XRectangle){.x = x + config.titlewidth, .y = y + config.corner - 1, .width = config.borderwidth, .height = 1};
+			recs[3] = (XRectangle){.x = x + config.corner - 2, .y = y + 1, .width = 1, .height = config.corner};
+			recs[4] = (XRectangle){.x = x + 1, .y = y + config.borderwidth - 2, .width = config.titlewidth, .height = 1};
+			recs[5] = (XRectangle){.x = x + config.titlewidth + 1, .y = y + config.corner - 2, .width = config.borderwidth - 1, .height = 1};
+			val.foreground = (o == NE) ? decor[COLOR_LIGHT] : decor[COLOR_DARK];
+			XChangeGC(dpy, gc, GCForeground, &val);
+			XFillRectangles(dpy, c->pix, gc, recs, doubleshadow ? 6 : 3);
+
+			/* bottom right corner */
+			x = c->w - config.corner;
+			y = c->h - config.corner;
+			recs[0] = (XRectangle){.x = x + 0, .y = y + config.titlewidth, .width = 1, .height = config.borderwidth - 1};
+			recs[1] = (XRectangle){.x = x + config.titlewidth, .y = y + 0, .width = config.borderwidth - 1, .height = 1};
+			recs[2] = (XRectangle){.x = x + config.titlewidth, .y = y + 0, .width = 1, .height = config.titlewidth + 1};
+			recs[3] = (XRectangle){.x = x + 0, .y = y + config.titlewidth, .width = config.titlewidth + 1, .height = 1};
+			recs[4] = (XRectangle){.x = x + 1, .y = y + config.titlewidth + 1, .width = 1, .height = config.borderwidth - 3};
+			recs[5] = (XRectangle){.x = x + config.titlewidth + 1, .y = y + 1, .width = config.borderwidth - 3, .height = 1};
+			recs[6] = (XRectangle){.x = x + config.titlewidth + 1, .y = y + 1, .width = 1, .height = config.titlewidth + 1};
+			recs[7] = (XRectangle){.x = x + 1, .y = y + config.titlewidth + 1, .width = config.titlewidth + 1, .height = 1};
+			val.foreground = (o == SE) ? decor[COLOR_DARK] : decor[COLOR_LIGHT];
+			XChangeGC(dpy, gc, GCForeground, &val);
+			XFillRectangles(dpy, c->pix, gc, recs, doubleshadow ? 8 : 4);
+			recs[0] = (XRectangle){.x = x + config.corner - 1, .y = y + 0, .width = 1, .height = config.corner};
+			recs[1] = (XRectangle){.x = x + 0, .y = y + config.corner - 1, .width = config.corner, .height = 1};
+			recs[2] = (XRectangle){.x = x + config.corner - 2, .y = y + 1, .width = 1, .height = config.corner - 1};
+			recs[3] = (XRectangle){.x = x + 1, .y = y + config.corner - 2, .width = config.corner - 1, .height = 1};
+			val.foreground = (o == SE) ? decor[COLOR_LIGHT] : decor[COLOR_DARK];
+			XChangeGC(dpy, gc, GCForeground, &val);
+			XFillRectangles(dpy, c->pix, gc, recs, doubleshadow ? 4 : 2);
 		}
 	}
 
-	/* draw background */
-	val.foreground = decor->bg;
-	val.fill_style = FillSolid;
-	XChangeGC(dpy, gc, GCFillStyle | GCForeground, &val);
-	XFillRectangle(dpy, c->pix, gc, c->b, c->b, c->w - 2 * c->b, c->h - 2 * c->b);
-
 	for (col = c->cols; col != NULL; col = col->next) {
+		/* draw column division */
 		if (col->next != NULL) {
-			val.fill_style = FillTiled;
-			val.tile = (col == cdiv) ? decorp->e : decor->e;
-			val.ts_x_origin = col->x + col->w;
-			val.ts_y_origin = 0;
-			XChangeGC(dpy, gc, GCFillStyle | GCTile | GCTileStipYOrigin | GCTileStipXOrigin , &val);
-			XFillRectangle(dpy, c->pix, gc, col->x + col->w, c->b, visual.division, c->h - 2 * c->b);
+			drawrectangle(c->pix, doubleshadow, col->x + col->w, c->b, config.divwidth, c->h - 2 * c->b,
+			              (col == cdiv ? decor[COLOR_DARK] : decor[COLOR_LIGHT]),
+			              (col == cdiv ? decor[COLOR_LIGHT] : decor[COLOR_DARK]));
 		}
+
 		for (row = col->rows; row != NULL; row = row->next) {
+			/* draw row division */
 			if (!isshaded && col->maxrow == NULL && row->next != NULL) {
-				val.fill_style = FillTiled;
-				val.tile = (row == rdiv) ? decorp->s : decor->s;
-				val.ts_x_origin = 0;
-				val.ts_y_origin = row->y + row->h;
-				XChangeGC(dpy, gc, GCFillStyle | GCTile | GCTileStipYOrigin | GCTileStipXOrigin , &val);
-				XFillRectangle(dpy, c->pix, gc, col->x, row->y + row->h, col->w, visual.division);
+				drawrectangle(c->pix, doubleshadow, col->x, row->y + row->h, col->w, config.divwidth,
+				              (row == rdiv ? decor[COLOR_DARK] : decor[COLOR_LIGHT]),
+				              (row == rdiv ? decor[COLOR_LIGHT] : decor[COLOR_DARK]));
 			}
 
 			/* (re)create titlebar pixmap */
 			if (row->pw != col->w || row->pixbar == None) {
 				if (row->pixbar != None)
 					XFreePixmap(dpy, row->pixbar);
-				row->pixbar = XCreatePixmap(dpy, row->bar, col->w, visual.tab, depth);
+				row->pixbar = XCreatePixmap(dpy, row->bar, col->w, config.titlewidth, depth);
 			}
 			row->pw = col->w;
 
-			val.foreground = decor->bg;
-			val.fill_style = FillSolid;
-			XChangeGC(dpy, gc, GCFillStyle | GCForeground, &val);
-			XFillRectangle(dpy, row->pixbar, gc, 0, 0, c->w, visual.tab);
-			XCopyArea(dpy, row->pixbar, row->bar, gc, 0, 0, col->w, visual.tab, 0, 0);
 
-			buttondecorate(row, BUTTON_LEFT, 0);
-			buttondecorate(row, BUTTON_RIGHT, 0);
+			/* draw background of titlebar pixmap */
+			val.foreground = decor[COLOR_MID];
+			XChangeGC(dpy, gc, GCForeground, &val);
+			XFillRectangle(dpy, row->pixbar, gc, 0, 0, col->w, config.titlewidth);
+			XCopyArea(dpy, row->pixbar, row->bar, gc, 0, 0, col->w, config.titlewidth, 0, 0);
+
+			/* draw buttons */
+			buttonleftdecorate(row, 0);
+			buttonrightdecorate(row, 0);
+
+			/* decorate tabs, if necessary */
 			if (recursive) {
 				for (t = row->tabs; t != NULL; t = t->next) {
 					tabdecorate(t, 0);
@@ -2342,6 +2549,111 @@ containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, in
 	}
 
 	XCopyArea(dpy, c->pix, c->frame, gc, 0, 0, c->w, c->h, 0, 0);
+}
+
+/* decorate prompt frame */
+static void
+promptdecorate(struct Prompt *prompt, int w, int h)
+{
+	XGCValues val;
+	XRectangle recs[10];
+	int partw, parth;
+	int doubleshadow;
+
+	doubleshadow = (config.borderwidth - 4 > 0);
+
+	/* (re)create pixmap */
+	if (prompt->pw != w || prompt->ph != h || prompt->pix == None) {
+		if (prompt->pix != None)
+			XFreePixmap(dpy, prompt->pix);
+		prompt->pix = XCreatePixmap(dpy, prompt->frame, w, h, depth);
+	}
+	prompt->pw = w;
+	prompt->ph = h;
+
+	partw = w - 2 * config.borderwidth;
+	parth = h - 2 * config.borderwidth;
+
+	/* draw background */
+	val.foreground = visual.prompt[COLOR_MID];
+	XChangeGC(dpy, gc, GCForeground, &val);
+	XFillRectangle(dpy, prompt->pix, gc, 0, 0, w, h);
+
+	/* draw light shadow */
+	recs[0] = (XRectangle){.x = 0, .y = 0, .width = 1, .height = h - 1};
+	recs[1] = (XRectangle){.x = 0, .y = 0, .width = config.borderwidth - 1, .height = 1};
+	recs[2] = (XRectangle){
+		.x = w - config.borderwidth,
+		.y = 0,
+		.width = 1,
+		.height = parth + config.borderwidth,
+	};
+	recs[3] = (XRectangle){
+		.x = config.borderwidth - 1,
+		.y = h - config.borderwidth,
+		.width = partw + 2,
+		.height = 1
+	};
+	recs[4] = (XRectangle){.x = 1, .y = 1, .width = 1, .height = h - 2};
+	recs[5] = (XRectangle){.x = 0, .y = 1, .width = config.borderwidth - 2, .height = 1};
+	recs[6] = (XRectangle){
+		.x = w - config.borderwidth + 1,
+		.y = 0,
+		.width = 1,
+		.height = parth + config.borderwidth + 1,
+	};
+	recs[7] = (XRectangle){
+		.x = config.borderwidth - 2,
+		.y = h - config.borderwidth + 1,
+		.width = partw + 4,
+		.height = 1
+	};
+	recs[8] = (XRectangle){.x = w - config.borderwidth, .y = 0, .width = config.borderwidth - 1, .height = 1};
+	recs[9] = (XRectangle){.x = w - config.borderwidth, .y = 1, .width = config.borderwidth - 2, .height = 1};
+	val.foreground = visual.prompt[COLOR_LIGHT];
+	XChangeGC(dpy, gc, GCForeground, &val);
+	XFillRectangles(dpy, prompt->pix, gc, recs, doubleshadow ? 10 : 5);
+
+	/* draw dark shadow */
+	recs[0] = (XRectangle){.x = w - 1, .y = 0, .width = 1, .height = h};
+	recs[1] = (XRectangle){.x = 0, .y = h - 1, .width = w, .height = 1};
+	recs[2] = (XRectangle){
+		.x = config.borderwidth - 1,
+		.y = 0,
+		.width = 1,
+		.height = parth + config.borderwidth,
+	};
+	recs[3] = (XRectangle){.x = w - 2, .y = 1, .width = 1, .height = h - 2};
+	recs[4] = (XRectangle){.x = 1, .y = h - 2, .width = w - 2, .height = 1};
+	recs[5] = (XRectangle){
+		.x = config.borderwidth - 2,
+		.y = 1,
+		.width = 1,
+		.height = parth + config.borderwidth,
+	};
+	val.foreground = visual.prompt[COLOR_DARK];
+	XChangeGC(dpy, gc, GCForeground, &val);
+	XFillRectangles(dpy, prompt->pix, gc, recs, doubleshadow ? 6 : 3);
+
+	XCopyArea(dpy, prompt->pix, prompt->frame, gc, 0, 0, w, h, 0, 0);
+}
+
+/* decorate notification */
+static void
+notifdecorate(struct Notification *n)
+{
+	/* (re)create pixmap */
+	if (n->pw != n->w || n->ph != n->h || n->pix == None) {
+		if (n->pix != None)
+			XFreePixmap(dpy, n->pix);
+		n->pix = XCreatePixmap(dpy, n->frame, n->w, n->h, depth);
+	}
+	n->pw = n->w;
+	n->ph = n->h;
+
+	drawborders(n->pix, (config.borderwidth - 4 > 0), n->w, n->h, visual.notif);
+
+	XCopyArea(dpy, n->pix, n->frame, gc, 0, 0, n->w, n->h, 0, 0);
 }
 
 /* remove container from the focus list */
@@ -2410,12 +2722,12 @@ dialogmoveresize(struct Dialog *d)
 	int dx, dy, dw, dh;
 
 	c = d->t->row->col->c;
-	dx = d->x - visual.border;
-	dy = d->y - visual.border;
-	dw = d->w + 2 * visual.border;
-	dh = d->h + 2 * visual.border;
+	dx = d->x - config.borderwidth;
+	dy = d->y - config.borderwidth;
+	dw = d->w + 2 * config.borderwidth;
+	dh = d->h + 2 * config.borderwidth;
 	XMoveResizeWindow(dpy, d->frame, dx, dy, dw, dh);
-	XMoveResizeWindow(dpy, d->win, visual.border, visual.border, d->w, d->h);
+	XMoveResizeWindow(dpy, d->win, config.borderwidth, config.borderwidth, d->w, d->h);
 	winnotify(d->win, c->x + d->t->row->col->x + d->x, c->y + d->t->row->y + d->y, d->w, d->h);
 	if (d->pw != dw || d->ph != dh) {
 		dialogdecorate(d);
@@ -2439,7 +2751,7 @@ dialogconfigure(struct Dialog *d, unsigned int valuemask, XWindowChanges *wc)
 static void
 tabmoveresize(struct Tab *t)
 {
-	XMoveResizeWindow(dpy, t->title, t->x, 0, t->w, visual.tab);
+	XMoveResizeWindow(dpy, t->title, t->x, 0, t->w, config.titlewidth);
 	if (t->ptw != t->w) {
 		tabdecorate(t, 0);
 	}
@@ -2449,9 +2761,9 @@ tabmoveresize(struct Tab *t)
 static void
 titlebarmoveresize(struct Row *row, int x, int y, int w)
 {
-	XMoveResizeWindow(dpy, row->bar, x, y, w, visual.tab);
+	XMoveResizeWindow(dpy, row->bar, x, y, w, config.titlewidth);
 	XMoveWindow(dpy, row->bl, 0, 0);
-	XMoveWindow(dpy, row->br, w - visual.button, 0);
+	XMoveWindow(dpy, row->br, w - config.titlewidth, 0);
 }
 
 /* commit container size and position */
@@ -2468,53 +2780,53 @@ containermoveresize(struct Container *c)
 	if (c == NULL)
 		return;
 	XMoveResizeWindow(dpy, c->frame, c->x, c->y, c->w, c->h);
-	XMoveResizeWindow(dpy, c->curswin[BORDER_N], visual.corner, 0, c->w - 2 * visual.corner, c->b);
-	XMoveResizeWindow(dpy, c->curswin[BORDER_S], visual.corner, c->h - c->b, c->w - 2 * visual.corner, c->b);
-	XMoveResizeWindow(dpy, c->curswin[BORDER_W], 0, visual.corner, c->b, c->h - 2 * visual.corner);
-	XMoveResizeWindow(dpy, c->curswin[BORDER_E], c->w - c->b, visual.corner, c->b, c->h - 2 * visual.corner);
-	XMoveResizeWindow(dpy, c->curswin[BORDER_NW], 0, 0, visual.corner, visual.corner);
-	XMoveResizeWindow(dpy, c->curswin[BORDER_NE], c->w - visual.corner, 0, visual.corner, visual.corner);
-	XMoveResizeWindow(dpy, c->curswin[BORDER_SW], 0, c->h - visual.corner, visual.corner, visual.corner);
-	XMoveResizeWindow(dpy, c->curswin[BORDER_SE], c->w - visual.corner, c->h - visual.corner, visual.corner, visual.corner);
+	XMoveResizeWindow(dpy, c->curswin[BORDER_N], config.corner, 0, c->w - 2 * config.corner, c->b);
+	XMoveResizeWindow(dpy, c->curswin[BORDER_S], config.corner, c->h - c->b, c->w - 2 * config.corner, c->b);
+	XMoveResizeWindow(dpy, c->curswin[BORDER_W], 0, config.corner, c->b, c->h - 2 * config.corner);
+	XMoveResizeWindow(dpy, c->curswin[BORDER_E], c->w - c->b, config.corner, c->b, c->h - 2 * config.corner);
+	XMoveResizeWindow(dpy, c->curswin[BORDER_NW], 0, 0, config.corner, config.corner);
+	XMoveResizeWindow(dpy, c->curswin[BORDER_NE], c->w - config.corner, 0, config.corner, config.corner);
+	XMoveResizeWindow(dpy, c->curswin[BORDER_SW], 0, c->h - config.corner, config.corner, config.corner);
+	XMoveResizeWindow(dpy, c->curswin[BORDER_SE], c->w - config.corner, c->h - config.corner, config.corner, config.corner);
 	isshaded = containerisshaded(c);
 	for (col = c->cols; col != NULL; col = col->next) {
 		rowy = c->b;
-		rowh = max(1, c->h - 2 * c->b - col->nrows * visual.tab);
+		rowh = max(1, c->h - 2 * c->b - col->nrows * config.titlewidth);
 		if (col->next != NULL) {
-			XMoveResizeWindow(dpy, col->div, col->x + col->w, c->b, visual.division, c->h - 2 * c->b);
+			XMoveResizeWindow(dpy, col->div, col->x + col->w, c->b, config.divwidth, c->h - 2 * c->b);
 			XMapWindow(dpy, col->div);
 		} else {
 			XUnmapWindow(dpy, col->div);
 		}
 		for (row = col->rows; row != NULL; row = row->next) {
 			if (!isshaded && row->next != NULL && col->maxrow == NULL) {
-				XMoveResizeWindow(dpy, row->div, col->x, row->y + row->h, col->w, visual.division);
+				XMoveResizeWindow(dpy, row->div, col->x, row->y + row->h, col->w, config.divwidth);
 				XMapWindow(dpy, row->div);
 			} else {
 				XUnmapWindow(dpy, row->div);
 			}
 			if (!isshaded && col->maxrow == NULL) {              /* regular row */
 				titlebarmoveresize(row, col->x, row->y, col->w);
-				XMoveResizeWindow(dpy, row->frame, col->x, row->y + visual.tab, col->w, row->h - visual.tab);
+				XMoveResizeWindow(dpy, row->frame, col->x, row->y + config.titlewidth, col->w, row->h - config.titlewidth);
 				XMapWindow(dpy, row->frame);
 			} else if (!isshaded && row == col->maxrow) {        /* maximized row */
 				titlebarmoveresize(row, col->x, rowy, col->w);
-				XMoveResizeWindow(dpy, row->frame, col->x, rowy + visual.tab, col->w, rowh);
+				XMoveResizeWindow(dpy, row->frame, col->x, rowy + config.titlewidth, col->w, rowh);
 				XMapWindow(dpy, row->frame);
 				rowy += rowh;
 			} else {                                /* minimized row */
 				titlebarmoveresize(row, col->x, rowy, col->w);
 				XUnmapWindow(dpy, row->frame);
 			}
-			rowy += visual.tab;
+			rowy += config.titlewidth;
 			for (t = row->tabs; t != NULL; t = t->next) {
 				XMoveResizeWindow(dpy, t->frame, 0, 0, t->winw, t->winh);
 				for (d = t->ds; d != NULL; d = d->next) {
 					dialogmoveresize(d);
 				}
 				XResizeWindow(dpy, t->win, t->winw, t->winh);
-				winnotify(t->win, c->x + col->x, c->y + row->y + visual.tab, t->winw, t->winh);
-				ewmhsetframeextents(t->win, c->b, (c->isfullscreen && c->ncols == 1 && c->cols->nrows == 1) ? 0 : visual.tab);
+				winnotify(t->win, c->x + col->x, c->y + row->y + config.titlewidth, t->winw, t->winh);
+				ewmhsetframeextents(t->win, c->b, (c->isfullscreen && c->ncols == 1 && c->cols->nrows == 1) ? 0 : config.titlewidth);
 				tabmoveresize(t);
 			}
 		}
@@ -2795,11 +3107,11 @@ containernew(int x, int y, int w, int h)
 	c->layer = 0;
 	c->desk = NULL;
 	c->pw = c->ph = 0;
-	c->x = c->nx = x - visual.border;
-	c->y = c->ny = y - visual.border;
-	c->w = c->nw = w + 2 * visual.border;
-	c->h = c->nh = h + 2 * visual.border + visual.tab;
-	c->b = visual.border;
+	c->x = c->nx = x - config.borderwidth;
+	c->y = c->ny = y - config.borderwidth;
+	c->w = c->nw = w + 2 * config.borderwidth;
+	c->h = c->nh = h + 2 * config.borderwidth + config.titlewidth;
+	c->b = config.borderwidth;
 	c->pix = None;
 	c->frame = XCreateWindow(dpy, root, c->x, c->y, c->w, c->h, 0,
 	                         CopyFromParent, CopyFromParent, CopyFromParent,
@@ -3109,17 +3421,17 @@ rownew(void)
 	row->bar = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
 	                         CopyFromParent, CopyFromParent, CopyFromParent,
 	                         CWEventMask, &clientswa);
-	row->bl = XCreateWindow(dpy, row->bar, 0, 0, visual.button, visual.button, 0,
+	row->bl = XCreateWindow(dpy, row->bar, 0, 0, config.titlewidth, config.titlewidth, 0,
 	                        CopyFromParent, CopyFromParent, CopyFromParent,
 	                        CWEventMask, &clientswa);
-	row->pixbl = XCreatePixmap(dpy, row->bl, visual.button, visual.button, depth);
-	row->br = XCreateWindow(dpy, row->bar, 0, 0, visual.button, visual.button, 0,
+	row->pixbl = XCreatePixmap(dpy, row->bl, config.titlewidth, config.titlewidth, depth);
+	row->br = XCreateWindow(dpy, row->bar, 0, 0, config.titlewidth, config.titlewidth, 0,
 	                        CopyFromParent, CopyFromParent, CopyFromParent,
 	                        CWEventMask, &clientswa);
 	row->div = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
 	                         CopyFromParent, InputOnly, CopyFromParent, CWCursor,
 	                         &(XSetWindowAttributes){.cursor = visual.cursors[CURSOR_V]});
-	row->pixbr = XCreatePixmap(dpy, row->bl, visual.button, visual.button, depth);
+	row->pixbr = XCreatePixmap(dpy, row->bl, config.titlewidth, config.titlewidth, depth);
 	row->pixbar = None;
 	XMapWindow(dpy, row->bl);
 	XMapWindow(dpy, row->br);
@@ -3156,7 +3468,7 @@ rowaddtab(struct Row *row, struct Tab *t, struct Tab *prev)
 	}
 	rowcalctabs(row);               /* set t->x, t->w, etc */
 	if (t->title == None) {
-		t->title = XCreateWindow(dpy, row->bar, t->x, 0, t->w, visual.tab, 0,
+		t->title = XCreateWindow(dpy, row->bar, t->x, 0, t->w, config.titlewidth, 0,
 		                         CopyFromParent, CopyFromParent, CopyFromParent,
 		                         CWEventMask, &clientswa);
 	} else {
@@ -3448,15 +3760,15 @@ tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 				for (row = col->rows; row != NULL; row = row->next) {
 					if (col->maxrow != NULL) {
 						if (row == col->maxrow) {
-							rowh = c->h - 2 * c->b - (col->nrows - 1) * visual.tab;
+							rowh = c->h - 2 * c->b - (col->nrows - 1) * config.titlewidth;
 						} else {
-							rowh = visual.tab;
+							rowh = config.titlewidth;
 						}
 					} else {
 						rowh = row->h;
 					}
 					if (yroot - c->y >= rowy &&
-					    yroot - c->y < rowy + visual.tab) {
+					    yroot - c->y < rowy + config.titlewidth) {
 						for (next = t = row->tabs; t != NULL; t = t->next) {
 							next = t;
 							if (xroot - c->x + col->x < col->x + t->x + t->w / 2) {
@@ -3472,18 +3784,18 @@ tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 						}
 					}
 					if (yroot - c->y >= rowy + rowh - DROPPIXELS &&
-					    yroot - c->y < rowy + rowh + visual.division) {
+					    yroot - c->y < rowy + rowh + config.divwidth) {
 						nrow = rownew();
 						coladdrow(col, nrow, row);
 						rowaddtab(nrow, det, NULL);
 						colcalcrows(col, 1, 1);
 						goto done;
 					}
-					rowy += rowh + visual.division;
+					rowy += rowh + config.divwidth;
 				}
 			}
 			if (xroot - c->x >= col->x + col->w - DROPPIXELS &&
-			    xroot - c->x < col->x + col->w + visual.division + DROPPIXELS) {
+			    xroot - c->x < col->x + col->w + config.divwidth + DROPPIXELS) {
 				nrow = rownew();
 				ncol = colnew();
 				containeraddcol(c, ncol, col);
@@ -3819,48 +4131,12 @@ promptvalidevent(Display *dpy, XEvent *ev, XPointer arg)
 static void
 promptcalcgeom(int *x, int *y, int *w, int *h, int *fw, int *fh)
 {
-	*w = min(*w, wm.selmon->ww - visual.border * 2);
-	*h = min(*h, wm.selmon->wh - visual.border);
-	*x = wm.selmon->wx + (wm.selmon->ww - *w) / 2 - visual.border;
+	*w = min(*w, wm.selmon->ww - config.borderwidth * 2);
+	*h = min(*h, wm.selmon->wh - config.borderwidth);
+	*x = wm.selmon->wx + (wm.selmon->ww - *w) / 2 - config.borderwidth;
 	*y = 0;
-	*fw = *w + visual.border * 2;
-	*fh = *h + visual.border;
-}
-
-/* decorate prompt frame */
-static void
-promptdecorate(Window frame, int w, int h)
-{
-	XGCValues val;
-
-	val.fill_style = FillSolid;
-	val.foreground = visual.decor[FOCUSED][2].bg;
-	XChangeGC(dpy, gc, GCFillStyle | GCForeground, &val);
-	XFillRectangle(dpy, frame, gc, visual.border, visual.border, w, h);
-
-	val.fill_style = FillTiled;
-	val.tile = visual.decor[FOCUSED][2].w;
-	val.ts_x_origin = 0;
-	val.ts_y_origin = 0;
-	XChangeGC(dpy, gc, GCFillStyle | GCTile | GCTileStipYOrigin | GCTileStipXOrigin, &val);
-	XFillRectangle(dpy, frame, gc, 0, 0, visual.border, h + visual.border);
-
-	val.fill_style = FillTiled;
-	val.tile = visual.decor[FOCUSED][2].e;
-	val.ts_x_origin = visual.border + w;
-	val.ts_y_origin = 0;
-	XChangeGC(dpy, gc, GCFillStyle | GCTile | GCTileStipYOrigin | GCTileStipXOrigin, &val);
-	XFillRectangle(dpy, frame, gc, visual.border + w, 0, visual.border, h + visual.border);
-
-	val.fill_style = FillTiled;
-	val.tile = visual.decor[FOCUSED][2].s;
-	val.ts_x_origin = 0;
-	val.ts_y_origin = visual.border + h;
-	XChangeGC(dpy, gc, GCFillStyle | GCTile | GCTileStipYOrigin | GCTileStipXOrigin, &val);
-	XFillRectangle(dpy, frame, gc, visual.border, h, w + 2 * visual.border, visual.border);
-
-	XCopyArea(dpy, visual.decor[FOCUSED][2].sw, frame, gc, 0, 0, visual.corner, visual.corner, 0, h + visual.border - visual.corner);
-	XCopyArea(dpy, visual.decor[FOCUSED][2].se, frame, gc, 0, 0, visual.corner, visual.corner, w + 2 * visual.border - visual.corner, h + visual.border - visual.corner);
+	*fw = *w + config.borderwidth * 2;
+	*fh = *h + config.borderwidth;
 }
 
 /* create notification window */
@@ -3870,8 +4146,8 @@ notifnew(Window win, int w, int h)
 	struct Notification *n;
 
 	n = emalloc(sizeof(*n));
-	n->w = w + 2 * visual.border;
-	n->h = h + 2 * visual.border;
+	n->w = w + 2 * config.borderwidth;
+	n->h = h + 2 * config.borderwidth;
 	n->pw = n->ph = 0;
 	n->prev = wm.ntail;
 	n->next = NULL;
@@ -3888,62 +4164,6 @@ notifnew(Window win, int w, int h)
 	                             &(XSetWindowAttributes){.event_mask = SubstructureNotifyMask | SubstructureRedirectMask});
 	XReparentWindow(dpy, n->win, n->frame, 0, 0);
 	XMapWindow(dpy, n->win);
-}
-
-/* decorate notification */
-static void
-notifdecorate(struct Notification *n, int style)
-{
-	XGCValues val;
-	int w, h;
-
-	if (n->pw != n->w || n->ph != n->h || n->pix == None) {
-		if (n->pix != None)
-			XFreePixmap(dpy, n->pix);
-		n->pix = XCreatePixmap(dpy, n->frame, n->w, n->h, depth);
-	}
-	n->pw = n->w;
-	n->ph = n->h;
-
-	w = n->w - 2 * visual.border;
-	h = n->h - 2 * visual.border;
-
-	val.fill_style = FillTiled;
-	val.tile = visual.decor[style][NOTIFICATION].w;
-	val.ts_x_origin = 0;
-	val.ts_y_origin = 0;
-	XChangeGC(dpy, gc, GCFillStyle | GCTile | GCTileStipYOrigin | GCTileStipXOrigin, &val);
-	XFillRectangle(dpy, n->pix, gc, 0, visual.border, visual.border, h);
-
-	val.tile = visual.decor[style][NOTIFICATION].e;
-	val.ts_x_origin = visual.border + w;
-	val.ts_y_origin = 0;
-	XChangeGC(dpy, gc, GCFillStyle | GCTile | GCTileStipYOrigin | GCTileStipXOrigin, &val);
-	XFillRectangle(dpy, n->pix, gc, visual.border + w, visual.border, visual.border, h);
-
-	val.tile = visual.decor[style][NOTIFICATION].n;
-	val.ts_x_origin = 0;
-	val.ts_y_origin = 0;
-	XChangeGC(dpy, gc, GCFillStyle | GCTile | GCTileStipYOrigin | GCTileStipXOrigin, &val);
-	XFillRectangle(dpy, n->pix, gc, visual.border, 0, w, visual.border);
-
-	val.tile = visual.decor[style][NOTIFICATION].s;
-	val.ts_x_origin = 0;
-	val.ts_y_origin = visual.border + h;
-	XChangeGC(dpy, gc, GCFillStyle | GCTile | GCTileStipYOrigin | GCTileStipXOrigin, &val);
-	XFillRectangle(dpy, n->pix, gc, visual.border, visual.border + h, w, visual.border);
-
-	XCopyArea(dpy, visual.decor[style][NOTIFICATION].nw, n->pix, gc, 0, 0, visual.corner, visual.corner, 0, 0);
-	XCopyArea(dpy, visual.decor[style][NOTIFICATION].ne, n->pix, gc, 0, 0, visual.corner, visual.corner, n->w - visual.corner, 0);
-	XCopyArea(dpy, visual.decor[style][NOTIFICATION].sw, n->pix, gc, 0, 0, visual.corner, visual.corner, 0, n->h - visual.corner);
-	XCopyArea(dpy, visual.decor[style][NOTIFICATION].se, n->pix, gc, 0, 0, visual.corner, visual.corner, n->w - visual.corner, n->h - visual.corner);
-
-	val.fill_style = FillSolid;
-	val.foreground = visual.decor[style][NOTIFICATION].bg;
-	XChangeGC(dpy, gc, GCFillStyle | GCForeground, &val);
-	XFillRectangle(dpy, n->pix, gc, visual.border, visual.border, w, h);
-
-	XCopyArea(dpy, n->pix, n->frame, gc, 0, 0, n->w, n->h, 0, 0);
 }
 
 /* place notifications */
@@ -4005,14 +4225,14 @@ notifplace(void)
 			y -= h;
 		else
 			y += h;
-		h += n->h + config.notifgap + visual.border * 2;
+		h += n->h + config.notifgap + config.borderwidth * 2;
 
 		XMoveResizeWindow(dpy, n->frame, x, y, n->w, n->h);
-		XMoveResizeWindow(dpy, n->win, visual.border, visual.border, n->w - 2 * visual.border, n->h - 2 * visual.border);
+		XMoveResizeWindow(dpy, n->win, config.borderwidth, config.borderwidth, n->w - 2 * config.borderwidth, n->h - 2 * config.borderwidth);
 		XMapWindow(dpy, n->frame);
-		winnotify(n->win, x + visual.border, y + visual.border, n->w - 2 * visual.border, n->h - 2 * visual.border);
+		winnotify(n->win, x + config.borderwidth, y + config.borderwidth, n->w - 2 * config.borderwidth, n->h - 2 * config.borderwidth);
 		if (n->pw != n->w || n->ph != n->h) {
-			notifdecorate(n, FOCUSED);
+			notifdecorate(n);
 		}
 	}
 }
@@ -4088,35 +4308,12 @@ dockdecorate(void)
 	dock.pw = dock.w;
 	dock.ph = dock.h;
 	val.fill_style = FillSolid;
-	val.foreground = visual.dock_bg;
+	val.foreground = visual.dock[COLOR_MID];
 	XChangeGC(dpy, gc, GCFillStyle | GCForeground, &val);
 	XFillRectangle(dpy, dock.pix, gc, 0, 0, dock.w, dock.h);
 
-	val.foreground = visual.dock_border;
-	XChangeGC(dpy, gc, GCFillStyle | GCForeground, &val);
-	switch (config.dockgravity[0]) {
-	case 'N':
-		XFillRectangle(dpy, dock.pix, gc, 0, 0, 1, dock.h);
-		XFillRectangle(dpy, dock.pix, gc, dock.w - 1, 0, 1, dock.h);
-		XFillRectangle(dpy, dock.pix, gc, 1, dock.h - 1, dock.w - 2, 1);
-		break;
-	case 'S':
-		XFillRectangle(dpy, dock.pix, gc, 0, 0, 1, dock.h);
-		XFillRectangle(dpy, dock.pix, gc, dock.w - 1, 0, 1, dock.h);
-		XFillRectangle(dpy, dock.pix, gc, 1, 0, dock.w - 2, 1);
-		break;
-	case 'W':
-		XFillRectangle(dpy, dock.pix, gc, 0, 0, dock.w, 1);
-		XFillRectangle(dpy, dock.pix, gc, 0, dock.h - 1, dock.w, 1);
-		XFillRectangle(dpy, dock.pix, gc, dock.w - 1, 1, 1, dock.h - 2);
-		break;
-	case 'E':
-	default:
-		XFillRectangle(dpy, dock.pix, gc, 0, 0, dock.w, 1);
-		XFillRectangle(dpy, dock.pix, gc, 0, dock.h - 1, dock.w, 1);
-		XFillRectangle(dpy, dock.pix, gc, 0, 1, 1, dock.h - 2);
-		break;
-	}
+	drawrectangle(dock.pix, 1, 0, 0, dock.w, dock.h, visual.dock[COLOR_LIGHT], visual.dock[COLOR_DARK]);
+
 	XCopyArea(dpy, dock.pix, dock.win, gc, 0, 0, dock.w, dock.h, 0, 0);
 }
 
@@ -4277,16 +4474,16 @@ decorate(struct Winres *res)
 	} else if (res->n) {
 		XCopyArea(dpy, res->n->pix, res->n->frame, gc, 0, 0, res->n->w, res->n->h, 0, 0);
 	} else if (res->d != NULL) {
-		fullw = res->d->w + 2 * visual.border;
-		fullh = res->d->h + 2 * visual.border;
+		fullw = res->d->w + 2 * config.borderwidth;
+		fullh = res->d->h + 2 * config.borderwidth;
 		XCopyArea(dpy, res->d->pix, res->d->frame, gc, 0, 0, fullw, fullh, 0, 0);
 	} else if (res->t != NULL) {
-		XCopyArea(dpy, res->t->pixtitle, res->t->title, gc, 0, 0, res->t->w, visual.tab, 0, 0);
+		XCopyArea(dpy, res->t->pixtitle, res->t->title, gc, 0, 0, res->t->w, config.titlewidth, 0, 0);
 		XCopyArea(dpy, res->t->pix, res->t->frame, gc, 0, 0, res->t->winw, res->t->winh, 0, 0);
 	} else if (res->row != NULL) {
-		XCopyArea(dpy, res->row->pixbar, res->row->bar, gc, 0, 0, res->row->pw, visual.tab, 0, 0);
-		XCopyArea(dpy, res->row->pixbl, res->row->bl, gc, 0, 0, visual.button, visual.button, 0, 0);
-		XCopyArea(dpy, res->row->pixbr, res->row->br, gc, 0, 0, visual.button, visual.button, 0, 0);
+		XCopyArea(dpy, res->row->pixbar, res->row->bar, gc, 0, 0, res->row->pw, config.titlewidth, 0, 0);
+		XCopyArea(dpy, res->row->pixbl, res->row->bl, gc, 0, 0, config.titlewidth, config.titlewidth, 0, 0);
+		XCopyArea(dpy, res->row->pixbr, res->row->br, gc, 0, 0, config.titlewidth, config.titlewidth, 0, 0);
 	} else if (res->c != NULL) {
 		fullw = res->c->w;
 		fullh = res->c->h;
@@ -4327,7 +4524,9 @@ manageprompt(Window win, int w, int h)
 	prompt.frame = XCreateWindow(dpy, root, x, y, fw, fh, 0,
 	                             CopyFromParent, CopyFromParent, CopyFromParent,
 	                             CWEventMask, &clientswa);
-	XReparentWindow(dpy, win, prompt.frame, visual.border, 0);
+	prompt.pix = None;
+	prompt.ph = prompt.pw = 0;
+	XReparentWindow(dpy, win, prompt.frame, config.borderwidth, 0);
 	XMapWindow(dpy, win);
 	XMapWindow(dpy, prompt.frame);
 	XSetInputFocus(dpy, win, RevertToParent, CurrentTime);
@@ -4337,7 +4536,7 @@ manageprompt(Window win, int w, int h)
 		case Expose:
 			if (ev.xexpose.count == 0) {
 				if (ev.xexpose.window == prompt.frame) {
-					promptdecorate(prompt.frame, w, h);
+					promptdecorate(&prompt, fw, fh);
 				} else {
 					res = getwin(ev.xexpose.window);
 					decorate(&res);
@@ -4353,7 +4552,7 @@ manageprompt(Window win, int w, int h)
 			h = ev.xconfigurerequest.height;
 			promptcalcgeom(&x, &y, &w, &h, &fw, &fh);
 			XMoveResizeWindow(dpy, prompt.frame, x, y, fw, fh);
-			XMoveResizeWindow(dpy, win, visual.border, 0, w, h);
+			XMoveResizeWindow(dpy, win, config.borderwidth, 0, w, h);
 			break;
 		case ButtonPress:
 			if (ev.xbutton.window != win && ev.xbutton.window != prompt.frame)
@@ -4586,7 +4785,7 @@ mouseretab(struct Tab *t, int xroot, int yroot, int x, int y)
 	row = t->row;
 	col = row->col;
 	c = col->c;
-	tabdetach(t, xroot - x, yroot - y, c->nw - 2 * visual.border, c->nh - 2 * visual.border - visual.tab);
+	tabdetach(t, xroot - x, yroot - y, c->nw - 2 * config.borderwidth, c->nh - 2 * config.borderwidth - config.titlewidth);
 	containermoveresize(c);
 	XGrabPointer(dpy, t->title, False,
 	             ButtonReleaseMask | PointerMotionMask,
@@ -4596,7 +4795,7 @@ mouseretab(struct Tab *t, int xroot, int yroot, int x, int y)
 		case Expose:
 			if (ev.xexpose.count == 0) {
 				if (ev.xexpose.window == t->title) {
-					XCopyArea(dpy, t->pixtitle, t->title, gc, 0, 0, t->w, visual.tab, 0, 0);
+					XCopyArea(dpy, t->pixtitle, t->title, gc, 0, 0, t->w, config.titlewidth, 0, 0);
 				} else {
 					res = getwin(ev.xexpose.window);
 					decorate(&res);
@@ -4620,7 +4819,7 @@ done:
 		mon = getmon(xroot - x, yroot - y);
 		if (mon == NULL)
 			mon = wm.selmon;
-		newc = containernew(xroot - x - visual.button, yroot - y, t->winw, t->winh);
+		newc = containernew(xroot - x - config.titlewidth, yroot - y, t->winw, t->winh);
 		managecontainer(newc, t, mon->seldesk, 1);
 	}
 	recalc = 1;
@@ -4837,7 +5036,7 @@ mousererow(struct Row *row)
 	newcol = NULL;
 	y = 0;
 	lasttime = 0;
-	buttondecorate(row, BUTTON_LEFT, 1);
+	buttonleftdecorate(row, 1);
 	XRaiseWindow(dpy, row->bar);
 	XGrabPointer(dpy, row->bar, False, ButtonReleaseMask | PointerMotionMask,
 	             GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
@@ -4854,7 +5053,7 @@ mousererow(struct Row *row)
 				if (ev.xmotion.x_root >= c->x + col->x &&
 				    ev.xmotion.x_root < c->x + col->x + col->w &&
 				    ev.xmotion.y_root >= c->y + c->b &&
-				    ev.xmotion.y_root < c->y + c->h - c->b - visual.tab) {
+				    ev.xmotion.y_root < c->y + c->h - c->b - config.titlewidth) {
 					newcol = col;
 					y = ev.xmotion.y_root - c->y;
 					if (prevcol != newcol) {
@@ -4898,7 +5097,7 @@ done:
 	}
 	containercalccols(c, 0, 1);
 	containermoveresize(c);
-	buttondecorate(row, BUTTON_LEFT, 0);
+	buttonleftdecorate(row, 0);
 	containerdecorate(c, NULL, NULL, 0, 0);
 	XUngrabPointer(dpy, CurrentTime);
 }
@@ -4910,7 +5109,7 @@ mouseclose(struct Row *row)
 	struct Winres res;
 	XEvent ev;
 
-	buttondecorate(row, BUTTON_RIGHT, 1);
+	buttonrightdecorate(row, 1);
 	XGrabPointer(dpy, row->br, False, ButtonReleaseMask,
 	             GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
 	while (!XMaskEvent(dpy, ButtonReleaseMask | ExposureMask, &ev)) {
@@ -4924,14 +5123,14 @@ mouseclose(struct Row *row)
 		case ButtonRelease:
 			if (ev.xbutton.window == row->br &&
 			    ev.xbutton.x >= 0 && ev.xbutton.x >= 0 &&
-			    ev.xbutton.x < visual.button && ev.xbutton.x < visual.button)
+			    ev.xbutton.x < config.titlewidth && ev.xbutton.x < config.titlewidth)
 				winclose(row->seltab->ds != NULL ? row->seltab->ds->win : row->seltab->win);
 			goto done;
 			break;
 		}
 	}
 done:
-	buttondecorate(row, BUTTON_RIGHT, 0);
+	buttonrightdecorate(row, 0);
 	XUngrabPointer(dpy, CurrentTime);
 }
 
@@ -4973,13 +5172,13 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 			x = ev.xmotion.x_root - xroot;
 			y = ev.xmotion.y_root - yroot;
 			if (cdiv != NULL) {
-				if (x < 0 && cdiv->w + x > visual.center) {
+				if (x < 0 && cdiv->w + x > config.minsize) {
 					cdiv->w += x;
 					cdiv->next->w -= x;
 					if (ev.xmotion.time - lasttime > RESIZETIME) {
 						update = 1;
 					}
-				} else if (x > 0 && cdiv->next->w - x > visual.center) {
+				} else if (x > 0 && cdiv->next->w - x > config.minsize) {
 					cdiv->next->w -= x;
 					cdiv->w += x;
 					if (ev.xmotion.time - lasttime > RESIZETIME) {
@@ -4987,13 +5186,13 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 					}
 				}
 			} else if (rdiv != NULL) {
-				if (y < 0 && rdiv->h + y > visual.center) {
+				if (y < 0 && rdiv->h + y > config.minsize) {
 					rdiv->h += y;
 					rdiv->next->h -= y;
 					if (ev.xmotion.time - lasttime > RESIZETIME) {
 						update = 1;
 					}
-				} else if (y > 0 && rdiv->next->h - y > visual.center) {
+				} else if (y > 0 && rdiv->next->h - y > config.minsize) {
 					rdiv->next->h -= y;
 					rdiv->h += y;
 					if (ev.xmotion.time - lasttime > RESIZETIME) {
@@ -5027,7 +5226,7 @@ mousestack(struct Row *row)
 	struct Winres res;
 	XEvent ev;
 
-	buttondecorate(row, BUTTON_LEFT, 1);
+	buttonleftdecorate(row, 1);
 	XGrabPointer(dpy, row->bl, False, ButtonReleaseMask,
 	             GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
 	while (!XMaskEvent(dpy, ButtonReleaseMask | ExposureMask, &ev)) {
@@ -5042,7 +5241,7 @@ mousestack(struct Row *row)
 			if (row->col->nrows > 1 &&
 			    ev.xbutton.window == row->bl &&
 			    ev.xbutton.x >= 0 && ev.xbutton.x >= 0 &&
-			    ev.xbutton.x < visual.button && ev.xbutton.x < visual.button) {
+			    ev.xbutton.x < config.titlewidth && ev.xbutton.x < config.titlewidth) {
 				rowstack(row->col, (row->col->maxrow == row) ? NULL : row);
 				tabfocus(row->seltab, 0);
 			}
@@ -5051,7 +5250,7 @@ mousestack(struct Row *row)
 		}
 	}
 done:
-	buttondecorate(row, BUTTON_LEFT, 0);
+	buttonleftdecorate(row, 0);
 	XUngrabPointer(dpy, CurrentTime);
 }
 
@@ -5329,9 +5528,9 @@ xeventclientmessage(XEvent *e)
 			 * actually mapping its window. Java does this (as of
 			 * openjdk-7).
 			 */
-			ewmhsetframeextents(ev->window, visual.border, visual.tab);
+			ewmhsetframeextents(ev->window, config.borderwidth, config.titlewidth);
 		} else {
-			ewmhsetframeextents(ev->window, res.c->b, (res.c->isfullscreen && res.c->ncols == 1 && res.c->cols->nrows == 1) ? 0 : visual.tab);
+			ewmhsetframeextents(ev->window, res.c->b, (res.c->isfullscreen && res.c->ncols == 1 && res.c->cols->nrows == 1) ? 0 : config.titlewidth);
 		}
 	} else if (ev->message_type == atoms[_NET_WM_MOVERESIZE]) {
 		/*
@@ -5613,41 +5812,6 @@ cleandock(void)
 	XDestroyWindow(dpy, dock.win);
 }
 
-/* free pixmaps */
-static void
-cleanpixmaps(void)
-{
-	int i, j;
-
-	for (i = 0; i < STYLE_LAST; i++) {
-		for (j = 0; i < DECOR_LAST; i++) {
-			XFreePixmap(dpy, visual.decor[i][j].bl);
-			XFreePixmap(dpy, visual.decor[i][j].br);
-			XFreePixmap(dpy, visual.decor[i][j].tl);
-			XFreePixmap(dpy, visual.decor[i][j].tlt);
-			XFreePixmap(dpy, visual.decor[i][j].t);
-			XFreePixmap(dpy, visual.decor[i][j].trt);
-			XFreePixmap(dpy, visual.decor[i][j].tr);
-			XFreePixmap(dpy, visual.decor[i][j].nw);
-			XFreePixmap(dpy, visual.decor[i][j].nf);
-			XFreePixmap(dpy, visual.decor[i][j].n);
-			XFreePixmap(dpy, visual.decor[i][j].nl);
-			XFreePixmap(dpy, visual.decor[i][j].ne);
-			XFreePixmap(dpy, visual.decor[i][j].wf);
-			XFreePixmap(dpy, visual.decor[i][j].w);
-			XFreePixmap(dpy, visual.decor[i][j].wl);
-			XFreePixmap(dpy, visual.decor[i][j].ef);
-			XFreePixmap(dpy, visual.decor[i][j].e);
-			XFreePixmap(dpy, visual.decor[i][j].el);
-			XFreePixmap(dpy, visual.decor[i][j].sw);
-			XFreePixmap(dpy, visual.decor[i][j].sf);
-			XFreePixmap(dpy, visual.decor[i][j].s);
-			XFreePixmap(dpy, visual.decor[i][j].sl);
-			XFreePixmap(dpy, visual.decor[i][j].se);
-		}
-	}
-}
-
 /* free fontset */
 static void
 cleanfontset(void)
@@ -5673,7 +5837,7 @@ main(int argc, char *argv[])
 		[UnmapNotify]      = xeventunmapnotify
 	};
 
-	/* parse command-line options */
+	/* get configuration */
 	getoptions(argc, argv);
 
 	/* open connection to server and set X variables */
@@ -5686,8 +5850,14 @@ main(int argc, char *argv[])
 	screenh = DisplayHeight(dpy, screen);
 	depth = DefaultDepth(dpy, screen);
 	root = RootWindow(dpy, screen);
-	gc = XCreateGC(dpy, root, 0, NULL);
+	gc = XCreateGC(dpy, root, GCFillStyle, &(XGCValues){.fill_style = FillSolid});
 	xerrorxlib = XSetErrorHandler(xerror);
+	if ((xrm = XResourceManagerString(dpy)) != NULL)
+		xdb = XrmGetStringDatabase(xrm);
+
+	/* get configuration */
+	getresources();
+	getoptions(argc, argv);
 
 	/* initialize */
 	initsignal();
@@ -5696,7 +5866,7 @@ main(int argc, char *argv[])
 	initcursors();
 	initatoms();
 	initroot();
-	inittheme();
+	initvisual();
 	initdock();
 
 	/* set up list of monitors */
@@ -5723,7 +5893,6 @@ main(int argc, char *argv[])
 	/* clean up */
 	cleandummywindows();
 	cleancursors();
-	cleanpixmaps();
 	cleanfontset();
 	cleanwm();
 	cleandock();
