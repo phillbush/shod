@@ -464,9 +464,7 @@ volatile sig_atomic_t running = 1;
 static void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: shod [-c] [-D dockspec] [-f buttons] [-m modifier]\n");
-	(void)fprintf(stderr, "            [-N notificationspec] [-n ndesks] [-r buttons]\n");
-	(void)fprintf(stderr, "            [-s snap]\n");
+	(void)fprintf(stderr, "usage: shod [-c]\n");
 	exit(1);
 }
 
@@ -606,52 +604,38 @@ getresources(void)
 	if (XrmGetResource(xdb, "shod.titleWidth", "*", &type, &xval) == True)
 		if ((n = strtol(xval.addr, NULL, 10)) > 0 && n < 100)
 			config.titlewidth = n;
+	if (XrmGetResource(xdb, "shod.dockWidth", "*", &type, &xval) == True)
+		if ((n = strtol(xval.addr, NULL, 10)) > 0)
+			config.dockwidth = n;
+	if (XrmGetResource(xdb, "shod.dockGravity", "*", &type, &xval) == True)
+		config.dockgravity = xval.addr;
+	if (XrmGetResource(xdb, "shod.notifGap", "*", &type, &xval) == True)
+		if ((n = strtol(xval.addr, NULL, 10)) > 0)
+			config.notifgap = n;
+	if (XrmGetResource(xdb, "shod.notifGravity", "*", &type, &xval) == True)
+		config.notifgravity = xval.addr;
+	if (XrmGetResource(xdb, "shod.numOfDesktops", "*", &type, &xval) == True)
+		if ((n = strtol(xval.addr, NULL, 10)) > 0 && n < 100)
+			config.ndesktops = n;
+	if (XrmGetResource(xdb, "shod.snapProximity", "*", &type, &xval) == True)
+		if ((n = strtol(xval.addr, NULL, 10)) >= 0 && n < 100)
+			config.snap = n;
 }
 
 /* read command-line options */
 static void
 getoptions(int argc, char *argv[])
 {
-	long n;
 	int c;
-	char *s;
 
 	if ((wmname = strrchr(argv[0], '/')) != NULL)
 		wmname++;
 	else
 		wmname = argv[0];
-	while ((c = getopt(argc, argv, "cD:f:m:N:n:r:s:")) != -1) {
+	while ((c = getopt(argc, argv, "c")) != -1) {
 		switch (c) {
 		case 'c':
 			cflag = 1;
-			break;
-		case 'D':
-			if (*optarg == '\0' || *optarg == ':')
-				break;
-			config.dockgravity = optarg;
-			if ((s = strchr(optarg, ':')) == NULL)
-				break;
-			*(s++) = '\0';
-			if ((n = strtol(s, NULL, 10)) > 0)
-				config.dockwidth = n;
-			break;
-		case 'N':
-			if (*optarg == '\0' || *optarg == ':')
-				break;
-			config.notifgravity = optarg;
-			if ((s = strchr(optarg, ':')) == NULL)
-				break;
-			*(s++) = '\0';
-			if ((n = strtol(s, NULL, 10)) > 0)
-				config.notifgap = n;
-			break;
-		case 'n':
-			if ((n = strtol(optarg, NULL, 10)) > 0)
-				config.ndesktops = n;
-			break;
-		case 's':
-			if ((n = strtol(optarg, NULL, 10)) > 0)
-				config.snap = n;
 			break;
 		default:
 			usage();

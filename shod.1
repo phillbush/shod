@@ -5,14 +5,6 @@
 .SH SYNOPSIS
 .B shod
 .RB [ \-c ]
-.RB [ \-D
-.IR dockspec ]
-.RB [ \-N
-.IR notificationspec ]
-.RB [ \-n
-.IR ndesks ]
-.RB [ \-s
-.IR snap ]
 .PP
 .B shodc close
 .RI [ win_id ]
@@ -84,44 +76,6 @@ but they can be honored by invoking
 with the
 .B \-c
 command-line option.
-.TP
-.BI \-D " dockspec"
-Specify the placement and width of the dock.
-If dockspec is
-.BR NE:56 ,
-the dock will be placed in the north side of the screen, at the east edge, with a width of 56 pixels.
-If dockspec is
-.BR WN:32 ,
-the dock will be placed in the west side of the screen, at the north edge, with a width of 32 pixels.
-If dockspec is
-.B E:64
-(de default value),
-the dock will be placed in the east side of the screen, at the center, with a width of 64 pixels.
-.TP
-.BI \-N " notificationspec"
-Specify the placement of notification windows and the gap between them.
-If notificationspec is
-.BR NW:0 ,
-notifications will appear at the northwest corner of the screen and will have no gap between them.
-If notificationspec is
-.BR C:7 ,
-notifications will appear at the center of the screen and will have a 7 pixels gap between them.
-If notificationspec is
-.B NE:3
-(de default value),
-notifications will be placed in the northeast corner of the screen and will have a 3 pixels gap between them.
-.TP
-.BI \-n " ndesks"
-Specify the number of desktops for
-.B shod
-to manage.
-By default,
-.B shod
-manages 10 desktops.
-.TP
-.BI \-s " snap"
-The proximity of edges of a container for the snap attraction to occur when moving the container.
-If set to zero, no snap attraction occurs.
 .PP
 .B shodc
 is the remote controller for
@@ -584,15 +538,51 @@ Up to three colors, delimited by colons,
 for the body color, light shadow color, and dark shadow color for the 3D effect
 of the dock.
 .TP
+.B shod.dockGravity
+The placement of the dock described with up to two uppercase letters.
+The first letter ("E", "N", "W" or "S") defines in which edge of the screen
+(East, North, West or South) to allign the dock.
+The optional second letter (also "E", "N", "W" or "S")
+defines in which corner of that edge of the screen to allign the dock;
+if no second letter is supplied, the dock is centered on that edge.
+For example, for a value of "NE", a horizontal dock will be placed in the north edge of the screen,
+alligned to the northeast corner.
+For a value of "EN", a vertical dock will be placed in the east edge of the screen,
+alligned to the northeast corner.
+For a value of "E" (the default), a vertical dock wil be placed in the east edge of the screen,
+alligned to its center.
+.TP
+.B shod.dockWidth
+The width (for vertical docks) or height (for horizontal dock) of the dock in pixels.
+Defaults to 64 (the size of most dockapps).
+.TP
+.B shod.numOfDesktops
+The number of desktops for each monitor.
+The default is 10 desktops for each monitor.
+.TP
 .B shod.notifColors
 Up to three colors, delimited by colons,
 for the body color, light shadow color, and dark shadow color for the 3D effect
 of the nofications.
 .TP
+.B shod.notifGap
+The gap in pixels between notifications.
+.TP
+.B shod.notifGravity
+The placement of the dock in uppercase abbreviated points of the compass.
+For example, a value of "N" will place notifications centered on the north edge of the screen.
+A value of "E" will place notifications centered on the east edge of the screen.
+A value of "NE" (the default) will place notifications on the northeast corner of the screen.
+.TP
 .B shod.promptColors
 Up to three colors, delimited by colons,
 for the body color, light shadow color, and dark shadow color for the 3D effect
 of the prompt decoration.
+.TP
+.B shod.snapProximity
+The proximity of edges of a container in pixels for the snap attraction to occur when moving the container.
+If set to zero, no snap attraction occurs.
+The default is 8 pixels.
 .TP
 .B shod.title.font
 The font of the text in the title bar.
