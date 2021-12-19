@@ -33,13 +33,6 @@ enum {
 	TYPE_DOCKAPP
 };
 
-/* title bar buttons */
-enum {
-	BUTTON_NONE,
-	BUTTON_LEFT,
-	BUTTON_RIGHT
-};
-
 /* state action */
 enum {
 	REMOVE = 0,
@@ -61,24 +54,6 @@ enum {
 	UNFOCUSED,
 	URGENT,
 	STYLE_LAST
-};
-
-/* decoration state */
-enum {
-	/* the first decoration state is used both for focused tab and for unpressed borders */
-	UNPRESSED     = 0,
-	TAB_FOCUSED   = 0,
-
-	PRESSED       = 1,
-	TAB_PRESSED   = 1,
-
-	/* the third decoration state is used for unfocused tab and dialog borders */
-	TAB_UNFOCUSED = 2,
-	DIALOG        = 2,
-	NOTIFICATION  = 2,
-	DIVISION      = 2,
-
-	DECOR_LAST    = 3
 };
 
 /* cursor types */
@@ -460,7 +435,6 @@ struct Config {
 	/* the values below are computed from the values above */
 	int corner;
 	int divwidth;
-	int minsize;
 };
 
 /* global variables */
@@ -862,7 +836,7 @@ initvisual(void)
 
 	config.corner = config.borderwidth + config.titlewidth;
 	config.divwidth = config.borderwidth;
-	config.minsize = config.corner * 2 + 10;
+	wm.minsize = config.corner * 2 + 10;
 	for (i = 0; i < STYLE_LAST; i++) {
 		createcolors(visual.title[i], config.titlecolors[i]);
 		createcolors(visual.border[i], config.bordercolors[i]);
@@ -2399,7 +2373,7 @@ containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, in
 			recs[7] = (XRectangle){.x = x + config.titlewidth + 1, .y = config.borderwidth - 2, .width = 1, .height = c->h - config.borderwidth * 2 + 4};
 			recs[8] = (XRectangle){.x = x + 1, .y = c->h - config.borderwidth + 1, .width = config.titlewidth + 1, .height = 1};
 			recs[9] = (XRectangle){.x = x + 1, .y = c->h - config.borderwidth + 1, .width = 1, .height = config.borderwidth - 3};
-			val.foreground = (o == NE) ? decor[COLOR_DARK] : decor[COLOR_LIGHT];
+			val.foreground = (o == E) ? decor[COLOR_DARK] : decor[COLOR_LIGHT];
 			XChangeGC(dpy, gc, GCForeground, &val);
 			XFillRectangles(dpy, c->pix, gc, recs, doubleshadow ? 10 : 5);
 			recs[0] = (XRectangle){.x = x + config.corner - 1, .y = 0, .width = 1, .height = c->h};
@@ -2408,7 +2382,7 @@ containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, in
 			recs[3] = (XRectangle){.x = x + config.corner - 2, .y = 1, .width = 1, .height = c->h - 1};
 			recs[4] = (XRectangle){.x = x + 1, .y = config.borderwidth - 2, .width = config.titlewidth, .height = 1};
 			recs[5] = (XRectangle){.x = x + 1, .y = c->h - 2, .width = config.corner - 1, .height = 1};
-			val.foreground = (o == NE) ? decor[COLOR_LIGHT] : decor[COLOR_DARK];
+			val.foreground = (o == E) ? decor[COLOR_LIGHT] : decor[COLOR_DARK];
 			XChangeGC(dpy, gc, GCForeground, &val);
 			XFillRectangles(dpy, c->pix, gc, recs, doubleshadow ? 6 : 3);
 		} else {
@@ -5173,13 +5147,13 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 			x = ev.xmotion.x_root - xroot;
 			y = ev.xmotion.y_root - yroot;
 			if (cdiv != NULL) {
-				if (x < 0 && cdiv->w + x > config.minsize) {
+				if (x < 0 && cdiv->w + x > wm.minsize) {
 					cdiv->w += x;
 					cdiv->next->w -= x;
 					if (ev.xmotion.time - lasttime > RESIZETIME) {
 						update = 1;
 					}
-				} else if (x > 0 && cdiv->next->w - x > config.minsize) {
+				} else if (x > 0 && cdiv->next->w - x > wm.minsize) {
 					cdiv->next->w -= x;
 					cdiv->w += x;
 					if (ev.xmotion.time - lasttime > RESIZETIME) {
@@ -5187,13 +5161,13 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 					}
 				}
 			} else if (rdiv != NULL) {
-				if (y < 0 && rdiv->h + y > config.minsize) {
+				if (y < 0 && rdiv->h + y > wm.minsize) {
 					rdiv->h += y;
 					rdiv->next->h -= y;
 					if (ev.xmotion.time - lasttime > RESIZETIME) {
 						update = 1;
 					}
-				} else if (y > 0 && rdiv->next->h - y > config.minsize) {
+				} else if (y > 0 && rdiv->next->h - y > wm.minsize) {
 					rdiv->next->h -= y;
 					rdiv->h += y;
 					if (ev.xmotion.time - lasttime > RESIZETIME) {
