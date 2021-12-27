@@ -14,6 +14,7 @@
 #include <X11/cursorfont.h>
 #include <X11/xpm.h>
 #include <X11/extensions/Xinerama.h>
+#include <X11/extensions/Xrender.h>
 
 #define MODIFIER                Mod1Mask
 #define DIV                     15      /* see containerplace() for details */
@@ -371,7 +372,7 @@ struct Prompt {
 };
 
 /* cursors, fonts, decorations, and decoration sizes */
-struct Visual {
+struct Theme {
 	Cursor cursors[CURSOR_LAST];
 	XFontSet fontset;
 	unsigned long fg[STYLE_LAST];
@@ -445,13 +446,16 @@ static XSetWindowAttributes clientswa = {
 static int (*xerrorxlib)(Display *, XErrorEvent *);
 static XrmDatabase xdb;
 static Display *dpy;
+static Visual *visual;
+static Colormap colormap;
 static Window root;
 static GC gc;
 static Atom atoms[ATOM_LAST];
-static struct Visual visual;
+static struct Theme theme;
 static struct WM wm;
 static struct Dock dock;
-static int depth;
+static unsigned long clientmask = CWEventMask | CWColormap | CWBackPixel | CWBorderPixel;
+static unsigned int depth;
 static int screen, screenw, screenh;
 static int cflag = 0;
 static char *wmname;
@@ -521,7 +525,7 @@ ealloccolor(const char *s)
 {
 	XColor color;
 
-	if(!XAllocNamedColor(dpy, DefaultColormap(dpy, screen), s, &color, &color)) {
+	if(!XAllocNamedColor(dpy, colormap, s, &color, &color)) {
 		warnx("could not allocate color: %s", s);
 		return BlackPixel(dpy, screen);
 	}
@@ -649,6 +653,44 @@ getoptions(int argc, char *argv[])
 	}
 }
 
+/* initialize visual and depth */
+static void
+xinitvisual(void)
+{
+	XVisualInfo tpl = {
+		.screen = screen,
+		.depth = 32,
+		.class = TrueColor
+	};
+	XVisualInfo *infos;
+	XRenderPictFormat *fmt;
+	long masks = VisualScreenMask | VisualDepthMask | VisualClassMask;
+	int nitems;
+	int i;
+
+	visual = NULL;
+	if ((infos = XGetVisualInfo(dpy, masks, &tpl, &nitems)) != NULL) {
+		for (i = 0; i < nitems; i++) {
+			fmt = XRenderFindVisualFormat(dpy, infos[i].visual);
+			if (fmt->type == PictTypeDirect && fmt->direct.alphaMask) {
+				depth = infos[i].depth;
+				visual = infos[i].visual;
+				colormap = XCreateColormap(dpy, root, visual, AllocNone);
+				break;
+			}
+		}
+		XFree(infos);
+	}
+	if (visual == NULL) {
+		depth = DefaultDepth(dpy, screen);
+		visual = DefaultVisual(dpy, screen);
+		colormap = DefaultColormap(dpy, screen);
+	}
+	clientswa.colormap = colormap;
+	clientswa.border_pixel = BlackPixel(dpy, screen);
+	clientswa.background_pixel = BlackPixel(dpy, screen);
+}
+
 /* initialize signals */
 static void
 initsignal(void)
@@ -678,14 +720,18 @@ initdummywindows(void)
 	int i;
 
 	swa.do_not_propagate_mask = NoEventMask;
+	swa.background_pixel = BlackPixel(dpy, screen);
+	swa.border_pixel = BlackPixel(dpy, screen);
+	swa.colormap = colormap;
 	wm.wmcheckwin = XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0);
 	wm.focuswin = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
-	                            CopyFromParent, CopyFromParent, CopyFromParent,
-	                            CWDontPropagate, &swa);
+	                            depth, CopyFromParent, visual,
+	                            CWDontPropagate | CWColormap | CWBackPixel | CWBorderPixel, &swa);
 	for (i = 0; i < LAYER_LAST; i++) {
 		wm.layerwins[i] = XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0);
 		XRaiseWindow(dpy, wm.layerwins[i]);
 	}
+	gc = XCreateGC(dpy, wm.focuswin, GCFillStyle, &(XGCValues){.fill_style = FillSolid});
 }
 
 /* initialize font set */
@@ -695,7 +741,7 @@ initfontset(void)
 	char **dp, *ds;
 	int di;
 
-	if ((visual.fontset = XCreateFontSet(dpy, config.font, &dp, &di, &ds)) == NULL)
+	if ((theme.fontset = XCreateFontSet(dpy, config.font, &dp, &di, &ds)) == NULL)
 		errx(1, "XCreateFontSet: could not create fontset");
 	XFreeStringList(dp);
 }
@@ -704,19 +750,19 @@ initfontset(void)
 static void
 initcursors(void)
 {
-	visual.cursors[CURSOR_NORMAL] = XCreateFontCursor(dpy, XC_left_ptr);
-	visual.cursors[CURSOR_MOVE] = XCreateFontCursor(dpy, XC_fleur);
-	visual.cursors[CURSOR_NW] = XCreateFontCursor(dpy, XC_top_left_corner);
-	visual.cursors[CURSOR_NE] = XCreateFontCursor(dpy, XC_top_right_corner);
-	visual.cursors[CURSOR_SW] = XCreateFontCursor(dpy, XC_bottom_left_corner);
-	visual.cursors[CURSOR_SE] = XCreateFontCursor(dpy, XC_bottom_right_corner);
-	visual.cursors[CURSOR_N] = XCreateFontCursor(dpy, XC_top_side);
-	visual.cursors[CURSOR_S] = XCreateFontCursor(dpy, XC_bottom_side);
-	visual.cursors[CURSOR_W] = XCreateFontCursor(dpy, XC_left_side);
-	visual.cursors[CURSOR_E] = XCreateFontCursor(dpy, XC_right_side);
-	visual.cursors[CURSOR_V] = XCreateFontCursor(dpy, XC_sb_v_double_arrow);
-	visual.cursors[CURSOR_H] = XCreateFontCursor(dpy, XC_sb_h_double_arrow);
-	visual.cursors[CURSOR_PIRATE] = XCreateFontCursor(dpy, XC_pirate);
+	theme.cursors[CURSOR_NORMAL] = XCreateFontCursor(dpy, XC_left_ptr);
+	theme.cursors[CURSOR_MOVE] = XCreateFontCursor(dpy, XC_fleur);
+	theme.cursors[CURSOR_NW] = XCreateFontCursor(dpy, XC_top_left_corner);
+	theme.cursors[CURSOR_NE] = XCreateFontCursor(dpy, XC_top_right_corner);
+	theme.cursors[CURSOR_SW] = XCreateFontCursor(dpy, XC_bottom_left_corner);
+	theme.cursors[CURSOR_SE] = XCreateFontCursor(dpy, XC_bottom_right_corner);
+	theme.cursors[CURSOR_N] = XCreateFontCursor(dpy, XC_top_side);
+	theme.cursors[CURSOR_S] = XCreateFontCursor(dpy, XC_bottom_side);
+	theme.cursors[CURSOR_W] = XCreateFontCursor(dpy, XC_left_side);
+	theme.cursors[CURSOR_E] = XCreateFontCursor(dpy, XC_right_side);
+	theme.cursors[CURSOR_V] = XCreateFontCursor(dpy, XC_sb_v_double_arrow);
+	theme.cursors[CURSOR_H] = XCreateFontCursor(dpy, XC_sb_h_double_arrow);
+	theme.cursors[CURSOR_PIRATE] = XCreateFontCursor(dpy, XC_pirate);
 }
 
 /* initialize atom arrays */
@@ -782,7 +828,7 @@ initroot(void)
 	XSetWindowAttributes swa;
 
 	/* Select SubstructureRedirect events on root window */
-	swa.cursor = visual.cursors[CURSOR_NORMAL];
+	swa.cursor = theme.cursors[CURSOR_NORMAL];
 	swa.event_mask = SubstructureRedirectMask|SubstructureNotifyMask
 	               | StructureNotifyMask | ButtonPressMask;
 	XChangeWindowAttributes(dpy, root, CWEventMask | CWCursor, &swa);
@@ -814,7 +860,7 @@ createcolors(unsigned long *colors, const char *str)
 
 /* initialize decoration pixmap */
 static void
-initvisual(void)
+inittheme(void)
 {
 	int i;
 
@@ -822,13 +868,13 @@ initvisual(void)
 	config.divwidth = config.borderwidth;
 	wm.minsize = config.corner * 2 + 10;
 	for (i = 0; i < STYLE_LAST; i++) {
-		createcolors(visual.title[i], config.titlecolors[i]);
-		createcolors(visual.border[i], config.bordercolors[i]);
-		visual.fg[i] = ealloccolor(config.foreground[i]);
+		createcolors(theme.title[i], config.titlecolors[i]);
+		createcolors(theme.border[i], config.bordercolors[i]);
+		theme.fg[i] = ealloccolor(config.foreground[i]);
 	}
-	createcolors(visual.dock, config.dockcolors);
-	createcolors(visual.notif, config.notifcolors);
-	createcolors(visual.prompt, config.promptcolors);
+	createcolors(theme.dock, config.dockcolors);
+	createcolors(theme.notif, config.notifcolors);
+	createcolors(theme.prompt, config.promptcolors);
 }
 
 /* create dock window */
@@ -838,12 +884,12 @@ initdock(void)
 	XSetWindowAttributes swa;
 
 	dock.pix = None;
-	dock.win = None;
 	swa.event_mask = SubstructureNotifyMask | SubstructureRedirectMask | ExposureMask;
-	swa.background_pixel = visual.dock[0];
+	swa.background_pixel = BlackPixel(dpy, screen);
+	swa.border_pixel = BlackPixel(dpy, screen);
+	swa.colormap = colormap;
 	dock.win = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
-		                     CopyFromParent, CopyFromParent, CopyFromParent,
-		                     CWEventMask | CWBackPixel, &swa);
+		                     depth, InputOutput, visual, clientmask, &swa);
 }
 
 /* get pointer to proper structure given a window */
@@ -2050,7 +2096,7 @@ dialogdecorate(struct Dialog *d)
 	unsigned long *decor;
 	int fullw, fullh;       /* size of dialog window + borders */
 
-	decor = visual.border[tabgetstyle(d->t)];
+	decor = theme.border[tabgetstyle(d->t)];
 	fullw = d->w + 2 * config.borderwidth;
 	fullh = d->h + 2 * config.borderwidth;
 
@@ -2081,18 +2127,18 @@ tabdecorate(struct Tab *t, int pressed)
 	int x, y, i;
 
 	style = tabgetstyle(t);
-	mid = visual.title[style][COLOR_MID];
+	mid = theme.title[style][COLOR_MID];
 	if (t->row != NULL && t != t->row->col->c->selcol->selrow->seltab) {
-		top = visual.title[style][COLOR_LIGHT];
-		bot = visual.title[style][COLOR_DARK];
+		top = theme.title[style][COLOR_LIGHT];
+		bot = theme.title[style][COLOR_DARK];
 		drawlines = 0;
 	} else if (t->row != NULL && pressed) {
-		top = visual.title[style][COLOR_DARK];
-		bot = visual.title[style][COLOR_LIGHT];
+		top = theme.title[style][COLOR_DARK];
+		bot = theme.title[style][COLOR_LIGHT];
 		drawlines = 1;
 	} else {
-		top = visual.title[style][COLOR_LIGHT];
-		bot = visual.title[style][COLOR_DARK];
+		top = theme.title[style][COLOR_LIGHT];
+		bot = theme.title[style][COLOR_DARK];
 		drawlines = 1;
 	}
 
@@ -2120,7 +2166,7 @@ tabdecorate(struct Tab *t, int pressed)
 	/* write tab title */
 	if (t->name != NULL) {
 		len = strlen(t->name);
-		XmbTextExtents(visual.fontset, t->name, len, &dr, &box);
+		XmbTextExtents(theme.fontset, t->name, len, &dr, &box);
 		x = (t->w - box.width) / 2 - box.x;
 		y = (config.titlewidth - box.height) / 2 - box.y;
 
@@ -2138,9 +2184,9 @@ tabdecorate(struct Tab *t, int pressed)
 			XFillRectangle(dpy, t->pixtitle, gc, t->w - x + 2, i, x - 6, 1);
 		}
 
-		val.foreground = visual.fg[style];
+		val.foreground = theme.fg[style];
 		XChangeGC(dpy, gc, GCForeground, &val);
-		XmbDrawString(dpy, t->pixtitle, visual.fontset, gc, x, y, t->name, len);
+		XmbDrawString(dpy, t->pixtitle, theme.fontset, gc, x, y, t->name, len);
 	}
 
 	drawrectangle(t->pixtitle, (config.borderwidth - 4 > 0), 0, 0, t->w, config.titlewidth, top, bot);
@@ -2168,13 +2214,13 @@ buttonleftdecorate(struct Row *row, int pressed)
 
 	w = config.titlewidth - 9;
 	style = (row->seltab) ? tabgetstyle(row->seltab) : UNFOCUSED;
-	mid = visual.title[style][COLOR_MID];
+	mid = theme.title[style][COLOR_MID];
 	if (pressed) {
-		top = visual.title[style][COLOR_DARK];
-		bot = visual.title[style][COLOR_LIGHT];
+		top = theme.title[style][COLOR_DARK];
+		bot = theme.title[style][COLOR_LIGHT];
 	} else {
-		top = visual.title[style][COLOR_LIGHT];
-		bot = visual.title[style][COLOR_DARK];
+		top = theme.title[style][COLOR_LIGHT];
+		bot = theme.title[style][COLOR_DARK];
 	}
 
 	/* draw background */
@@ -2214,13 +2260,13 @@ buttonrightdecorate(struct Row *row, int pressed)
 
 	w = (config.titlewidth - 11) / 2;
 	style = (row->seltab) ? tabgetstyle(row->seltab) : UNFOCUSED;
-	mid = visual.title[style][COLOR_MID];
+	mid = theme.title[style][COLOR_MID];
 	if (pressed) {
-		top = visual.title[style][COLOR_DARK];
-		bot = visual.title[style][COLOR_LIGHT];
+		top = theme.title[style][COLOR_DARK];
+		bot = theme.title[style][COLOR_LIGHT];
 	} else {
-		top = visual.title[style][COLOR_LIGHT];
-		bot = visual.title[style][COLOR_DARK];
+		top = theme.title[style][COLOR_LIGHT];
+		bot = theme.title[style][COLOR_DARK];
 	}
 
 	/* draw background */
@@ -2279,7 +2325,7 @@ containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, in
 	if (c == NULL)
 		return;
 	doubleshadow = config.borderwidth - 4 > 0;
-	decor = visual.border[containergetstyle(c)];
+	decor = theme.border[containergetstyle(c)];
 	w = c->w - config.corner * 2;
 	h = c->h - config.corner * 2;
 	isshaded = containerisshaded(c);
@@ -2533,7 +2579,7 @@ promptdecorate(struct Prompt *prompt, int w, int h)
 	doubleshadow = (config.borderwidth - 4 > 0);
 
 	/* draw background */
-	val.foreground = visual.prompt[COLOR_MID];
+	val.foreground = theme.prompt[COLOR_MID];
 	XChangeGC(dpy, gc, GCForeground, &val);
 	XFillRectangle(dpy, prompt->pix, gc, 0, 0, w, h);
 
@@ -2568,7 +2614,7 @@ promptdecorate(struct Prompt *prompt, int w, int h)
 	};
 	recs[8] = (XRectangle){.x = w - config.borderwidth, .y = 0, .width = config.borderwidth - 1, .height = 1};
 	recs[9] = (XRectangle){.x = w - config.borderwidth, .y = 1, .width = config.borderwidth - 2, .height = 1};
-	val.foreground = visual.prompt[COLOR_LIGHT];
+	val.foreground = theme.prompt[COLOR_LIGHT];
 	XChangeGC(dpy, gc, GCForeground, &val);
 	XFillRectangles(dpy, prompt->pix, gc, recs, doubleshadow ? 10 : 5);
 
@@ -2589,7 +2635,7 @@ promptdecorate(struct Prompt *prompt, int w, int h)
 		.width = 1,
 		.height = parth + config.borderwidth,
 	};
-	val.foreground = visual.prompt[COLOR_DARK];
+	val.foreground = theme.prompt[COLOR_DARK];
 	XChangeGC(dpy, gc, GCForeground, &val);
 	XFillRectangles(dpy, prompt->pix, gc, recs, doubleshadow ? 6 : 3);
 
@@ -2610,7 +2656,7 @@ notifdecorate(struct Notification *n)
 	n->pw = n->w;
 	n->ph = n->h;
 
-	drawborders(n->pix, (config.borderwidth - 4 > 0), n->w, n->h, visual.notif);
+	drawborders(n->pix, (config.borderwidth - 4 > 0), n->w, n->h, theme.notif);
 
 	XCopyArea(dpy, n->pix, n->frame, gc, 0, 0, n->w, n->h, 0, 0);
 }
@@ -2977,16 +3023,16 @@ containershade(struct Container *c, int shade)
 
 	if (shade != REMOVE && !c->isshaded) {
 		c->isshaded = 1;
-		XDefineCursor(dpy, c->curswin[BORDER_NW], visual.cursors[CURSOR_W]);
-		XDefineCursor(dpy, c->curswin[BORDER_SW], visual.cursors[CURSOR_W]);
-		XDefineCursor(dpy, c->curswin[BORDER_NE], visual.cursors[CURSOR_E]);
-		XDefineCursor(dpy, c->curswin[BORDER_SE], visual.cursors[CURSOR_E]);
+		XDefineCursor(dpy, c->curswin[BORDER_NW], theme.cursors[CURSOR_W]);
+		XDefineCursor(dpy, c->curswin[BORDER_SW], theme.cursors[CURSOR_W]);
+		XDefineCursor(dpy, c->curswin[BORDER_NE], theme.cursors[CURSOR_E]);
+		XDefineCursor(dpy, c->curswin[BORDER_SE], theme.cursors[CURSOR_E]);
 	} else if (shade != ADD && c->isshaded) {
 		c->isshaded = 0;
-		XDefineCursor(dpy, c->curswin[BORDER_NW], visual.cursors[CURSOR_NW]);
-		XDefineCursor(dpy, c->curswin[BORDER_SW], visual.cursors[CURSOR_SW]);
-		XDefineCursor(dpy, c->curswin[BORDER_NE], visual.cursors[CURSOR_NE]);
-		XDefineCursor(dpy, c->curswin[BORDER_SE], visual.cursors[CURSOR_SE]);
+		XDefineCursor(dpy, c->curswin[BORDER_NW], theme.cursors[CURSOR_NW]);
+		XDefineCursor(dpy, c->curswin[BORDER_SW], theme.cursors[CURSOR_SW]);
+		XDefineCursor(dpy, c->curswin[BORDER_NE], theme.cursors[CURSOR_NE]);
+		XDefineCursor(dpy, c->curswin[BORDER_SE], theme.cursors[CURSOR_SE]);
 	} else {
 		return;
 	}
@@ -3073,17 +3119,17 @@ containernew(int x, int y, int w, int h)
 	c->b = config.borderwidth;
 	c->pix = None;
 	c->frame = XCreateWindow(dpy, root, c->x, c->y, c->w, c->h, 0,
-	                         CopyFromParent, CopyFromParent, CopyFromParent,
-	                         CWEventMask, &clientswa);
+	                         depth, CopyFromParent, visual,
+	                         clientmask, &clientswa);
 
-	c->curswin[BORDER_N] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = visual.cursors[CURSOR_N]});
-	c->curswin[BORDER_S] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = visual.cursors[CURSOR_S]});
-	c->curswin[BORDER_W] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = visual.cursors[CURSOR_W]});
-	c->curswin[BORDER_E] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = visual.cursors[CURSOR_E]});
-	c->curswin[BORDER_NW] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = visual.cursors[CURSOR_NW]});
-	c->curswin[BORDER_NE] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = visual.cursors[CURSOR_NE]});
-	c->curswin[BORDER_SW] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = visual.cursors[CURSOR_SW]});
-	c->curswin[BORDER_SE] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = visual.cursors[CURSOR_SE]});
+	c->curswin[BORDER_N] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = theme.cursors[CURSOR_N]});
+	c->curswin[BORDER_S] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = theme.cursors[CURSOR_S]});
+	c->curswin[BORDER_W] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = theme.cursors[CURSOR_W]});
+	c->curswin[BORDER_E] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = theme.cursors[CURSOR_E]});
+	c->curswin[BORDER_NW] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = theme.cursors[CURSOR_NW]});
+	c->curswin[BORDER_NE] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = theme.cursors[CURSOR_NE]});
+	c->curswin[BORDER_SW] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = theme.cursors[CURSOR_SW]});
+	c->curswin[BORDER_SE] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = theme.cursors[CURSOR_SE]});
 	for (i = 0; i < BORDER_LAST; i++)
 		XMapWindow(dpy, c->curswin[i]);
 	if (wm.c)
@@ -3319,7 +3365,7 @@ colnew(void)
 	col->fact = 0.0;
 	col->div = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
 	                         CopyFromParent, InputOnly, CopyFromParent, CWCursor,
-	                         &(XSetWindowAttributes){.cursor = visual.cursors[CURSOR_H]});
+	                         &(XSetWindowAttributes){.cursor = theme.cursors[CURSOR_H]});
 	return col;
 }
 
@@ -3375,26 +3421,26 @@ rownew(void)
 	row->h = 0;
 	row->pw = 0;
 	row->frame = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
-	                           CopyFromParent, CopyFromParent, CopyFromParent,
-	                           CWEventMask, &clientswa);
+	                           depth, CopyFromParent, visual,
+	                           clientmask, &clientswa);
 	row->bar = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
-	                         CopyFromParent, CopyFromParent, CopyFromParent,
-	                         CWEventMask, &clientswa);
+	                         depth, CopyFromParent, visual,
+	                         clientmask, &clientswa);
 	row->bl = XCreateWindow(dpy, row->bar, 0, 0, config.titlewidth, config.titlewidth, 0,
-	                        CopyFromParent, CopyFromParent, CopyFromParent,
-	                        CWEventMask, &clientswa);
+	                        depth, CopyFromParent, visual,
+	                        clientmask, &clientswa);
 	row->pixbl = XCreatePixmap(dpy, row->bl, config.titlewidth, config.titlewidth, depth);
 	row->br = XCreateWindow(dpy, row->bar, 0, 0, config.titlewidth, config.titlewidth, 0,
-	                        CopyFromParent, CopyFromParent, CopyFromParent,
-	                        CWEventMask, &clientswa);
+	                        depth, CopyFromParent, visual,
+	                        clientmask, &clientswa);
 	row->div = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
 	                         CopyFromParent, InputOnly, CopyFromParent, CWCursor,
-	                         &(XSetWindowAttributes){.cursor = visual.cursors[CURSOR_V]});
+	                         &(XSetWindowAttributes){.cursor = theme.cursors[CURSOR_V]});
 	row->pixbr = XCreatePixmap(dpy, row->bl, config.titlewidth, config.titlewidth, depth);
 	row->pixbar = None;
 	XMapWindow(dpy, row->bl);
 	XMapWindow(dpy, row->br);
-	XDefineCursor(dpy, row->br, visual.cursors[CURSOR_PIRATE]);
+	XDefineCursor(dpy, row->br, theme.cursors[CURSOR_PIRATE]);
 	return row;
 }
 
@@ -3428,8 +3474,8 @@ rowaddtab(struct Row *row, struct Tab *t, struct Tab *prev)
 	rowcalctabs(row);               /* set t->x, t->w, etc */
 	if (t->title == None) {
 		t->title = XCreateWindow(dpy, row->bar, t->x, 0, t->w, config.titlewidth, 0,
-		                         CopyFromParent, CopyFromParent, CopyFromParent,
-		                         CWEventMask, &clientswa);
+		                         depth, CopyFromParent, visual,
+		                         clientmask, &clientswa);
 	} else {
 		XReparentWindow(dpy, t->title, row->bar, t->x, 0);
 	}
@@ -3597,8 +3643,8 @@ tabnew(Window win, int ignoreunmap)
 	t->title = None;
 	t->win = win;
 	t->frame = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
-	                         CopyFromParent, CopyFromParent, CopyFromParent,
-	                         CWEventMask, &clientswa);
+	                         depth, CopyFromParent, visual,
+	                         clientmask, &clientswa);
 	XReparentWindow(dpy, t->win, t->frame, 0, 0);
 	XMapWindow(dpy, t->win);
 	icccmwmstate(win, NormalState);
@@ -3818,8 +3864,8 @@ dialognew(Window win, int maxw, int maxh, int ignoreunmap)
 	d->ignoreunmap = ignoreunmap;
 	d->win = win;
 	d->frame = XCreateWindow(dpy, root, 0, 0, maxw, maxh, 0,
-	                         CopyFromParent, CopyFromParent, CopyFromParent,
-	                         CWEventMask, &clientswa);
+	                         depth, CopyFromParent, visual,
+	                         clientmask, &clientswa);
 	XReparentWindow(dpy, d->win, d->frame, 0, 0);
 	XMapWindow(dpy, d->win);
 	clientsincr();
@@ -4118,9 +4164,10 @@ notifnew(Window win, int w, int h)
 	n->pix = None;
 	n->win = win;
 	n->frame = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
-	                             CopyFromParent, CopyFromParent, CopyFromParent,
-	                             CWEventMask,
-	                             &(XSetWindowAttributes){.event_mask = SubstructureNotifyMask | SubstructureRedirectMask});
+	                             depth, CopyFromParent, visual,
+	                             clientmask,
+	                             &(XSetWindowAttributes){.event_mask = SubstructureNotifyMask | SubstructureRedirectMask,
+	                                                     .colormap = colormap});
 	XReparentWindow(dpy, n->win, n->frame, 0, 0);
 	XMapWindow(dpy, n->win);
 }
@@ -4267,11 +4314,11 @@ dockdecorate(void)
 	dock.pw = dock.w;
 	dock.ph = dock.h;
 	val.fill_style = FillSolid;
-	val.foreground = visual.dock[COLOR_MID];
+	val.foreground = theme.dock[COLOR_MID];
 	XChangeGC(dpy, gc, GCFillStyle | GCForeground, &val);
 	XFillRectangle(dpy, dock.pix, gc, 0, 0, dock.w, dock.h);
 
-	drawrectangle(dock.pix, 1, 0, 0, dock.w, dock.h, visual.dock[COLOR_LIGHT], visual.dock[COLOR_DARK]);
+	drawrectangle(dock.pix, 1, 0, 0, dock.w, dock.h, theme.dock[COLOR_LIGHT], theme.dock[COLOR_DARK]);
 
 	XCopyArea(dpy, dock.pix, dock.win, gc, 0, 0, dock.w, dock.h, 0, 0);
 }
@@ -4481,8 +4528,8 @@ manageprompt(Window win, int w, int h)
 
 	promptcalcgeom(&x, &y, &w, &h, &fw, &fh);
 	prompt.frame = XCreateWindow(dpy, root, x, y, fw, fh, 0,
-	                             CopyFromParent, CopyFromParent, CopyFromParent,
-	                             CWEventMask, &clientswa);
+	                             depth, CopyFromParent, visual,
+	                             clientmask, &clientswa);
 	prompt.pix = None;
 	prompt.ph = prompt.pw = 0;
 	XReparentWindow(dpy, win, prompt.frame, config.borderwidth, 0);
@@ -4826,28 +4873,28 @@ mouseresize(struct Container *c, int xroot, int yroot, enum Octant o)
 
 	switch (o) {
 	case NW:
-		curs = visual.cursors[CURSOR_NW];
+		curs = theme.cursors[CURSOR_NW];
 		break;
 	case NE:
-		curs = visual.cursors[CURSOR_NE];
+		curs = theme.cursors[CURSOR_NE];
 		break;
 	case SW:
-		curs = visual.cursors[CURSOR_SW];
+		curs = theme.cursors[CURSOR_SW];
 		break;
 	case SE:
-		curs = visual.cursors[CURSOR_SE];
+		curs = theme.cursors[CURSOR_SE];
 		break;
 	case N:
-		curs = visual.cursors[CURSOR_N];
+		curs = theme.cursors[CURSOR_N];
 		break;
 	case S:
-		curs = visual.cursors[CURSOR_S];
+		curs = theme.cursors[CURSOR_S];
 		break;
 	case W:
-		curs = visual.cursors[CURSOR_W];
+		curs = theme.cursors[CURSOR_W];
 		break;
 	case E:
-		curs = visual.cursors[CURSOR_E];
+		curs = theme.cursors[CURSOR_E];
 		break;
 	default:
 		curs = None;
@@ -4948,7 +4995,7 @@ mousemove(struct Container *c, int xroot, int yroot, enum Octant o)
 	containerdecorate(c, NULL, NULL, 0, o);
 	XGrabPointer(dpy, c->frame, False,
 	             ButtonReleaseMask | PointerMotionMask,
-	             GrabModeAsync, GrabModeAsync, None, visual.cursors[CURSOR_MOVE], CurrentTime);
+	             GrabModeAsync, GrabModeAsync, None, theme.cursors[CURSOR_MOVE], CurrentTime);
 	while (!XMaskEvent(dpy, ButtonReleaseMask | PointerMotionMask | ExposureMask, &ev)) {
 		switch (ev.type) {
 		case Expose:
@@ -5105,9 +5152,9 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 	int update;
 
 	if (cdiv != NULL && cdiv->next != NULL)
-		curs = visual.cursors[CURSOR_H];
+		curs = theme.cursors[CURSOR_H];
 	else if (rdiv != NULL && rdiv->next != NULL && rdiv->col->maxrow == NULL)
-		curs = visual.cursors[CURSOR_V];
+		curs = theme.cursors[CURSOR_V];
 	else
 		return;
 	x = y = 0;
@@ -5736,7 +5783,7 @@ cleancursors(void)
 	size_t i;
 
 	for (i = 0; i < CURSOR_LAST; i++) {
-		XFreeCursor(dpy, visual.cursors[i]);
+		XFreeCursor(dpy, theme.cursors[i]);
 	}
 }
 
@@ -5775,7 +5822,7 @@ cleandock(void)
 static void
 cleanfontset(void)
 {
-	XFreeFontSet(dpy, visual.fontset);
+	XFreeFontSet(dpy, theme.fontset);
 }
 
 /* shod window manager */
@@ -5796,9 +5843,6 @@ main(int argc, char *argv[])
 		[UnmapNotify]      = xeventunmapnotify
 	};
 
-	/* get configuration */
-	getoptions(argc, argv);
-
 	/* open connection to server and set X variables */
 	if (!setlocale(LC_ALL, "") || !XSupportsLocale())
 		warnx("warning: no locale support");
@@ -5807,10 +5851,9 @@ main(int argc, char *argv[])
 	screen = DefaultScreen(dpy);
 	screenw = DisplayWidth(dpy, screen);
 	screenh = DisplayHeight(dpy, screen);
-	depth = DefaultDepth(dpy, screen);
 	root = RootWindow(dpy, screen);
-	gc = XCreateGC(dpy, root, GCFillStyle, &(XGCValues){.fill_style = FillSolid});
 	xerrorxlib = XSetErrorHandler(xerror);
+	XrmInitialize();
 	if ((xrm = XResourceManagerString(dpy)) != NULL)
 		xdb = XrmGetStringDatabase(xrm);
 
@@ -5819,13 +5862,14 @@ main(int argc, char *argv[])
 	getoptions(argc, argv);
 
 	/* initialize */
+	xinitvisual();
 	initsignal();
 	initdummywindows();
 	initfontset();
 	initcursors();
 	initatoms();
 	initroot();
-	initvisual();
+	inittheme();
 	initdock();
 
 	/* set up list of monitors */
