@@ -536,9 +536,9 @@ longlist(Window win)
 					state[LIST_MAXIMIZED] = 'h';
 				}
 			} else if (as[i] == atoms[_NET_WM_STATE_HIDDEN]) {
-				state[LIST_SHADED] = 's';
-			} else if (as[i] == atoms[_NET_WM_STATE_SHADED]) {
 				state[LIST_MINIMIZED] = 'm';
+			} else if (as[i] == atoms[_NET_WM_STATE_SHADED]) {
+				state[LIST_SHADED] = 's';
 			} else if (as[i] == atoms[_NET_WM_STATE_FULLSCREEN]) {
 				state[LIST_FULLSCREEN] = 'F';
 			} else if (as[i] == atoms[_NET_WM_STATE_ABOVE]) {
