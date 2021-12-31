@@ -3451,12 +3451,8 @@ rownew(void)
 static void
 rowaddtab(struct Row *row, struct Tab *t, struct Tab *prev)
 {
-	struct Container *c;
-	struct Column *col;
 	struct Row *oldrow;
 
-	c = row->col->c;
-	col = row->col;
 	oldrow = t->row;
 	t->row = row;
 	row->seltab = t;
@@ -5034,7 +5030,6 @@ mousererow(struct Row *row)
 	struct Tab *t;
 	struct Winres res;
 	XEvent ev;
-	Time lasttime;
 	int dy, y, sumh;
 
 	origcol = row->col;
@@ -5044,7 +5039,6 @@ mousererow(struct Row *row)
 	c = row->col->c;
 	newcol = NULL;
 	y = 0;
-	lasttime = 0;
 	buttonleftdecorate(row, 1);
 	XRaiseWindow(dpy, row->bar);
 	XGrabPointer(dpy, row->bar, False, ButtonReleaseMask | PointerMotionMask,
