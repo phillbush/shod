@@ -71,6 +71,7 @@ enum {
 	CURSOR_E,
 	CURSOR_V,
 	CURSOR_H,
+	CURSOR_HAND,
 	CURSOR_PIRATE,
 	CURSOR_LAST
 };
@@ -762,6 +763,7 @@ initcursors(void)
 	theme.cursors[CURSOR_E] = XCreateFontCursor(dpy, XC_right_side);
 	theme.cursors[CURSOR_V] = XCreateFontCursor(dpy, XC_sb_v_double_arrow);
 	theme.cursors[CURSOR_H] = XCreateFontCursor(dpy, XC_sb_h_double_arrow);
+	theme.cursors[CURSOR_HAND] = XCreateFontCursor(dpy, XC_hand2);
 	theme.cursors[CURSOR_PIRATE] = XCreateFontCursor(dpy, XC_pirate);
 }
 
@@ -3440,6 +3442,7 @@ rownew(void)
 	row->pixbar = None;
 	XMapWindow(dpy, row->bl);
 	XMapWindow(dpy, row->br);
+	XDefineCursor(dpy, row->bl, theme.cursors[CURSOR_HAND]);
 	XDefineCursor(dpy, row->br, theme.cursors[CURSOR_PIRATE]);
 	return row;
 }
