@@ -22,6 +22,7 @@
 #define NAMEMAXLEN              1024    /* maximum length of window's name */
 #define DROPPIXELS              30      /* number of pixels from the border where a tab can be dropped in */
 #define RESIZETIME              64      /* time to redraw containers during resizing */
+#define MOUSEEVENTMASK          (ButtonReleaseMask | PointerMotionMask | ExposureMask)
 #define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
 
 /* window type */
@@ -4795,7 +4796,7 @@ mouseretab(struct Tab *t, int xroot, int yroot, int x, int y)
 	XGrabPointer(dpy, t->title, False,
 	             ButtonReleaseMask | PointerMotionMask,
 	             GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
-	while (!XMaskEvent(dpy, ButtonReleaseMask | PointerMotionMask | ExposureMask, &ev)) {
+	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
 		case Expose:
 			if (ev.xexpose.count == 0) {
@@ -4916,7 +4917,7 @@ mouseresize(struct Container *c, int xroot, int yroot, enum Octant o)
 	             GrabModeAsync, GrabModeAsync, None, curs, CurrentTime);
 	lasttime = 0;
 	containerdecorate(c, NULL, NULL, 0, o);
-	while (!XMaskEvent(dpy, ButtonReleaseMask | PointerMotionMask | ExposureMask, &ev)) {
+	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
 		case Expose:
 			if (ev.xexpose.count == 0) {
@@ -4995,7 +4996,7 @@ mousemove(struct Container *c, int xroot, int yroot, enum Octant o)
 	XGrabPointer(dpy, c->frame, False,
 	             ButtonReleaseMask | PointerMotionMask,
 	             GrabModeAsync, GrabModeAsync, None, theme.cursors[CURSOR_MOVE], CurrentTime);
-	while (!XMaskEvent(dpy, ButtonReleaseMask | PointerMotionMask | ExposureMask, &ev)) {
+	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
 		case Expose:
 			if (ev.xexpose.count == 0) {
@@ -5043,7 +5044,7 @@ mousererow(struct Row *row)
 	XRaiseWindow(dpy, row->bar);
 	XGrabPointer(dpy, row->bar, False, ButtonReleaseMask | PointerMotionMask,
 	             GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
-	while (!XMaskEvent(dpy, ButtonReleaseMask | PointerMotionMask | ExposureMask, &ev)) {
+	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch(ev.type) {
 		case Expose:
 			if (ev.xexpose.count == 0) {
@@ -5115,7 +5116,7 @@ mouseclose(struct Row *row)
 	buttonrightdecorate(row, 1);
 	XGrabPointer(dpy, row->br, False, ButtonReleaseMask,
 	             GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
-	while (!XMaskEvent(dpy, ButtonReleaseMask | ExposureMask, &ev)) {
+	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch(ev.type) {
 		case Expose:
 			if (ev.xexpose.count == 0) {
@@ -5160,7 +5161,7 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 	containerdecorate(c, cdiv, rdiv, 0, 0);
 	XGrabPointer(dpy, c->frame, False, ButtonReleaseMask | PointerMotionMask,
 	             GrabModeAsync, GrabModeAsync, None, curs, CurrentTime);
-	while (!XMaskEvent(dpy, ButtonReleaseMask | PointerMotionMask | ExposureMask, &ev)) {
+	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
 		case Expose:
 			if (ev.xexpose.count == 0) {
@@ -5232,7 +5233,7 @@ mousestack(struct Row *row)
 	buttonleftdecorate(row, 1);
 	XGrabPointer(dpy, row->bl, False, ButtonReleaseMask,
 	             GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
-	while (!XMaskEvent(dpy, ButtonReleaseMask | ExposureMask, &ev)) {
+	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch(ev.type) {
 		case Expose:
 			if (ev.xexpose.count == 0) {
