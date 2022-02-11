@@ -438,6 +438,28 @@ Dragging the left title\-bar button with the third mouse button moves the row th
 .B The Right Title\-Bar Button.
 Each title bar has a right button.
 Clicking on the right title-bar button with the first mouse button closes the focused client or its top dialog.
+.SS Dialogs
+Windows that are transient for another managed windows (called its leader) are mapped in the center of the leader.
+.PP
+Dialogs are small windows that communicates informate to the user and can prompt for a response.
+.PP
+.B shod
+only changes the position and size of a dialog window when the size of its leader changes.
+.SS Menus
+Windows of type
+.BR _NET_WM_WINDOW_TYPE_MENU ,
+.BR _NET_WM_WINDOW_TYPE_UTILITY ,
+.BR _NET_WM_WINDOW_TYPE_TOOLBAR ,
+or
+.B MWM_TEAROFF_WINDOW
+(called menu windows)
+are windows that cannot be tiled or tabbed into a container and are tied to a leader window.
+They are floating windows that always appear on top of their leader and are not listed on the list of clients.
+.PP
+Menu windows, often called torn off windows, are pinnable menus, utility windows and toolbar windows,
+ie' toolbars and menus "torn off" from the main application.
+.PP
+The user can change the position of a menu window in the same way of changing the position of a container.
 .SS Prompt
 A window of type
 .B _NET_WM_WINDOW_TYPE_PROMPT
