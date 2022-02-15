@@ -2030,6 +2030,8 @@ containerplace(struct Container *c, struct Desktop *desk, int userplaced)
 	}
 	c->nw = max(wm.minsize, w);
 	c->nh = max(wm.minsize, h);
+	c->nx = max(mon->wx, min(mon->wx + mon->ww - c->nw, c->nx));
+	c->ny = max(mon->wy, min(mon->wy + mon->wh - c->nh, c->ny));
 
 	/* if the user placed the window, we should not re-place it */
 	if (userplaced)
@@ -5007,6 +5009,7 @@ managecontainer(struct Container *c, struct Tab *t, struct Desktop *desk, int us
 	coladdrow(col, row, NULL);
 	rowaddtab(row, t, NULL);
 	containersendtodesk(c, desk, 1, userplaced);
+	containercalccols(c, 1, 1);
 	containermoveresize(c);
 	containerredecorate(c, NULL, NULL, 0);
 	XMapSubwindows(dpy, c->frame);
