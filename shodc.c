@@ -488,7 +488,6 @@ longlist(Window win)
 	char *name;
 	XWMHints *wmhints = NULL;
 	Window *list = NULL;
-	Window transfor = 0x0;
 	Window dw;
 	XID container, tab;
 
@@ -500,7 +499,6 @@ longlist(Window win)
 	}
 	if (getwinprop(win, XA_WM_TRANSIENT_FOR, &list) > 0) {
 		if (*list != None) {
-			transfor = *list;
 			state[LIST_DIALOG] = 'd';
 		}
 		XFree(list);
