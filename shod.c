@@ -25,6 +25,8 @@
 #define MOUSEEVENTMASK          (ButtonReleaseMask | PointerMotionMask | ExposureMask)
 #define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
 
+#define TITLEWIDTH(c)   (((c)->isfullscreen && (c)->ncols == 1 && (c)->cols->nrows == 1) ? 0 : config.titlewidth)
+
 /* window type */
 enum {
 	TYPE_NORMAL,
@@ -3160,10 +3162,11 @@ containermoveresize(struct Container *c)
 				XMoveResizeWindow(dpy, t->frame, 0, 0, t->winw, t->winh);
 				for (d = t->ds; d != NULL; d = d->next) {
 					dialogmoveresize(d);
+					ewmhsetframeextents(d->win, c->b, 0);
 				}
 				XResizeWindow(dpy, t->win, t->winw, t->winh);
 				winnotify(t->win, c->x + col->x, c->y + row->y + config.titlewidth, t->winw, t->winh);
-				ewmhsetframeextents(t->win, c->b, (c->isfullscreen && c->ncols == 1 && c->cols->nrows == 1) ? 0 : config.titlewidth);
+				ewmhsetframeextents(t->win, c->b, TITLEWIDTH(c));
 				tabmoveresize(t);
 			}
 		}
@@ -6014,14 +6017,14 @@ xeventclientmessage(XEvent *e)
 			 */
 			ewmhsetframeextents(ev->window, config.borderwidth, config.titlewidth);
 		} else {
-			ewmhsetframeextents(ev->window, res.c->b, (res.c->isfullscreen && res.c->ncols == 1 && res.c->cols->nrows == 1) ? 0 : config.titlewidth);
+			ewmhsetframeextents(ev->window, res.c->b, (res.d != NULL ? 0 : TITLEWIDTH(res.c)));
 		}
 	} else if (ev->message_type == atoms[_NET_WM_MOVERESIZE]) {
 		/*
 		 * Client-side decorated Gtk3 windows emit this signal when being
 		 * dragged by their GtkHeaderBar
 		 */
-		if (res.d != NULL || res.c == NULL)
+		if (res.d != NULL || res.c == NULL || res.c != wm.focused)
 			return;
 		if (res.menu != NULL) {
 			obj = res.menu;
