@@ -152,6 +152,7 @@ enum {
 	_NET_WM_STRUT_PARTIAL,
 	_NET_REQUEST_FRAME_EXTENTS,
 	_NET_FRAME_EXTENTS,
+	_NET_WM_FULL_PLACEMENT,
 
 	/* motif atoms */
 	_MOTIF_WM_HINTS,
@@ -944,6 +945,7 @@ initatoms(void)
 		[_NET_WM_STRUT_PARTIAL]                = "_NET_WM_STRUT_PARTIAL",
 		[_NET_REQUEST_FRAME_EXTENTS]           = "_NET_REQUEST_FRAME_EXTENTS",
 		[_NET_FRAME_EXTENTS]                   = "_NET_FRAME_EXTENTS",
+		[_NET_WM_FULL_PLACEMENT]               = "_NET_WM_FULL_PLACEMENT",
 		[_MOTIF_WM_HINTS]                      = "_MOTIF_WM_HINTS",
 		[_SHOD_GROUP_TAB]                      = "_SHOD_GROUP_TAB",
 		[_SHOD_GROUP_CONTAINER]                = "_SHOD_GROUP_CONTAINER",
