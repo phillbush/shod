@@ -445,6 +445,18 @@ Dialogs are small windows that communicates informate to the user and can prompt
 .PP
 .B shod
 only changes the position and size of a dialog window when the size of its leader changes.
+.SS Splash Screens
+Windows of type
+.B _NET_WM_WINDOW_TYPE_SPLASH
+(called splash screens)
+are mapped above all other windows and are stacked on the order they are spawned.
+Splash screens cannot be manipulated.
+Splash screens have no decoration around them.
+.PP
+Splash screens are transient windows that appear temporarily while an application is loading.
+.PP
+.B shod
+centers the splash screens on the monitor.
 .SS Menus
 Windows of type
 .BR _NET_WM_WINDOW_TYPE_MENU ,
@@ -536,29 +548,19 @@ The placement of the dock can be changed with the
 .SH RESOURCES
 .B shod
 understands the following X resources.
+Some of them (the resources that set colors) occur in triplets,
+and all of them must be set for a consistent theme.
 .TP
 .B shod.borderWidth
 The width of the borders and divisions.
 .TP
-.B shod.border.activeColors
-Up to three colors, delimited by colons,
-for the body color, light shadow color, and dark shadow color for the 3D effect
-of the borders of active windows.
+.B shod.active.background, shod.active.topShadowColor, shod.active.bottomShadowColor
+The body color, light shadow color, and dark shadow color for the 3D
+effect of the borders and title bars of active windows.
 .TP
-.B shod.border.inactiveColors
-Up to three colors, delimited by colons,
-for the body color, light shadow color, and dark shadow color for the 3D effect
-of the borders of inactive windows.
-.TP
-.B shod.border.urgentColors
-Up to three colors, delimited by colons,
-for the body color, light shadow color, and dark shadow color for the 3D effect
-of the borders of urgent windows.
-.TP
-.B shod.dockColors
-Up to three colors, delimited by colons,
-for the body color, light shadow color, and dark shadow color for the 3D effect
-of the dock.
+.B shod.dock.background, shod.dock.topShadowColor, shod.dock.bottomShadowColor
+The body color, light shadow color, and dark shadow color for the 3D
+effect of the dock.
 .TP
 .B shod.dockGravity
 The placement of the dock described with up to two uppercase letters.
@@ -578,14 +580,17 @@ alligned to its center.
 The width (for vertical docks) or height (for horizontal dock) of the dock in pixels.
 Defaults to 64 (the size of most dockapps).
 .TP
+.B shod.inactive.background, shod.inactive.topShadowColor, shod.inactive.bottomShadowColor
+The body color, light shadow color, and dark shadow color for the 3D
+effect of the borders and title bars of inactive windows.
+.TP
 .B shod.numOfDesktops
 The number of desktops for each monitor.
 The default is 10 desktops for each monitor.
 .TP
-.B shod.notifColors
-Up to three colors, delimited by colons,
-for the body color, light shadow color, and dark shadow color for the 3D effect
-of the nofications.
+.B shod.notif.background, shod.notif.topShadowColor, shod.notif.bottomShadowColor
+The body color, light shadow color, and dark shadow color for the 3D
+effect of the notification borders.
 .TP
 .B shod.notifGap
 The gap in pixels between notifications.
@@ -596,10 +601,13 @@ For example, a value of "N" will place notifications centered on the north edge 
 A value of "E" will place notifications centered on the east edge of the screen.
 A value of "NE" (the default) will place notifications on the northeast corner of the screen.
 .TP
-.B shod.promptColors
-Up to three colors, delimited by colons,
-for the body color, light shadow color, and dark shadow color for the 3D effect
-of the prompt decoration.
+.B shod.prompt.background, shod.prompt.topShadowColor, shod.prompt.bottomShadowColor
+The body color, light shadow color, and dark shadow color for the 3D
+effect of the prompt borders.
+.TP
+.B shod.shadowThickness
+Thickness of the 3D shadow effect.
+Must be less than the border width.
 .TP
 .B shod.snapProximity
 The proximity of edges of a container in pixels for the snap attraction to occur when moving the container.
@@ -612,23 +620,12 @@ The font of the text in the title bar.
 .B shod.title.foreground
 The color of the text in the title bar.
 .TP
-.B shod.title.activeColors
-Up to three colors, delimited by colons,
-for the body color, light shadow color, and dark shadow color for the 3D effect
-of title bars of active windows.
-.TP
-.B shod.title.inactiveColors
-Up to three colors, delimited by colons,
-for the body color, light shadow color, and dark shadow color for the 3D effect
-of title bars of inactive windows.
-.TP
-.B shod.title.urgentColors
-Up to three colors, delimited by colons,
-for the body color, light shadow color, and dark shadow color for the 3D effect
-of title bars of urgent windows.
-.TP
 .B shod.titleWidth
 The width of the title bar.
+.TP
+.B shod.urgent.background, shod.urgent.topShadowColor, shod.urgent.bottomShadowColor
+The body color, light shadow color, and dark shadow color for the 3D
+effect of the borders and title bars of urgent windows.
 .SH ENVIRONMENT
 The following environment variables affect the execution of
 .B shod
