@@ -4023,6 +4023,8 @@ tabfocus(struct Tab *t, int gotodesk)
 		t->row->seltab = t;
 		t->row->col->selrow = t->row;
 		t->row->col->c->selcol = t->row->col;
+		if (gotodesk)
+			deskfocus(c->issticky ? c->mon->seldesk : c->desk, 0);
 		if (t->row->col->maxrow != NULL && t->row->col->maxrow != t->row)
 			rowstack(t->row->col, t->row);
 		XRaiseWindow(dpy, t->frame);
@@ -4044,9 +4046,6 @@ tabfocus(struct Tab *t, int gotodesk)
 		containerdecorate(c, NULL, NULL, 1, 0);
 		containerminimize(c, 0, 0);
 		containerraise(c);
-		if (gotodesk) {
-			deskfocus(c->issticky ? c->mon->seldesk : c->desk, 0);
-		}
 		shodgrouptab(c);
 		shodgroupcontainer(c);
 		ewmhsetstate(c);
@@ -6068,7 +6067,6 @@ xeventclientmessage(XEvent *e)
 		}
 		if (c == NULL || t == NULL)
 			return;
-		containerraise(c);
 		tabfocus(t, 1);
 	} else if (ev->message_type == atoms[_NET_CLOSE_WINDOW]) {
 		winclose(ev->window);
