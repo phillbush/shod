@@ -16,13 +16,14 @@
 .RI [ win_id ]
 .br
 .B shodc geom
-.RB [ \-X|\-x
+.RB [ \-r ]
+.RB [ \-x
 .IR N ]
-.RB [ \-Y|\-y
+.RB [ \-y
 .IR N ]
-.RB [ \-W|\-w
+.RB [ \-w
 .IR N ]
-.RB [ \-H|\-h
+.RB [ \-h
 .IR N ]
 .RI [ win_id ]
 .br
@@ -172,12 +173,8 @@ The
 operation sets the geometry (position and size) of the container of the window whose ID is provided as argument.
 If no argument is provided, sets the geometry of the container of the active window.
 If no position (set by the options
-.B \-X
-or
 .B \-x
 and
-.B \-Y
-or 
 .BR \-y )
 is provided, move window to position 0,0 (top left corner).
 .PP
@@ -626,6 +623,48 @@ The width of the title bar.
 .B shod.urgent.background, shod.urgent.topShadowColor, shod.urgent.bottomShadowColor
 The body color, light shadow color, and dark shadow color for the 3D
 effect of the borders and title bars of urgent windows.
+.SS Window-dependent resources
+The resources below are named based on the class or the name of a window.
+Therefore, those resources are client-specific.
+Replace
+.I CLASS
+with the class of the window, and replace
+.I NAME
+with the name of the window.
+.TP
+\fBshod.class.\fICLASS\fB.type\fP
+Define the type of a window whose class is equal to
+.IR CLASS .
+Possible types are
+.B DESKTOP
+(for desktop windows)
+.B DOCKAPP
+(for docked applications)
+or
+.B PROMPT
+(for prompt windows).
+.TP
+\fBshod.class.\fICLASS\fB.dockpos\fP
+Define the position in the dock of a docked application whose class is equal to
+.IR CLASS .
+Its value should be a number, starting from position 0.
+.TP
+\fBshod.name.\fICLASS\fB.type\fP
+Define the type of a window whose name is equal to
+.IR NAME .
+Possible types are
+.B DESKTOP
+(for desktop windows)
+.B DOCKAPP
+(for docked applications)
+or
+.B PROMPT
+(for prompt windows).
+.TP
+\fBshod.name.\fINAME\fB.dockpos\fP
+Define the position in the dock of a docked application whose name is equal to
+.IR NAME .
+Its value should be a number, starting from position 0.
 .SH ENVIRONMENT
 The following environment variables affect the execution of
 .B shod
@@ -651,10 +690,6 @@ because the relation from windows to containers is no more one-to-one.
 .PP
 Shaped client\-windows do not have shaped containers.
 They are mapped inside a rectangular container.
-.PP
-Dockapps are mapped into the dock in the order they spawn.
-There is no way to control the order of the dockapps inside the dock.
-This may be fixed in a future version of shod.
 .PP
 The focus buttons and raise buttons settings, that were presented in earlier versions of shod, are removed in recent versions.
 It is also not possible anymore to have a focus-follow-pointer focus behavior.

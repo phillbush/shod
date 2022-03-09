@@ -23,6 +23,8 @@
 #define DROPPIXELS              30      /* number of pixels from the border where a tab can be dropped in */
 #define RESIZETIME              64      /* time to redraw containers during resizing */
 #define MOUSEEVENTMASK          (ButtonReleaseMask | PointerMotionMask | ExposureMask)
+#define DOCKBORDER              2
+#define LEN(x)                  (sizeof(x) / sizeof((x)[0]))
 #define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
 
 #define TITLEWIDTH(c)   (((c)->isfullscreen && (c)->ncols == 1 && (c)->cols->nrows == 1) ? 0 : config.titlewidth)
@@ -282,6 +284,14 @@ enum Octant {
 	SE = (1 << 1) | (1 << 3),
 };
 
+/* structure returned by getwintype */
+struct Wintype {
+	struct Tab *parent;             /* window parent tab */
+	Window leader;                  /* window leader */
+	int type;                       /* window type */
+	int dockpos;                    /* position of the dockapp in the dock */
+};
+
 /* struct returned by getwindow */
 struct Winres {
 	struct Dock *dock;              /* dock of window */
@@ -423,8 +433,8 @@ struct Dockapp {
 	struct Dockapp *prev, *next;
 	Window win;                     /* dockapp window */
 	int x, y, w, h;                 /* dockapp position and size */
-	int gw, gh;                     /* size of dockapp grid */
 	int ignoreunmap;                /* number of unmap requests to ignore */
+	int dockpos;                    /* position of the dockapp in the dock */
 };
 
 /* splash screen window */
@@ -740,6 +750,9 @@ getresources(void)
 	if (XrmGetResource(xdb, "shod.dockWidth", "*", &type, &xval) == True)
 		if ((n = strtol(xval.addr, NULL, 10)) > 0)
 			config.dockwidth = n;
+	if (XrmGetResource(xdb, "shod.dockSpace", "*", &type, &xval) == True)
+		if ((n = strtol(xval.addr, NULL, 10)) > 0)
+			config.dockspace = n;
 	if (XrmGetResource(xdb, "shod.dockGravity", "*", &type, &xval) == True)
 		config.dockgravity = xval.addr;
 	if (XrmGetResource(xdb, "shod.notifGap", "*", &type, &xval) == True)
@@ -1210,51 +1223,98 @@ getleaderof(Window leader)
 	return NULL;
 }
 
-/* get type of window both by its WMHINTS and by the _NET_WM_WINDOW_TYPE hint */
-static int
-getwintype(Window win, struct Tab **parent, Window *leader)
+/* get window info based on its type */
+static void
+getwintype(Window win, struct Wintype *wintype)
 {
+	static char *class_cat[2] = {
+		"class",
+		"name",
+	};
+	char *class_value[2];
 	struct MwmHints *mwmhints;
+	XClassHint classh;
 	XWMHints *wmhints;
+	XrmValue xval;
 	Atom prop;
+	size_t i;
+	long n;
 	int isdockapp, ismenu;
+	char *ds, *typestr;
+	char buf[NAMEMAXLEN];
 
+	*wintype = (struct Wintype){
+		.parent = NULL,
+		.leader = None,
+		.type = TYPE_NORMAL,
+		.dockpos = INT_MAX,
+	};
+
+	if (xrm != NULL && xdb != NULL && XGetClassHint(dpy, win, &classh)) {
+		typestr = NULL;
+		class_value[0] = classh.res_class;
+		class_value[1] = classh.res_name;
+		for (i = 0; i < LEN(class_cat); i++) {
+			(void)snprintf(buf, NAMEMAXLEN, "shod.%s.%s.type", class_cat[i], class_value[i]);
+			if (XrmGetResource(xdb, buf, "*", &ds, &xval) == True)
+				typestr = xval.addr;
+			(void)snprintf(buf, NAMEMAXLEN, "shod.%s.%s.dockpos", class_cat[i], class_value[i]);
+			if (XrmGetResource(xdb, buf, "*", &ds, &xval) == True)
+				if ((n = strtol(xval.addr, NULL, 10)) >= 0 && n < INT_MAX)
+					wintype->dockpos = n;
+		}
+		if (typestr != NULL) {
+			if (strcasecmp(typestr, "DESKTOP") == 0) {
+				wintype->type = TYPE_DESKTOP;
+			} else if (strcasecmp(typestr, "DOCKAPP") == 0) {
+				wintype->type = TYPE_DOCKAPP;
+			} else if (strcasecmp(typestr, "PROMPT") == 0) {
+				wintype->type = TYPE_PROMPT;
+			}
+		}
+		XFree(classh.res_class);
+		XFree(classh.res_name);
+		if (wintype->type != TYPE_NORMAL) {
+			return;
+		}
+	}
 	prop = getatomprop(win, atoms[_NET_WM_WINDOW_TYPE]);
 	wmhints = XGetWMHints(dpy, win);
 	mwmhints = getmwmhints(win);
 	ismenu = mwmhints != NULL && (mwmhints->flags & MWM_HINTS_STATUS) && (mwmhints->status & MWM_TEAROFF_WINDOW);
 	isdockapp = (wmhints && (wmhints->flags & (IconWindowHint | StateHint)) && wmhints->initial_state == WithdrawnState);
-	*leader = (wmhints != NULL && (wmhints->flags & WindowGroupHint)) ? wmhints->window_group : None;
-	*parent = getdialogfor(win);
+	wintype->leader = (wmhints != NULL && (wmhints->flags & WindowGroupHint)) ? wmhints->window_group : None;
+	wintype->parent = getdialogfor(win);
 	XFree(mwmhints);
 	if (wmhints != NULL)
 		XFree(wmhints);
-	if (isdockapp)
-		return TYPE_DOCKAPP;
-	if (prop == atoms[_NET_WM_WINDOW_TYPE_DESKTOP])
-		return TYPE_DESKTOP;
-	if (prop == atoms[_NET_WM_WINDOW_TYPE_DOCK])
-		return TYPE_DOCK;
-	if (prop == atoms[_NET_WM_WINDOW_TYPE_NOTIFICATION])
-		return TYPE_NOTIFICATION;
-	if (prop == atoms[_NET_WM_WINDOW_TYPE_PROMPT])
-		return TYPE_PROMPT;
-	if (prop == atoms[_NET_WM_WINDOW_TYPE_SPLASH])
-		return TYPE_SPLASH;
-	if (ismenu ||
+	if (isdockapp) {
+		wintype->type = TYPE_DOCKAPP;
+	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_DESKTOP]) {
+		wintype->type = TYPE_DESKTOP;
+	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_DOCK]) {
+		wintype->type = TYPE_DOCK;
+	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_NOTIFICATION]) {
+		wintype->type = TYPE_NOTIFICATION;
+	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_PROMPT]) {
+		wintype->type = TYPE_PROMPT;
+	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_SPLASH]) {
+		wintype->type = TYPE_SPLASH;
+	} else if (ismenu ||
 	    prop == atoms[_NET_WM_WINDOW_TYPE_MENU] ||
 	    prop == atoms[_NET_WM_WINDOW_TYPE_UTILITY] ||
 	    prop == atoms[_NET_WM_WINDOW_TYPE_TOOLBAR]) {
-		if (*parent == NULL) {
-			*parent = getleaderof(*leader);
+		if (wintype->parent == NULL) {
+			wintype->parent = getleaderof(wintype->leader);
 		}
-		if (*parent != NULL) {
-			return TYPE_MENU;
+		if (wintype->parent != NULL) {
+			wintype->type = TYPE_MENU;
 		}
+	} else if (wintype->parent != NULL) {
+		wintype->type = TYPE_DIALOG;
+	} else {
+		wintype->type = TYPE_NORMAL;
 	}
-	if (*parent != NULL)
-		return TYPE_DIALOG;
-	return TYPE_NORMAL;
 }
 
 /* get atom property from window */
@@ -1585,14 +1645,42 @@ ewmhsetclients(void)
 	free(wins);
 }
 
+#define LOOPSTACKING(array, list, index) {                                             \
+	struct Container *c;                                                           \
+	struct Column *col;                                                            \
+	struct Row *row;                                                               \
+	struct Tab *t;                                                                 \
+                                                                                       \
+	for (c = (list); c != NULL; c = c->rnext) {                                    \
+		for (col = c->cols; col != NULL; col = col->next) {                    \
+			if (col->selrow != NULL) {                                     \
+				if (col->selrow->seltab != NULL)                       \
+					(array)[--(index)] = col->selrow->seltab->win; \
+				for (t = col->selrow->tabs; t != NULL; t = t->next) {  \
+					if (t != col->selrow->seltab) {                \
+						(array)[--(index)] = t->win;           \
+					}                                              \
+				}                                                      \
+			}                                                              \
+			for (row = col->rows; row != NULL; row = row->next) {          \
+				if (row == col->selrow)                                \
+					continue;                                      \
+				if (row->seltab != NULL)                               \
+					(array)[--(index)] = row->seltab->win;         \
+				for (t = row->tabs; t != NULL; t = t->next) {          \
+					if (t != row->seltab) {                        \
+						(array)[--(index)] = t->win;           \
+					}                                              \
+				}                                                      \
+			}                                                              \
+		}                                                                      \
+	}                                                                              \
+}
+
 /* set stacking list of clients hint */
 static void
 ewmhsetclientsstacking(void)
 {
-	struct Container *c;
-	struct Column *col;
-	struct Row *row;
-	struct Tab *t;
 	Window *wins = NULL;
 	int i = 0;
 
@@ -1600,26 +1688,10 @@ ewmhsetclientsstacking(void)
 		return;
 	wins = ecalloc(wm.nclients, sizeof *wins);
 	i = wm.nclients;
-	for (c = wm.fulllist; c != NULL; c = c->rnext)
-		for (col = c->cols; col != NULL; col = col->next)
-			for (row = col->rows; row != NULL; row = row->next)
-				for (t = row->tabs; t != NULL; t = t->next)
-					wins[--i] = t->win;
-	for (c = wm.abovelist; c != NULL; c = c->rnext)
-		for (col = c->cols; col != NULL; col = col->next)
-			for (row = col->rows; row != NULL; row = row->next)
-				for (t = row->tabs; t != NULL; t = t->next)
-					wins[--i] = t->win;
-	for (c = wm.centerlist; c != NULL; c = c->rnext)
-		for (col = c->cols; col != NULL; col = col->next)
-			for (row = col->rows; row != NULL; row = row->next)
-				for (t = row->tabs; t != NULL; t = t->next)
-					wins[--i] = t->win;
-	for (c = wm.belowlist; c != NULL; c = c->rnext)
-		for (col = c->cols; col != NULL; col = col->next)
-			for (row = col->rows; row != NULL; row = row->next)
-				for (t = row->tabs; t != NULL; t = t->next)
-					wins[--i] = t->win;
+	LOOPSTACKING(wins, wm.fulllist, i)
+	LOOPSTACKING(wins, wm.abovelist, i)
+	LOOPSTACKING(wins, wm.centerlist, i)
+	LOOPSTACKING(wins, wm.belowlist, i)
 	XChangeProperty(dpy, root, atoms[_NET_CLIENT_LIST_STACKING], XA_WINDOW, 32, PropModeReplace, (unsigned char *)wins+i, wm.nclients-i);
 	free(wins);
 }
@@ -3038,6 +3110,7 @@ tabmoveresize(struct Tab *t)
 	if (t->ptw != t->w) {
 		tabdecorate(t, 0);
 	}
+	winnotify(t->win, t->row->col->c->x + t->row->col->x, t->row->col->c->y + t->row->y + config.titlewidth, t->winw, t->winh);
 }
 
 /* commit titlebar size and position */
@@ -3109,7 +3182,6 @@ containermoveresize(struct Container *c)
 					ewmhsetframeextents(d->win, c->b, 0);
 				}
 				XResizeWindow(dpy, t->win, t->winw, t->winh);
-				winnotify(t->win, c->x + col->x, c->y + row->y + config.titlewidth, t->winw, t->winh);
 				ewmhsetframeextents(t->win, c->b, TITLEWIDTH(c));
 				tabmoveresize(t);
 			}
@@ -4555,10 +4627,10 @@ notifplace(void)
 		XMoveResizeWindow(dpy, n->frame, x, y, n->w, n->h);
 		XMoveResizeWindow(dpy, n->win, config.borderwidth, config.borderwidth, n->w - 2 * config.borderwidth, n->h - 2 * config.borderwidth);
 		XMapWindow(dpy, n->frame);
-		winnotify(n->win, x + config.borderwidth, y + config.borderwidth, n->w - 2 * config.borderwidth, n->h - 2 * config.borderwidth);
 		if (n->pw != n->w || n->ph != n->h) {
 			notifdecorate(n);
 		}
+		winnotify(n->win, x + config.borderwidth, y + config.borderwidth, n->w - 2 * config.borderwidth, n->h - 2 * config.borderwidth);
 	}
 }
 
@@ -4649,32 +4721,34 @@ dockupdate(void)
 	struct Dockapp *dapp;
 	Window wins[2];
 	int size;
+	int n;
 
 	size = 0;
 	for (dapp = dock.head; dapp != NULL; dapp = dapp->next) {
 		switch (config.dockgravity[0]) {
 		case 'N':
-			dapp->x = 1 + size + dapp->gw / 2 - dapp->w / 2;
-			dapp->y = config.dockspace / 2 - dapp->h / 2;
-			size += dapp->gw;
+			dapp->x = DOCKBORDER + size;
+			n = dapp->w / config.dockspace + (dapp->w % config.dockspace ? 1 : 0);
 			break;
 		case 'S':
-			dapp->x = 1 + size + dapp->gw / 2 - dapp->w / 2;
-			dapp->y = 1 + config.dockspace / 2 - dapp->h / 2;
-			size += dapp->gw;
+			dapp->x = DOCKBORDER + size;
+			dapp->y = DOCKBORDER;
+			n = dapp->w / config.dockspace + (dapp->w % config.dockspace ? 1 : 0);
 			break;
 		case 'W':
-			dapp->x = config.dockspace / 2 - dapp->w / 2;
-			dapp->y = 1 + size + dapp->gh / 2 - dapp->h / 2;
-			size += dapp->gh;
+			dapp->y = DOCKBORDER + size;
+			n = dapp->h / config.dockspace + (dapp->h % config.dockspace ? 1 : 0);
 			break;
 		case 'E':
 		default:
-			dapp->x = 1 + config.dockspace / 2 - dapp->w / 2;
-			dapp->y = 1 + size + dapp->gh / 2 - dapp->h / 2;
-			size += dapp->gh;
+			dapp->y = DOCKBORDER + size;
+			dapp->x = DOCKBORDER;
+			n = dapp->h / config.dockspace + (dapp->h % config.dockspace ? 1 : 0);
 			break;
 		}
+		dapp->x += (config.dockspace - (dapp->w % config.dockspace)) % config.dockspace / 2;
+		dapp->y += (config.dockspace - (dapp->h % config.dockspace)) % config.dockspace / 2;
+		size += n * config.dockspace;
 	}
 	if (size == 0) {
 		XUnmapWindow(dpy, dock.win);
@@ -4682,7 +4756,7 @@ dockupdate(void)
 		return;
 	}
 	dock.mapped = 1;
-	size += 2;
+	size += DOCKBORDER * 2;
 	switch (config.dockgravity[0]) {
 	case 'N':
 		dock.h = config.dockwidth;
@@ -4749,9 +4823,9 @@ dockupdate(void)
 
 /* create dockapp */
 static void
-dockappnew(Window win, int w, int h, int ignoreunmap)
+dockappnew(Window win, int w, int h, int dockpos, int ignoreunmap)
 {
-	struct Dockapp *dapp;
+	struct Dockapp *dapp, *tmp;
 
 	dapp = emalloc(sizeof(*dapp));
 	*dapp = (struct Dockapp){
@@ -4759,16 +4833,29 @@ dockappnew(Window win, int w, int h, int ignoreunmap)
 		.w = w,
 		.h = h,
 		.ignoreunmap = ignoreunmap,
-		.gw = config.dockspace * (((w - 1) / config.dockspace) + 1),
-		.gh = config.dockspace * (((h - 1) / config.dockspace) + 1),
+		.dockpos = dockpos,
 	};
-	dapp->prev = dock.tail;
-	dapp->next = NULL;
-	if (dock.tail != NULL)
-		dock.tail->next = dapp;
-	else
+	for (tmp = dock.tail; tmp != NULL; tmp = tmp->prev)
+		if (tmp->dockpos <= dockpos)
+			break;
+	if (tmp != NULL) {
+		dapp->prev = tmp;
+		dapp->next = tmp->next;
+		if (tmp->next != NULL)
+			tmp->next->prev = dapp;
+		else
+			dock.tail = dapp;
+		tmp->next = dapp;
+	} else {
+		dapp->next = dock.head;
+		dapp->prev = NULL;
+		if (dock.head != NULL)
+			dock.head->prev = dapp;
+		else
+			dock.tail = dapp;
 		dock.head = dapp;
-	dock.tail = dapp;
+	}
+	printf("\n");
 }
 
 /* delete dockapp */
@@ -4987,10 +5074,10 @@ managedesktop(Window win)
 
 /* map dockapp window */
 static void
-managedockapp(Window win, int w, int h, int ignoreunmap)
+managedockapp(Window win, int w, int h, int pos, int ignoreunmap)
 {
 	XReparentWindow(dpy, win, dock.win, 0, 0);
-	dockappnew(win, w, h, ignoreunmap);
+	dockappnew(win, w, h, pos, ignoreunmap);
 	dockupdate();
 	monupdatearea();
 }
@@ -5049,7 +5136,7 @@ managebar(Window win)
 
 /* call one of the manage- functions */
 static void
-manage(Window win, XWindowAttributes *wa, int ignoreunmap)
+manage(Window win, int x, int y, int w, int h, int ignoreunmap)
 {
 	struct Winres res;
 	struct Tab *t;
@@ -5057,52 +5144,52 @@ manage(Window win, XWindowAttributes *wa, int ignoreunmap)
 	struct Dialog *d;
 	struct Splash *splash;
 	struct Menu *menu;
-	Window leader;
+	struct Wintype wintype;
 	int userplaced;
-
 	res = getwin(win);
 	if (res.dock != NULL || res.c != NULL || res.bar != NULL || res.dapp != NULL || res.n != NULL || res.menu != NULL)
 		return;
-	switch (getwintype(win, &t, &leader)) {
+	getwintype(win, &wintype);
+	switch (wintype.type) {
 	case TYPE_DESKTOP:
 		managedesktop(win);
 		break;
 	case TYPE_DOCKAPP:
-		managedockapp(win, wa->width, wa->height, ignoreunmap);
+		managedockapp(win, w, h, wintype.dockpos, ignoreunmap);
 		break;
 	case TYPE_DOCK:
 		managebar(win);
 		break;
 	case TYPE_NOTIFICATION:
 		preparewin(win);
-		managenotif(win, wa->width, wa->height);
+		managenotif(win, w, h);
 		break;
 	case TYPE_PROMPT:
 		preparewin(win);
-		manageprompt(win, wa->width, wa->height);
+		manageprompt(win, w, h);
 		break;
 	case TYPE_SPLASH:
 		preparewin(win);
-		splash = splashnew(win, wa->width, wa->height);
+		splash = splashnew(win, w, h);
 		managesplash(splash);
 		break;
 	case TYPE_DIALOG:
 		preparewin(win);
-		d = dialognew(win, wa->width, wa->height, ignoreunmap);
-		managedialog(t, d);
+		d = dialognew(win, w, h, ignoreunmap);
+		managedialog(wintype.parent, d);
 		break;
 	case TYPE_MENU:
 		preparewin(win);
-		menu = menunew(win, wa->x, wa->y, wa->width, wa->height, ignoreunmap);
+		menu = menunew(win, x, y, w, h, ignoreunmap);
 		winupdatetitle(menu->win, &menu->name);
-		managemenu(t, menu);
+		managemenu(wintype.parent, menu);
 		break;
 	default:
 		preparewin(win);
 		userplaced = isuserplaced(win);
-		t = tabnew(win, leader, ignoreunmap);
+		t = tabnew(win, wintype.leader, ignoreunmap);
 		winupdatetitle(t->win, &t->name);
-		c = containernew(wa->x, wa->y, wa->width, wa->height);
+		c = containernew(x, y, w, h);
 		managecontainer(c, t, wm.selmon->seldesk, userplaced);
 		break;
 	}
@@ -5164,7 +5251,7 @@ scan(void)
 			|| wa.override_redirect || XGetTransientForHint(dpy, wins[i], &d1))
 				continue;
 			if (wa.map_state == IsViewable || getstate(wins[i]) == IconicState) {
-				manage(wins[i], &wa, IGNOREUNMAP);
+				manage(wins[i], wa.x, wa.y, wa.width, wa.height, IGNOREUNMAP);
 			}
 		}
 		for (i = 0; i < num; i++) {     /* now the transients */
@@ -5172,7 +5259,7 @@ scan(void)
 				continue;
 			if (XGetTransientForHint(dpy, wins[i], &transwin) &&
 			   (wa.map_state == IsViewable || getstate(wins[i]) == IconicState)) {
-				manage(wins[i], &wa, IGNOREUNMAP);
+				manage(wins[i], wa.x, wa.y, wa.width, wa.height, IGNOREUNMAP);
 			}
 		}
 		if (wins != NULL) {
@@ -6196,7 +6283,7 @@ xeventmaprequest(XEvent *e)
 		return;
 	if (wa.override_redirect)
 		return;
-	manage(ev->window, &wa, 0);
+	manage(ev->window, wa.x, wa.y, wa.width, wa.height, 0);
 }
 
 /* update client properties */
@@ -6413,8 +6500,8 @@ main(int argc, char *argv[])
 	cleandummywindows();
 	cleancursors();
 	cleanfontset();
-	cleanwm();
 	cleandock();
+	cleanwm();
 
 	/* clear ewmh hints */
 	ewmhsetclients();
