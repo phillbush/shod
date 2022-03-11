@@ -4,7 +4,9 @@
 \- mouse-focused window manager
 .SH SYNOPSIS
 .B shod
-.RB [ \-c ]
+.RB [ \-cs ]
+.RB [ \-m
+.IR modifier ]
 .PP
 .B shodc close
 .RI [ win_id ]
@@ -77,6 +79,21 @@ but they can be honored by invoking
 with the
 .B \-c
 command-line option.
+.TP
+\fB\-m\fP \fImodifier\fP
+Which modifier, from
+.B Mod1
+to
+.B Mod5
+is used to move and resize windows with the mouse pointer.
+By default,
+.B shod
+uses
+.B Mod1
+(Alt) as modifier.
+.TP
+.B \-s
+Use sloppy focus rather than click-to-focus.
 .PP
 .B shodc
 is the remote controller for
@@ -551,11 +568,11 @@ and all of them must be set for a consistent theme.
 .B shod.borderWidth
 The width of the borders and divisions.
 .TP
-.B shod.active.background, shod.active.topShadowColor, shod.active.bottomShadowColor
+.B shod.activeBackground, shod.activeTopShadowColor, shod.activeBottomShadowColor
 The body color, light shadow color, and dark shadow color for the 3D
 effect of the borders and title bars of active windows.
 .TP
-.B shod.dock.background, shod.dock.topShadowColor, shod.dock.bottomShadowColor
+.B shod.dockBackground, shod.dockTopShadowColor, shod.dockBottomShadowColor
 The body color, light shadow color, and dark shadow color for the 3D
 effect of the dock.
 .TP
@@ -577,7 +594,7 @@ alligned to its center.
 The width (for vertical docks) or height (for horizontal dock) of the dock in pixels.
 Defaults to 64 (the size of most dockapps).
 .TP
-.B shod.inactive.background, shod.inactive.topShadowColor, shod.inactive.bottomShadowColor
+.B shod.inactiveBackground, shod.inactiveTopShadowColor, shod.inactiveBottomShadowColor
 The body color, light shadow color, and dark shadow color for the 3D
 effect of the borders and title bars of inactive windows.
 .TP
@@ -585,7 +602,7 @@ effect of the borders and title bars of inactive windows.
 The number of desktops for each monitor.
 The default is 10 desktops for each monitor.
 .TP
-.B shod.notif.background, shod.notif.topShadowColor, shod.notif.bottomShadowColor
+.B shod.notifBackground, shod.notifTopShadowColor, shod.notifBottomShadowColor
 The body color, light shadow color, and dark shadow color for the 3D
 effect of the notification borders.
 .TP
@@ -598,7 +615,7 @@ For example, a value of "N" will place notifications centered on the north edge 
 A value of "E" will place notifications centered on the east edge of the screen.
 A value of "NE" (the default) will place notifications on the northeast corner of the screen.
 .TP
-.B shod.prompt.background, shod.prompt.topShadowColor, shod.prompt.bottomShadowColor
+.B shod.promptBackground, shod.promptTopShadowColor, shod.promptBottomShadowColor
 The body color, light shadow color, and dark shadow color for the 3D
 effect of the prompt borders.
 .TP
@@ -611,16 +628,16 @@ The proximity of edges of a container in pixels for the snap attraction to occur
 If set to zero, no snap attraction occurs.
 The default is 8 pixels.
 .TP
-.B shod.title.font
+.B shod.font
 The font of the text in the title bar.
 .TP
-.B shod.title.foreground
+.B shod.foreground
 The color of the text in the title bar.
 .TP
 .B shod.titleWidth
 The width of the title bar.
 .TP
-.B shod.urgent.background, shod.urgent.topShadowColor, shod.urgent.bottomShadowColor
+.B shod.urgentBackground, shod.urgentTopShadowColor, shod.urgentBottomShadowColor
 The body color, light shadow color, and dark shadow color for the 3D
 effect of the borders and title bars of urgent windows.
 .SS Window-dependent resources

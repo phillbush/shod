@@ -6,7 +6,12 @@ struct Config config = {
 	 * and the color of the dark 3D shadow.
 	 */
 
+	/* 0-or-1 flags */
+	.sloppyfocus    = 0,            /* set to 1 to use sloppy focus */
+	.honorconfig    = 0,            /* set to 1 to honor configure requests */
+
 	/* general configuration */
+	.modifier       = Mod1Mask,     /* Modifier button */
 	.snap           = 8,            /* proximity of container edges to perform snap attraction */
 	.font           = "fixed",      /* font for titles in titlebars */
 	.ndesktops      = 10,           /* number of desktops per monitor */

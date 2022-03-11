@@ -16,7 +16,6 @@
 #include <X11/extensions/Xinerama.h>
 #include <X11/extensions/Xrender.h>
 
-#define MODIFIER                Mod1Mask
 #define DIV                     15      /* see containerplace() for details */
 #define IGNOREUNMAP             6       /* number of unmap notifies to ignore while scanning existing clients */
 #define NAMEMAXLEN              1024    /* maximum length of window's name */
@@ -527,6 +526,9 @@ struct WM {
 
 /* configuration */
 struct Config {
+	unsigned int modifier;
+	int honorconfig;
+	int sloppyfocus;
 	int ndesktops;
 	int notifgap;
 	int dockwidth, dockspace;
@@ -567,7 +569,6 @@ static struct Dock dock;
 static unsigned long clientmask = CWEventMask | CWColormap | CWBackPixel | CWBorderPixel;
 static unsigned int depth;
 static int screen, screenw, screenh;
-static int cflag = 0;
 static char *wmname;
 static char *xrm;
 volatile sig_atomic_t running = 1;
@@ -578,7 +579,7 @@ volatile sig_atomic_t running = 1;
 static void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: shod [-c]\n");
+	(void)fprintf(stderr, "usage: shod [-cs] [-m modifier]\n");
 	exit(1);
 }
 
@@ -677,6 +678,25 @@ siginthandler(int signo)
 	running = 0;
 }
 
+/* parse modifier string */
+static unsigned int
+parsemodifier(const char *s)
+{
+	if (strcasecmp(s, "Mod1") == 0)
+		return Mod1Mask;
+	else if (strcasecmp(s, "Mod2") == 0)
+		return Mod2Mask;
+	else if (strcasecmp(s, "Mod3") == 0)
+		return Mod3Mask;
+	else if (strcasecmp(s, "Mod4") == 0)
+		return Mod4Mask;
+	else if (strcasecmp(s, "Mod5") == 0)
+		return Mod5Mask;
+	else
+		errx(1, "improper modifier string %s", s);
+	return 0;
+}
+
 /* read xrdb for configuration options */
 static void
 getresources(void)
@@ -688,54 +708,54 @@ getresources(void)
 	if (xrm == NULL || xdb == NULL)
 		return;
 
-	if (XrmGetResource(xdb, "shod.title.font", "*", &type, &xval) == True)
+	if (XrmGetResource(xdb, "shod.font", "*", &type, &xval) == True)
 		config.font = xval.addr;
-	if (XrmGetResource(xdb, "shod.title.foreground", "*", &type, &xval) == True) {
+	if (XrmGetResource(xdb, "shod.foreground", "*", &type, &xval) == True) {
 		config.foreground[0] = xval.addr;
 		config.foreground[1] = xval.addr;
 		config.foreground[2] = xval.addr;
 	}
 
-	if (XrmGetResource(xdb, "shod.dock.background", "*", &type, &xval) == True)
+	if (XrmGetResource(xdb, "shod.dockBackground", "*", &type, &xval) == True)
 		config.dockcolors[COLOR_MID] = xval.addr;
-	if (XrmGetResource(xdb, "shod.dock.topShadowColor", "*", &type, &xval) == True)
+	if (XrmGetResource(xdb, "shod.dockTopShadowColor", "*", &type, &xval) == True)
 		config.dockcolors[COLOR_LIGHT] = xval.addr;
-	if (XrmGetResource(xdb, "shod.dock.bottomShadowColor", "*", &type, &xval) == True)
+	if (XrmGetResource(xdb, "shod.dockBottomShadowColor", "*", &type, &xval) == True)
 		config.dockcolors[COLOR_DARK] = xval.addr;
 
-	if (XrmGetResource(xdb, "shod.notif.background", "*", &type, &xval) == True)
+	if (XrmGetResource(xdb, "shod.notifBackground", "*", &type, &xval) == True)
 		config.notifcolors[COLOR_MID] = xval.addr;
-	if (XrmGetResource(xdb, "shod.notif.topShadowColor", "*", &type, &xval) == True)
+	if (XrmGetResource(xdb, "shod.notifTopShadowColor", "*", &type, &xval) == True)
 		config.notifcolors[COLOR_LIGHT] = xval.addr;
-	if (XrmGetResource(xdb, "shod.notif.bottomShadowColor", "*", &type, &xval) == True)
+	if (XrmGetResource(xdb, "shod.notifBottomShadowColor", "*", &type, &xval) == True)
 		config.notifcolors[COLOR_DARK] = xval.addr;
 
-	if (XrmGetResource(xdb, "shod.prompt.background", "*", &type, &xval) == True)
+	if (XrmGetResource(xdb, "shod.promptBackground", "*", &type, &xval) == True)
 		config.promptcolors[COLOR_MID] = xval.addr;
-	if (XrmGetResource(xdb, "shod.prompt.topShadowColor", "*", &type, &xval) == True)
+	if (XrmGetResource(xdb, "shod.promptTopShadowColor", "*", &type, &xval) == True)
 		config.promptcolors[COLOR_LIGHT] = xval.addr;
-	if (XrmGetResource(xdb, "shod.prompt.bottomShadowColor", "*", &type, &xval) == True)
+	if (XrmGetResource(xdb, "shod.promptBottomShadowColor", "*", &type, &xval) == True)
 		config.promptcolors[COLOR_DARK] = xval.addr;
 
-	if (XrmGetResource(xdb, "shod.active.background", "*", &type, &xval) == True)
+	if (XrmGetResource(xdb, "shod.activeBackground", "*", &type, &xval) == True)
 		config.bordercolors[FOCUSED][COLOR_MID] = xval.addr;
-	if (XrmGetResource(xdb, "shod.active.topShadowColor", "*", &type, &xval) == True)
+	if (XrmGetResource(xdb, "shod.activeTopShadowColor", "*", &type, &xval) == True)
 		config.bordercolors[FOCUSED][COLOR_LIGHT] = xval.addr;
-	if (XrmGetResource(xdb, "shod.active.bottomShadowColor", "*", &type, &xval) == True)
+	if (XrmGetResource(xdb, "shod.activeBottomShadowColor", "*", &type, &xval) == True)
 		config.bordercolors[FOCUSED][COLOR_DARK] = xval.addr;
 
-	if (XrmGetResource(xdb, "shod.inactive.background", "*", &type, &xval) == True)
+	if (XrmGetResource(xdb, "shod.inactiveBackground", "*", &type, &xval) == True)
 		config.bordercolors[UNFOCUSED][COLOR_MID] = xval.addr;
-	if (XrmGetResource(xdb, "shod.inactive.topShadowColor", "*", &type, &xval) == True)
+	if (XrmGetResource(xdb, "shod.inactiveTopShadowColor", "*", &type, &xval) == True)
 		config.bordercolors[UNFOCUSED][COLOR_LIGHT] = xval.addr;
-	if (XrmGetResource(xdb, "shod.inactive.bottomShadowColor", "*", &type, &xval) == True)
+	if (XrmGetResource(xdb, "shod.inactiveBottomShadowColor", "*", &type, &xval) == True)
 		config.bordercolors[UNFOCUSED][COLOR_DARK] = xval.addr;
 
-	if (XrmGetResource(xdb, "shod.urgent.background", "*", &type, &xval) == True)
+	if (XrmGetResource(xdb, "shod.urgentBackground", "*", &type, &xval) == True)
 		config.bordercolors[URGENT][COLOR_MID] = xval.addr;
-	if (XrmGetResource(xdb, "shod.urgent.topShadowColor", "*", &type, &xval) == True)
+	if (XrmGetResource(xdb, "shod.urgentTopShadowColor", "*", &type, &xval) == True)
 		config.bordercolors[URGENT][COLOR_LIGHT] = xval.addr;
-	if (XrmGetResource(xdb, "shod.urgent.bottomShadowColor", "*", &type, &xval) == True)
+	if (XrmGetResource(xdb, "shod.urgentBottomShadowColor", "*", &type, &xval) == True)
 		config.bordercolors[URGENT][COLOR_DARK] = xval.addr;
 
 	if (XrmGetResource(xdb, "shod.borderWidth", "*", &type, &xval) == True)
@@ -778,10 +798,16 @@ getoptions(int argc, char *argv[])
 		wmname++;
 	else
 		wmname = argv[0];
-	while ((c = getopt(argc, argv, "c")) != -1) {
+	while ((c = getopt(argc, argv, "cm:s")) != -1) {
 		switch (c) {
 		case 'c':
-			cflag = 1;
+			config.honorconfig = 1;
+			break;
+		case 'm':
+			config.modifier = parsemodifier(optarg);
+			break;
+		case 's':
+			config.sloppyfocus = 1;
 			break;
 		default:
 			usage();
@@ -5901,11 +5927,11 @@ xeventbuttonpress(XEvent *e)
 			mouseretile(c, cdiv, rdiv, ev->x_root, ev->y_root);
 		}
 	} else if (!c->isfullscreen && !c->isminimized && !c->ismaximized) {
-		if (ev->state == MODIFIER && ev->button == Button1) {
+		if (ev->state == config.modifier && ev->button == Button1) {
 			mousemove(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, 0);
 		} else if (ev->window == c->frame && ev->button == Button3) {
 			mousemove(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, o);
-		} else if ((ev->state == MODIFIER && ev->button == Button3) ||
+		} else if ((ev->state == config.modifier && ev->button == Button3) ||
 		           (o != C && ev->window == c->frame && ev->button == Button1)) {
 			if (o == C) {
 				if (x >= c->w / 2 && y >= c->h / 2) {
@@ -6198,7 +6224,7 @@ xeventconfigurerequest(XEvent *e)
 	if (res.d != NULL) {
 		dialogconfigure(res.d, ev->value_mask, &wc);
 	} else if (res.c != NULL) {
-		if (cflag) {
+		if (config.honorconfig) {
 			containerconfigure(res.c, ev->value_mask, &wc);
 		} else {
 			containermoveresize(res.c);
@@ -6237,6 +6263,22 @@ xeventdestroynotify(XEvent *e)
 	}
 	ewmhsetclients();
 	ewmhsetclientsstacking();
+}
+
+/* focus window when cursor enter it (only if there is no focus button) */
+static void
+xevententernotify(XEvent *e)
+{
+	struct Winres res;
+
+	if (!config.sloppyfocus)
+		return;
+	while (XCheckTypedEvent(dpy, EnterNotify, e))
+		;
+	res = getwin(e->xcrossing.window);
+	if (res.t != NULL) {
+		tabfocus(res.t, 1);
+	}
 }
 
 /* redraw window decoration */
@@ -6437,6 +6479,7 @@ main(int argc, char *argv[])
 		[ConfigureNotify]  = xeventconfigurenotify,
 		[ConfigureRequest] = xeventconfigurerequest,
 		[DestroyNotify]    = xeventdestroynotify,
+		[EnterNotify]      = xevententernotify,
 		[Expose]           = xeventexpose,
 		[FocusIn]          = xeventfocusin,
 		[MapRequest]       = xeventmaprequest,
@@ -6461,6 +6504,10 @@ main(int argc, char *argv[])
 	/* get configuration */
 	getresources();
 	getoptions(argc, argv);
+
+	/* check sloppy focus */
+	if (config.sloppyfocus)
+		clientswa.event_mask |= EnterWindowMask;
 
 	/* initialize */
 	xinitvisual();

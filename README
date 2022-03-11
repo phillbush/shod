@@ -38,35 +38,3 @@ Screenshots:
 
 TODO:
 • Add support for dropdown (quake-like) windows.
-
-                                * * *
-
-WARNING!
-Shod now names Xresources for colors just like how motif names them.
-Your Xresources may affect Shod.   To avoid this, copy the following
-lines to your ~/.Xresources, or ~/.Xdefaults, or any other file read
-by xrdb(1).
-
-shod*background:                        #3465A4
-shod*topShadowColor:                    #729FCF
-shod*bottomShadowColor:                 #204A87
-shod.inactive.background:               #555753
-shod.inactive.topShadowColor:           #888A85
-shod.inactive.bottomShadowColor:        #2E3436
-shod.urgent.background:                 #CC0000
-shod.urgent.topShadowColor:             #EF2929
-shod.urgent.bottomShadowColor:          #A40000
-shod.dock.background:                   #121212
-shod.dock.topShadowColor:               #2E3436
-shod.dock.bottomShadowColor:            #000000
-shod.borderWidth:                       6
-shod.dockGravity:                       E
-shod.dockWidth:                         64
-shod.numOfDesktops:                     10
-shod.notifGap:                          3
-shod.notifGravity:                      NE
-shod.shadowThickness:                   2
-shod.snapProximity:                     8
-shod.title.font:                        fixed
-shod.title.foreground:                  FG
-shod.titleWidth:                        17
