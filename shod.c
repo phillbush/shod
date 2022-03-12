@@ -1655,8 +1655,10 @@ ewmhsetclients(void)
 	Window *wins = NULL;
 	int i = 0;
 
-	if (wm.nclients < 1)
+	if (wm.nclients < 1) {
+		XChangeProperty(dpy, root, atoms[_NET_CLIENT_LIST], XA_WINDOW, 32, PropModeReplace, NULL, 0);
 		return;
+	}
 	wins = ecalloc(wm.nclients, sizeof *wins);
 	for (c = wm.c; c != NULL; c = c->next) {
 		for (col = c->cols; col != NULL; col = col->next) {
@@ -1710,8 +1712,10 @@ ewmhsetclientsstacking(void)
 	Window *wins = NULL;
 	int i = 0;
 
-	if (wm.nclients < 1)
+	if (wm.nclients < 1) {
+		XChangeProperty(dpy, root, atoms[_NET_CLIENT_LIST_STACKING], XA_WINDOW, 32, PropModeReplace, NULL, 0);
 		return;
+	}
 	wins = ecalloc(wm.nclients, sizeof *wins);
 	i = wm.nclients;
 	LOOPSTACKING(wins, wm.fulllist, i)
@@ -6260,6 +6264,8 @@ xeventdestroynotify(XEvent *e)
 		menudel(res.menu);
 	} else if (res.t && ev->window == res.t->win) {
 		unmanage(res.t);
+	} else {
+		return;
 	}
 	ewmhsetclients();
 	ewmhsetclientsstacking();
@@ -6401,6 +6407,8 @@ xeventunmapnotify(XEvent *e)
 		} else {
 			unmanage(res.t);
 		}
+	} else {
+		return;
 	}
 	ewmhsetclients();
 	ewmhsetclientsstacking();
