@@ -15,6 +15,7 @@
 #include <X11/xpm.h>
 #include <X11/extensions/Xinerama.h>
 #include <X11/extensions/Xrender.h>
+#include <X11/Xft/Xft.h>
 
 #define DIV                     15      /* see containerplace() for details */
 #define IGNOREUNMAP             6       /* number of unmap notifies to ignore while scanning existing clients */
@@ -473,8 +474,8 @@ struct Prompt {
 /* cursors, fonts, decorations, and decoration sizes */
 struct Theme {
 	Cursor cursors[CURSOR_LAST];
-	XFontSet fontset;
-	unsigned long fg[STYLE_LAST];
+	XftFont *font;
+	XftColor fg[STYLE_LAST];
 	unsigned long title[STYLE_LAST][COLOR_LAST];
 	unsigned long border[STYLE_LAST][COLOR_LAST];
 	unsigned long dock[COLOR_LAST];
@@ -643,6 +644,25 @@ ealloccolor(const char *s)
 	return color.pixel;
 }
 
+/* get XftColor from color string */
+static void
+eallocxftcolor(const char *s, XftColor *color)
+{
+	if(!XftColorAllocName(dpy, visual, colormap, s, color))
+		errx(1, "could not allocate color: %s", s);
+}
+
+/* draw text into drawable */
+static void
+drawtext(Drawable pix, XftColor *color, XftFont *font, int x, int y, const char *text, int len)
+{
+	XftDraw *draw;
+
+	draw = XftDrawCreate(dpy, pix, visual, colormap);
+	XftDrawStringUtf8(draw, color, font, x, y, text, len);
+	XftDrawDestroy(draw);
+}
+
 /* error handler */
 static int
 xerror(Display *dpy, XErrorEvent *e)
@@ -708,7 +728,7 @@ getresources(void)
 	if (xrm == NULL || xdb == NULL)
 		return;
 
-	if (XrmGetResource(xdb, "shod.font", "*", &type, &xval) == True)
+	if (XrmGetResource(xdb, "shod.faceName", "*", &type, &xval) == True)
 		config.font = xval.addr;
 	if (XrmGetResource(xdb, "shod.foreground", "*", &type, &xval) == True) {
 		config.foreground[0] = xval.addr;
@@ -902,18 +922,6 @@ initdummywindows(void)
 	gc = XCreateGC(dpy, wm.focuswin, GCFillStyle, &(XGCValues){.fill_style = FillSolid});
 }
 
-/* initialize font set */
-static void
-initfontset(void)
-{
-	char **dp, *ds;
-	int di;
-
-	if ((theme.fontset = XCreateFontSet(dpy, config.font, &dp, &di, &ds)) == NULL)
-		errx(1, "XCreateFontSet: could not create fontset");
-	XFreeStringList(dp);
-}
-
 /* initialize cursors */
 static void
 initcursors(void)
@@ -1022,12 +1030,19 @@ inittheme(void)
 		for (j = 0; j < COLOR_LAST; j++) {
 			theme.border[i][j] = ealloccolor(config.bordercolors[i][j]);
 		}
-		theme.fg[i] = ealloccolor(config.foreground[i]);
+		eallocxftcolor(config.foreground[i], &theme.fg[i]);
 	}
 	for (j = 0; j < COLOR_LAST; j++) {
 		theme.dock[j]  = ealloccolor(config.dockcolors[j]);
 		theme.notif[j] = ealloccolor(config.notifcolors[j]);
 		theme.prompt[j] = ealloccolor(config.promptcolors[j]);
+	}
+	theme.font = XftFontOpenXlfd(dpy, screen, config.font);
+	if (theme.font == NULL) {
+		theme.font = XftFontOpenName(dpy, screen, config.font);
+		if (theme.font == NULL) {
+			errx(1, "could not open font: %s", config.font);
+		}
 	}
 }
 
@@ -2365,7 +2380,7 @@ static void
 tabdecorate(struct Tab *t, int pressed)
 {
 	XGCValues val;
-	XRectangle box, dr;
+	XGlyphInfo box;
 	unsigned long mid, top, bot;
 	size_t len;
 	int style;
@@ -2415,9 +2430,9 @@ tabdecorate(struct Tab *t, int pressed)
 	/* write tab title */
 	if (t->name != NULL) {
 		len = strlen(t->name);
-		XmbTextExtents(theme.fontset, t->name, len, &dr, &box);
-		x = max(0, (t->w - box.width) / 2 - box.x);
-		y = (config.titlewidth - box.height) / 2 - box.y;
+		XftTextExtentsUtf8(dpy, theme.font, t->name, len, &box);
+		x = max(0, (t->w - box.width) / 2 + box.x);
+		y = (config.titlewidth - box.height) / 2 + box.y;
 
 		for (i = 3; drawlines && i < config.titlewidth - 3; i += 3) {
 			val.foreground = top;
@@ -2433,9 +2448,7 @@ tabdecorate(struct Tab *t, int pressed)
 			XFillRectangle(dpy, t->pixtitle, gc, t->w - x + 2, i, x - 6, 1);
 		}
 
-		val.foreground = theme.fg[style];
-		XChangeGC(dpy, gc, GCForeground, &val);
-		XmbDrawString(dpy, t->pixtitle, theme.fontset, gc, x, y, t->name, len);
+		drawtext(t->pixtitle, &theme.fg[style], theme.font, x, y, t->name, len);
 	}
 
 	/* draw frame background */
@@ -2857,7 +2870,7 @@ notifdecorate(struct Notification *n)
 static void
 menudecorate(struct Menu *menu, int titlepressed)
 {
-	XRectangle box, dr;
+	XGlyphInfo box;
 	XGCValues val;
 	size_t len;
 	unsigned long top, bot;
@@ -2897,12 +2910,10 @@ menudecorate(struct Menu *menu, int titlepressed)
 	/* write menu title */
 	if (menu->name != NULL) {
 		len = strlen(menu->name);
-		XmbTextExtents(theme.fontset, menu->name, len, &dr, &box);
-		x = (menu->tw - box.width) / 2 - box.x;
-		y = (config.titlewidth - box.height) / 2 - box.y;
-		val.foreground = theme.fg[FOCUSED];
-		XChangeGC(dpy, gc, GCForeground, &val);
-		XmbDrawString(dpy, menu->pixtitlebar, theme.fontset, gc, x, y, menu->name, len);
+		XftTextExtentsUtf8(dpy, theme.font, menu->name, len, &box);
+		x = max(0, (menu->tw - box.width) / 2 + box.x);
+		y = (config.titlewidth - box.height) / 2 + box.y;
+		drawtext(menu->pixtitlebar, &theme.fg[FOCUSED], theme.font, x, y, menu->name, len);
 	}
 	buttonrightdecorate(menu->button, menu->pixbutton, FOCUSED, 0);
 	XCopyArea(dpy, menu->pix, menu->frame, gc, 0, 0, menu->pw, menu->ph, 0, 0);
@@ -6469,11 +6480,11 @@ cleandock(void)
 	XDestroyWindow(dpy, dock.win);
 }
 
-/* free fontset */
+/* free font */
 static void
-cleanfontset(void)
+cleantheme(void)
 {
-	XFreeFontSet(dpy, theme.fontset);
+	XftFontClose(dpy, theme.font);
 }
 
 /* shod window manager */
@@ -6521,7 +6532,6 @@ main(int argc, char *argv[])
 	xinitvisual();
 	initsignal();
 	initdummywindows();
-	initfontset();
 	initcursors();
 	initatoms();
 	initroot();
@@ -6552,7 +6562,7 @@ main(int argc, char *argv[])
 	/* clean up */
 	cleandummywindows();
 	cleancursors();
-	cleanfontset();
+	cleantheme();
 	cleandock();
 	cleanwm();
 

@@ -13,7 +13,7 @@ struct Config config = {
 	/* general configuration */
 	.modifier       = Mod1Mask,     /* Modifier button */
 	.snap           = 8,            /* proximity of container edges to perform snap attraction */
-	.font           = "fixed",      /* font for titles in titlebars */
+	.font = "monospace:pixelsize=11", /* font for titles in titlebars */
 	.ndesktops      = 10,           /* number of desktops per monitor */
 
 	/* dock configuration */
