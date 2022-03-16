@@ -3600,6 +3600,7 @@ rowstack(struct Column *col, struct Row *row)
 	} else {
 		return;
 	}
+	colcalcrows(col, 0, 1);
 	containermoveresize(col->c);
 	containerdecorate(col->c, NULL, NULL, 0, 0);
 }
