@@ -6141,6 +6141,8 @@ xeventclientmessage(XEvent *e)
 			c = getnextfocused(mon, prevdesk);
 			if (c != NULL) {
 				tabfocus(c->selcol->selrow->seltab, 0);
+			} else {
+				tabfocus(NULL, 0);
 			}
 		}
 	} else if (ev->message_type == atoms[_NET_REQUEST_FRAME_EXTENTS]) {
