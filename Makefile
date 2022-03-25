@@ -13,13 +13,6 @@ FREETYPEINC ?= /usr/include/freetype2
 INCS += -I${LOCALINC} -I${X11INC} -I${FREETYPEINC}
 LIBS += -L${LOCALLIB} -L${X11LIB} -lfontconfig -lXft -lX11 -lXinerama -lXrender
 
-# flags
-CFLAGS  += ${DEBUG} -Wall -Wextra ${INCS} ${CPPFLAGS}
-LDFLAGS += ${LIBS}
-
-# compiler and linker
-CC ?= cc
-
 # files
 PROGS = shod shodc
 SRCS = ${PROGS:=.c}
@@ -28,20 +21,22 @@ OBJS = ${SRCS:.c=.o}
 all: ${PROGS}
 
 shod: shod.o
-	${CC} -o $@ shod.o ${LDFLAGS}
+	${CC} -o $@ shod.o ${LIBS} ${LDFLAGS}
 
 shod.o: config.h
 
 shodc: shodc.o
-	${CC} -o $@ shodc.o ${LDFLAGS}
+	${CC} -o $@ shodc.o ${LIBS} ${LDFLAGS}
 
 .c.o:
-	${CC} ${CFLAGS} -c $<
+	${CC} ${INCS} ${CFLAGS} ${CPPFLAGS} -c $<
 
 install: all
-	install -D -m 755 shod ${DESTDIR}${PREFIX}/bin/shod
-	install -D -m 755 shodc ${DESTDIR}${PREFIX}/bin/shodc
-	install -D -m 644 shod.1 ${DESTDIR}${MANPREFIX}/man1/shod.1
+	mkdir -p ${DESTDIR}${PREFIX}/bin
+	mkdir -p ${DESTDIR}${MANPREFIX}/man1
+	${INSTALL} -m 755 shod ${DESTDIR}${PREFIX}/bin/shod
+	${INSTALL} -m 755 shodc ${DESTDIR}${PREFIX}/bin/shodc
+	${INSTALL} -m 644 shod.1 ${DESTDIR}${MANPREFIX}/man1/shod.1
 
 uninstall:
 	rm -f ${DESTDIR}${PREFIX}/bin/shod
@@ -49,6 +44,6 @@ uninstall:
 	rm -f ${DESTDIR}${MANPREFIX}/man1/shod.1
 
 clean:
-	-rm ${OBJS} ${PROGS}
+	-rm -f ${OBJS} ${PROGS} ${PROGS:=.core}
 
 .PHONY: all install uninstall clean
