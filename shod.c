@@ -22,6 +22,7 @@
 #define NAMEMAXLEN              1024    /* maximum length of window's name */
 #define DROPPIXELS              30      /* number of pixels from the border where a tab can be dropped in */
 #define RESIZETIME              64      /* time to redraw containers during resizing */
+#define MOVETIME                32      /* time to redraw containers during moving */
 #define MOUSEEVENTMASK          (ButtonReleaseMask | PointerMotionMask | ExposureMask)
 #define DOCKBORDER              2
 #define LEN(x)                  (sizeof(x) / sizeof((x)[0]))
@@ -3451,6 +3452,7 @@ containerstick(struct Container *c, int stick)
 		return;
 	}
 	ewmhsetstate(c);
+	ewmhsetwmdesktop(c);
 }
 
 /* raise container above others */
@@ -5557,6 +5559,7 @@ mousemove(int type, void *obj, int xroot, int yroot, enum Octant o)
 	struct Winres res;
 	Window frame;
 	XEvent ev;
+	Time lasttime;
 	int x, y;
 	int floatx, floaty;
 
@@ -5573,6 +5576,7 @@ mousemove(int type, void *obj, int xroot, int yroot, enum Octant o)
 	XGrabPointer(dpy, frame, False,
 	             ButtonReleaseMask | PointerMotionMask,
 	             GrabModeAsync, GrabModeAsync, None, theme.cursors[CURSOR_MOVE], CurrentTime);
+	lasttime = 0;
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
 		case Expose:
@@ -5585,20 +5589,23 @@ mousemove(int type, void *obj, int xroot, int yroot, enum Octant o)
 			goto done;
 			break;
 		case MotionNotify:
-			x = ev.xmotion.x_root - xroot;
-			y = ev.xmotion.y_root - yroot;
-			if (type == FLOAT_MENU) {
-				menu->x += x;
-				menu->y += y;
-				floatx = menu->x;
-				floaty = menu->y;
-				snaptoedge(&floatx, &floaty, menu->w, menu->h);
-				XMoveWindow(dpy, menu->frame, floatx, floaty);
-			} else {
-				containerincrmove(c, x, y);
+			if (ev.xmotion.time - lasttime > MOVETIME) {
+				x = ev.xmotion.x_root - xroot;
+				y = ev.xmotion.y_root - yroot;
+				if (type == FLOAT_MENU) {
+					menu->x += x;
+					menu->y += y;
+					floatx = menu->x;
+					floaty = menu->y;
+					snaptoedge(&floatx, &floaty, menu->w, menu->h);
+					XMoveWindow(dpy, menu->frame, floatx, floaty);
+				} else {
+					containerincrmove(c, x, y);
+				}
+				lasttime = ev.xmotion.time;
+				xroot = ev.xmotion.x_root;
+				yroot = ev.xmotion.y_root;
 			}
-			xroot = ev.xmotion.x_root;
-			yroot = ev.xmotion.y_root;
 			break;
 		}
 	}
