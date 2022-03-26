@@ -34,9 +34,9 @@ shodc: shodc.o
 install: all
 	mkdir -p ${DESTDIR}${PREFIX}/bin
 	mkdir -p ${DESTDIR}${MANPREFIX}/man1
-	${INSTALL} -m 755 shod ${DESTDIR}${PREFIX}/bin/shod
-	${INSTALL} -m 755 shodc ${DESTDIR}${PREFIX}/bin/shodc
-	${INSTALL} -m 644 shod.1 ${DESTDIR}${MANPREFIX}/man1/shod.1
+	install -m 755 shod ${DESTDIR}${PREFIX}/bin/shod
+	install -m 755 shodc ${DESTDIR}${PREFIX}/bin/shodc
+	install -m 644 shod.1 ${DESTDIR}${MANPREFIX}/man1/shod.1
 
 uninstall:
 	rm -f ${DESTDIR}${PREFIX}/bin/shod

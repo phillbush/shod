@@ -3976,9 +3976,12 @@ snaptoedge(int *x, int *y, int w, int h)
 
 /* move container x pixels to the right and y pixels down */
 static void
-containerincrmove(struct Container *c, int x, int y)
+containerincrmove(struct Container *c, int x, int y, int done)
 {
 	struct Monitor *monto;
+	struct Column *col;
+	struct Row *row;
+	struct Tab *t;
 
 	if (c == NULL || c->isminimized || c->ismaximized || c->isfullscreen)
 		return;
@@ -3987,7 +3990,18 @@ containerincrmove(struct Container *c, int x, int y)
 	c->x = c->nx;
 	c->y = c->ny;
 	snaptoedge(&c->x, &c->y, c->w, c->h);
-	containermoveresize(c);
+	if (done) {
+		containermoveresize(c);
+	} else {
+		XMoveWindow(dpy, c->frame, c->x, c->y);
+		for (col = c->cols; col != NULL; col = col->next) {
+			for (row = col->rows; row != NULL; row = row->next) {
+				for (t = row->tabs; t != NULL; t = t->next) {
+					winnotify(t->win, c->x + col->x, c->y + row->y + config.titlewidth, t->winw, t->winh);
+				}
+			}
+		}
+	}
 	if (!c->issticky) {
 		monto = getmon(c->nx + c->nw / 2, c->ny + c->nh / 2);
 		if (monto != NULL && monto != c->mon) {
@@ -5600,7 +5614,7 @@ mousemove(int type, void *obj, int xroot, int yroot, enum Octant o)
 					snaptoedge(&floatx, &floaty, menu->w, menu->h);
 					XMoveWindow(dpy, menu->frame, floatx, floaty);
 				} else {
-					containerincrmove(c, x, y);
+					containerincrmove(c, x, y, 0);
 				}
 				lasttime = ev.xmotion.time;
 				xroot = ev.xmotion.x_root;
@@ -5610,10 +5624,12 @@ mousemove(int type, void *obj, int xroot, int yroot, enum Octant o)
 		}
 	}
 done:
-	if (type == FLOAT_MENU)
+	if (type == FLOAT_MENU) {
 		menudecorate(menu, 0);
-	else
+	} else {
+		containerincrmove(c, x, y, 1);
 		containerdecorate(c, NULL, NULL, 0, 0);
+	}
 	XUngrabPointer(dpy, CurrentTime);
 }
 
