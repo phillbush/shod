@@ -5350,9 +5350,8 @@ mouseretab(struct Tab *t, int xroot, int yroot, int x, int y)
 	c = col->c;
 	tabdetach(t, xroot - x, yroot - y, c->nw - 2 * config.borderwidth, c->nh - 2 * config.borderwidth - config.titlewidth);
 	containermoveresize(c);
-	XGrabPointer(dpy, t->title, False,
-	             ButtonReleaseMask | PointerMotionMask,
-	             GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
+	if (XGrabPointer(dpy, t->title, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, None, CurrentTime) != GrabSuccess)
+		goto done;
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
 		case Expose:
@@ -5491,7 +5490,8 @@ mouseresize(int type, void *obj, int xroot, int yroot, enum Octant o)
 		y = *ny + *nh - config.borderwidth - yroot;
 	else
 		y = 0;
-	XGrabPointer(dpy, frame, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, curs, CurrentTime);
+	if (XGrabPointer(dpy, frame, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, curs, CurrentTime) != GrabSuccess)
+		goto done;
 	lasttime = 0;
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
@@ -5587,9 +5587,8 @@ mousemove(int type, void *obj, int xroot, int yroot, enum Octant o)
 		frame = c->frame;
 	}
 	x = y = 0;
-	XGrabPointer(dpy, frame, False,
-	             ButtonReleaseMask | PointerMotionMask,
-	             GrabModeAsync, GrabModeAsync, None, theme.cursors[CURSOR_MOVE], CurrentTime);
+	if (XGrabPointer(dpy, frame, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, theme.cursors[CURSOR_MOVE], CurrentTime) != GrabSuccess)
+		goto done;
 	lasttime = 0;
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
@@ -5654,8 +5653,8 @@ mousererow(struct Row *row)
 	y = 0;
 	buttonleftdecorate(row, 1);
 	XRaiseWindow(dpy, row->bar);
-	XGrabPointer(dpy, row->bar, False, ButtonReleaseMask | PointerMotionMask,
-	             GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
+	if (XGrabPointer(dpy, row->bar, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, None, CurrentTime) != GrabSuccess)
+		goto done;
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch(ev.type) {
 		case Expose:
@@ -5739,7 +5738,8 @@ mouseclose(int type, void *obj)
 		win = row->seltab->ds != NULL ? row->seltab->ds->win : row->seltab->win;
 		buttonrightdecorate(button, row->pixbr, tabgetstyle(row->seltab), 1);
 	}
-	XGrabPointer(dpy, button, False, ButtonReleaseMask, GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
+	if (XGrabPointer(dpy, button, False, ButtonReleaseMask, GrabModeAsync, GrabModeAsync, None, None, CurrentTime) != GrabSuccess)
+		goto done;
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch(ev.type) {
 		case Expose:
@@ -5787,8 +5787,8 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 	update = 0;
 	lasttime = 0;
 	containerdecorate(c, cdiv, rdiv, 0, 0);
-	XGrabPointer(dpy, c->frame, False, ButtonReleaseMask | PointerMotionMask,
-	             GrabModeAsync, GrabModeAsync, None, curs, CurrentTime);
+	if (XGrabPointer(dpy, c->frame, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, curs, CurrentTime) != GrabSuccess)
+		goto done;
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
 		case Expose:
@@ -5859,8 +5859,8 @@ mousestack(struct Row *row)
 	XEvent ev;
 
 	buttonleftdecorate(row, 1);
-	XGrabPointer(dpy, row->bl, False, ButtonReleaseMask,
-	             GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
+	if (XGrabPointer(dpy, row->bl, False, ButtonReleaseMask, GrabModeAsync, GrabModeAsync, None, None, CurrentTime) != GrabSuccess)
+		goto done;
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch(ev.type) {
 		case Expose:
