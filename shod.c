@@ -4088,15 +4088,13 @@ tabfocus(struct Tab *t, int gotodesk)
 		XRaiseWindow(dpy, t->frame);
 		if (c->isshaded) {
 			XSetInputFocus(dpy, c->frame, RevertToParent, CurrentTime);
-			ewmhsetactivewindow(t->win);
 		} else if (t->ds != NULL) {
 			XRaiseWindow(dpy, t->ds->frame);
 			XSetInputFocus(dpy, t->ds->win, RevertToParent, CurrentTime);
-			ewmhsetactivewindow(t->ds->win);
 		} else {
 			XSetInputFocus(dpy, t->win, RevertToParent, CurrentTime);
-			ewmhsetactivewindow(t->win);
 		}
+		ewmhsetactivewindow(t->win);
 		if (t->isurgent)
 			tabclearurgency(t);
 		menumap(t);
@@ -4785,27 +4783,39 @@ dockupdate(void)
 		switch (config.dockgravity[0]) {
 		case 'N':
 			dapp->x = DOCKBORDER + size;
+			dapp->y = DOCKBORDER;
 			n = dapp->w / config.dockspace + (dapp->w % config.dockspace ? 1 : 0);
+			n *= config.dockspace;
+			dapp->x += max(0, (n - dapp->w) / 2);
+			dapp->y += max(0, (config.dockwidth - dapp->h) / 2);
 			break;
 		case 'S':
 			dapp->x = DOCKBORDER + size;
 			dapp->y = DOCKBORDER;
 			n = dapp->w / config.dockspace + (dapp->w % config.dockspace ? 1 : 0);
+			n *= config.dockspace;
+			dapp->x += max(0, (n - dapp->w) / 2);
+			dapp->y += max(0, (config.dockwidth - dapp->h) / 2);
 			break;
 		case 'W':
+			dapp->x = DOCKBORDER;
 			dapp->y = DOCKBORDER + size;
 			n = dapp->h / config.dockspace + (dapp->h % config.dockspace ? 1 : 0);
+			n *= config.dockspace;
+			dapp->x += max(0, (config.dockwidth - dapp->w) / 2);
+			dapp->y += max(0, (n - dapp->h) / 2);
 			break;
 		case 'E':
 		default:
 			dapp->y = DOCKBORDER + size;
 			dapp->x = DOCKBORDER;
 			n = dapp->h / config.dockspace + (dapp->h % config.dockspace ? 1 : 0);
+			n *= config.dockspace;
+			dapp->x += max(0, (config.dockwidth - dapp->w) / 2);
+			dapp->y += max(0, (n - dapp->h) / 2);
 			break;
 		}
-		dapp->x += (config.dockspace - (dapp->w % config.dockspace)) % config.dockspace / 2;
-		dapp->y += (config.dockspace - (dapp->h % config.dockspace)) % config.dockspace / 2;
-		size += n * config.dockspace;
+		size += n;
 	}
 	if (size == 0) {
 		XUnmapWindow(dpy, dock.win);
@@ -4868,6 +4878,7 @@ dockupdate(void)
 	}
 	for (dapp = dock.head; dapp != NULL; dapp = dapp->next) {
 		XMoveWindow(dpy, dapp->win, dapp->x, dapp->y);
+		winnotify(dapp->win, dock.x + dapp->x, dock.y + dapp->y, dapp->w, dapp->h);
 	}
 	dockdecorate();
 	wins[0] = wm.layerwins[LAYER_DOCK];
@@ -5211,11 +5222,12 @@ manage(Window win, int x, int y, int w, int h, int ignoreunmap)
 	case TYPE_DESKTOP:
 		managedesktop(win);
 		break;
-	case TYPE_DOCKAPP:
-		managedockapp(win, w, h, wintype.dockpos, ignoreunmap);
-		break;
 	case TYPE_DOCK:
 		managebar(win);
+		break;
+	case TYPE_DOCKAPP:
+		preparewin(win);
+		managedockapp(win, w, h, wintype.dockpos, ignoreunmap);
 		break;
 	case TYPE_NOTIFICATION:
 		preparewin(win);
@@ -6270,7 +6282,7 @@ xeventconfigurerequest(XEvent *e)
 		} else {
 			containermoveresize(res.c);
 		}
-	} else if (res.c == NULL){
+	} else if (res.c == NULL && res.dapp == NULL){
 		XConfigureWindow(dpy, ev->window, ev->value_mask, &wc);
 	}
 }

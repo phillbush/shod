@@ -15,8 +15,7 @@ LIBS += -L${LOCALLIB} -L${X11LIB} -lfontconfig -lXft -lX11 -lXinerama -lXrender
 
 # files
 PROGS = shod shodc
-SRCS = ${PROGS:=.c}
-OBJS = ${SRCS:.c=.o}
+SRCS = shod.c shodc.c config.h
 
 all: ${PROGS}
 
@@ -31,6 +30,9 @@ shodc: shodc.o
 .c.o:
 	${CC} ${INCS} ${CFLAGS} ${CPPFLAGS} -c $<
 
+tags: ${SRCS}
+	ctags ${SRCS}
+
 install: all
 	mkdir -p ${DESTDIR}${PREFIX}/bin
 	mkdir -p ${DESTDIR}${MANPREFIX}/man1
@@ -44,6 +46,6 @@ uninstall:
 	rm -f ${DESTDIR}${MANPREFIX}/man1/shod.1
 
 clean:
-	-rm -f ${OBJS} ${PROGS} ${PROGS:=.core}
+	rm -f ${PROGS} ${PROGS:=.o} ${PROGS:=.core} tags
 
 .PHONY: all install uninstall clean
