@@ -5635,12 +5635,10 @@ mousemove(int type, void *obj, int xroot, int yroot, enum Octant o)
 		}
 	}
 done:
-	if (type == FLOAT_MENU) {
+	if (type == FLOAT_MENU)
 		menudecorate(menu, 0);
-	} else {
-		containerincrmove(c, x, y, 1);
+	else
 		containerdecorate(c, NULL, NULL, 0, 0);
-	}
 	XUngrabPointer(dpy, CurrentTime);
 }
 
@@ -6037,7 +6035,7 @@ xeventclientmessage(XEvent *e)
 			deskfocus(wm.selmon->seldesk, 1);
 		}
 	} else if (ev->message_type == atoms[_NET_WM_STATE]) {
-		if (res.c == NULL)
+		if (res.c == NULL || res.d != NULL || res.menu != NULL)
 			return;
 		if (((Atom)ev->data.l[1] == atoms[_NET_WM_STATE_MAXIMIZED_VERT] ||
 		     (Atom)ev->data.l[1] == atoms[_NET_WM_STATE_MAXIMIZED_HORZ]) &&
