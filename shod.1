@@ -60,6 +60,9 @@ a controller called
 .IR shodc (1)
 to control shod).
 .PP
+.B shod
+passes its standard input to the shell after initializing itself.
+.PP
 The options are as follows:
 .TP
 .B \-c
@@ -687,6 +690,10 @@ The following environment variables affect the execution of
 The display to start
 .B shod
 on.
+.TP
+.B SHELL
+The shell to run with
+.IR exec (3).
 .SH SEE ALSO
 .IR X (1),
 .IR xprompt (1),

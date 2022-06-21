@@ -1,3 +1,5 @@
+#include <sys/wait.h>
+
 #include <err.h>
 #include <limits.h>
 #include <locale.h>
@@ -6,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 #include <X11/Xproto.h>
@@ -17,6 +20,8 @@
 #include <X11/extensions/Xrender.h>
 #include <X11/Xft/Xft.h>
 
+#define SHELL                   "SHELL"
+#define DEF_SHELL               "sh"
 #define DIV                     15      /* see containerplace() for details */
 #define IGNOREUNMAP             6       /* number of unmap notifies to ignore while scanning existing clients */
 #define NAMEMAXLEN              1024    /* maximum length of window's name */
@@ -630,6 +635,26 @@ ecalloc(size_t nmemb, size_t size)
 	if ((p = calloc(nmemb, size)) == NULL)
 		err(1, "malloc");
 	return p;
+}
+
+/* call fork checking for error; exit on error */
+static pid_t
+efork(void)
+{
+	pid_t pid;
+
+	if ((pid = fork()) < 0)
+		err(1, "fork");
+	return pid;
+}
+
+/* call execlp checking for error; exit on error */
+static void
+eexec(const char *cmd)
+{
+	if (execlp(cmd, cmd, NULL) == -1) {
+		err(1, "%s", cmd);
+	}
 }
 
 /* get color from color string */
@@ -6461,6 +6486,23 @@ xeventunmapnotify(XEvent *e)
 	ewmhsetclientsstacking();
 }
 
+/* run stdin on sh */
+static void
+autostart(void)
+{
+	pid_t pid;
+	char *shell;
+
+	if ((shell = getenv(SHELL)) == NULL)
+		shell = DEF_SHELL;
+	if ((pid = efork()) == 0) {
+		if (efork() == 0)
+			eexec(shell);
+		exit(0);
+	}
+	waitpid(pid, NULL, 0);
+}
+
 /* destroy dummy windows */
 static void
 cleandummywindows(void)
@@ -6585,6 +6627,9 @@ main(int argc, char *argv[])
 	ewmhsetclients();
 	ewmhsetclientsstacking();
 	ewmhsetactivewindow(None);
+
+	/* run stdin on sh */
+	autostart();
 
 	/* scan windows */
 	scan();
