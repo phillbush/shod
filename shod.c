@@ -3143,6 +3143,7 @@ dialogmoveresize(struct Dialog *d)
 	struct Container *c;
 	int dx, dy, dw, dh;
 
+	dialogcalcsize(d);
 	c = d->t->row->col->c;
 	dx = d->x - config.borderwidth;
 	dy = d->y - config.borderwidth;
@@ -5068,7 +5069,6 @@ managedialog(struct Tab *t, struct Dialog *d)
 	t->ds = d;
 	XReparentWindow(dpy, d->frame, t->frame, 0, 0);
 	icccmwmstate(d->win, NormalState);
-	dialogcalcsize(d);
 	dialogmoveresize(d);
 	XMapRaised(dpy, d->frame);
 	if (wm.focused != NULL && wm.focused->selcol->selrow->seltab == t)
