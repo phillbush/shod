@@ -1,3 +1,4 @@
+#include <sys/queue.h>
 #include <sys/wait.h>
 
 #include <err.h>
@@ -33,7 +34,7 @@
 #define LEN(x)                  (sizeof(x) / sizeof((x)[0]))
 #define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
 
-#define TITLEWIDTH(c)   (((c)->isfullscreen && (c)->ncols == 1 && (c)->cols->nrows == 1) ? 0 : config.titlewidth)
+#define TITLEWIDTH(c)   (((c)->isfullscreen && (c)->ncols == 1 && TAILQ_FIRST(&(c)->colq)->nrows == 1) ? 0 : config.titlewidth)
 
 /* window type */
 enum {
@@ -45,7 +46,8 @@ enum {
 	TYPE_NOTIFICATION,
 	TYPE_PROMPT,
 	TYPE_SPLASH,
-	TYPE_DOCKAPP
+	TYPE_DOCKAPP,
+	TYPE_LAST
 };
 
 /* floating object type */
@@ -290,67 +292,29 @@ enum Octant {
 	SE = (1 << 1) | (1 << 3),
 };
 
-/* structure returned by getwintype */
-struct Wintype {
-	struct Tab *parent;             /* window parent tab */
-	Window leader;                  /* window leader */
-	int type;                       /* window type */
-	int dockpos;                    /* position of the dockapp in the dock */
+/* data of a monitor */
+TAILQ_HEAD(MonitorQueue, Monitor);
+struct Monitor {
+	TAILQ_ENTRY(Monitor) entry;
+	int seldesk;                            /* focused desktop on that monitor */
+	int mx, my, mw, mh;                     /* monitor size */
+	int wx, wy, ww, wh;                     /* window area */
 };
 
-/* struct returned by getwindow */
-struct Winres {
-	struct Dock *dock;              /* dock of window */
-	struct Dockapp *dapp;           /* dockapp of window */
-	struct Bar *bar;                /* bar of window */
-	struct Notification *n;         /* notification of window */
-	struct Container *c;            /* container of window */
-	struct Row *row;                /* row (with buttons) of window */
-	struct Tab *t;                  /* tab of window */
-	struct Dialog *d;               /* dialog of window */
-	struct Splash *splash;          /* splash window */
-	struct Menu *menu;              /* menu of window */
-};
-
-/* dialog window structure */
-struct Dialog {
-	struct Dialog *prev, *next;             /* pointer for list of dialogs */
-	struct Tab *t;                          /* pointer to parent tab */
-	Window frame;                           /* window to reparent the client window */
-	Window win;                             /* actual client window */
-	Pixmap pix;                             /* pixmap to draw the frame */
-	int x, y, w, h;                         /* geometry of the dialog inside the tab frame */
-	int maxw, maxh;                         /* maximum size of the dialog */
-	int pw, ph;                             /* pixmap size */
-	int ignoreunmap;                        /* number of unmapnotifys to ignore */
-};
-
-/* tab structure */
-struct Tab {
-	struct Tab *prev, *next;                /* pointer for list of tabs */
-	struct Row *row;                        /* pointer to parent row */
-	struct Dialog *ds;                      /* pointer to list of dialogs */
-	struct Menu *menus;                     /* pointer to list of menus */
-	Window title;                           /* title bar */
-	Window win;                             /* actual client window */
-	Window frame;                           /* window to reparent the client window */
-	Window leader;                          /* the group leader of the window */
-	Pixmap pix;                             /* pixmap to draw the background of the frame */
-	Pixmap pixtitle;                        /* pixmap to draw the background of the title window */
-	char *name;                             /* client name */
-	int ignoreunmap;                        /* number of unmapnotifys to ignore */
-	int isurgent;                           /* whether tab is urgent */
-	int winw, winh;                         /* window geometry */
-	int x, w;                               /* tab geometry */
-	int ptw;                                /* pixmap width for the title window */
-	int pw, ph;                             /* pixmap size of the frame */
+/* managed object */
+TAILQ_HEAD(Queue, Object);
+struct Object {
+	TAILQ_ENTRY(Object) entry;
+	Window win;
+	int type;
 };
 
 /* row of tiled container */
+TAILQ_HEAD(RowQueue, Row);
 struct Row {
-	struct Row *prev, *next;                /* pointer for list of rows */
+	TAILQ_ENTRY(Row) entry;
+	struct Queue tabq;                      /* list of tabs */
 	struct Column *col;                     /* pointer to parent column */
-	struct Tab *tabs;                       /* list of tabs */
 	struct Tab *seltab;                     /* pointer to selected tab */
 	Window div;                             /* horizontal division between rows */
 	Window frame;                           /* where tab frames are */
@@ -367,10 +331,11 @@ struct Row {
 };
 
 /* column of tiled container */
+TAILQ_HEAD(ColumnQueue, Column);
 struct Column {
-	struct Column *prev, *next;             /* pointers for list of columns */
+	TAILQ_ENTRY(Column) entry;
+	struct RowQueue rowq;                   /* list of rows */
 	struct Container *c;                    /* pointer to parent container */
-	struct Row *rows;                       /* list of rows */
 	struct Row *selrow;                     /* pointer to selected row */
 	struct Row *maxrow;                     /* maximized row */
 	Window div;                             /* vertical division between columns */
@@ -380,17 +345,17 @@ struct Column {
 };
 
 /* container structure */
+TAILQ_HEAD(ContainerQueue, Container);
 struct Container {
-	struct Container *prev, *next;          /* pointers for list of containers */
-	struct Container *fprev, *fnext;        /* pointers for list of containers in decrescent focus order */
-	struct Container *rprev, *rnext;        /* pointers for list of containers from raised to lowered */
+	TAILQ_ENTRY(Container) entry;
+	TAILQ_ENTRY(Container) raiseentry;
+	struct ColumnQueue colq;                /* list of columns in container */
 	struct Monitor *mon;                    /* monitor container is on */
-	struct Desktop *desk;                   /* desktop container is on */
-	struct Column *cols;                    /* list of columns in container */
 	struct Column *selcol;                  /* pointer to selected container */
 	Window curswin[BORDER_LAST];            /* dummy window used for change cursor while hovering borders */
 	Window frame;                           /* window to reparent the contents of the container */
 	Pixmap pix;                             /* pixmap to draw the frame */
+	int desk;                               /* desktop container is on */
 	int ncols;                              /* number of columns */
 	int ismaximized, issticky;              /* window states */
 	int isminimized, isshaded;              /* window states */
@@ -402,14 +367,45 @@ struct Container {
 	int nx, ny, nw, nh;                     /* non-maximized geometry */
 };
 
+/* tab structure */
+struct Tab {
+	struct Object obj;
+	struct Queue dialq;                     /* queue of dialogs */
+	struct Queue menuq;                     /* queue of menus */
+	struct Row *row;                        /* pointer to parent row */
+	Window title;                           /* title bar */
+	Window frame;                           /* window to reparent the client window */
+	Window leader;                          /* the group leader of the window */
+	Pixmap pix;                             /* pixmap to draw the background of the frame */
+	Pixmap pixtitle;                        /* pixmap to draw the background of the title window */
+	char *name;                             /* client name */
+	int ignoreunmap;                        /* number of unmapnotifys to ignore */
+	int isurgent;                           /* whether tab is urgent */
+	int winw, winh;                         /* window geometry */
+	int x, w;                               /* tab geometry */
+	int ptw;                                /* pixmap width for the title window */
+	int pw, ph;                             /* pixmap size of the frame */
+};
+
+/* dialog window structure */
+struct Dialog {
+	struct Object obj;
+	struct Tab *tab;                        /* pointer to parent tab */
+	Window frame;                           /* window to reparent the client window */
+	Pixmap pix;                             /* pixmap to draw the frame */
+	int x, y, w, h;                         /* geometry of the dialog inside the tab frame */
+	int maxw, maxh;                         /* maximum size of the dialog */
+	int pw, ph;                             /* pixmap size */
+	int ignoreunmap;                        /* number of unmapnotifys to ignore */
+};
+
 /* menu structure */
 struct Menu {
-	struct Menu *prev, *next;               /* pointers for list of menus */
-	struct Tab *t;                          /* pointer to parent tab */
+	struct Object obj;
+	struct Tab *tab;                        /* pointer to parent tab */
 	Window titlebar;                        /* close button */
 	Window button;                          /* close button */
 	Window frame;                           /* frame window */
-	Window win;                             /* the actual menu window */
 	Pixmap pix;                             /* pixmap to draw the frame */
 	Pixmap pixbutton;                       /* pixmap to draw the button */
 	Pixmap pixtitlebar;                     /* pixmap to draw the titlebar */
@@ -420,24 +416,16 @@ struct Menu {
 	char *name;                             /* client name */
 };
 
-/* desktop of a monitor */
-struct Desktop {
-	struct Monitor *mon;                    /* monitor the desktop is in */
-	int n;                                  /* desktop number */
-};
-
 /* bar (aka dock or panel) */
 struct Bar {
-	struct Bar *prev, *next;                /* pointers for list of bars */
-	Window win;                             /* bar window */
+	struct Object obj;
 	int strut[STRUT_LAST];                  /* strut values */
 	int partial;                            /* strut has 12 elements rather than 4 */
 };
 
 /* docked application */
 struct Dockapp {
-	struct Dockapp *prev, *next;
-	Window win;                     /* dockapp window */
+	struct Object obj;
 	int x, y, w, h;                 /* dockapp position and size */
 	int ignoreunmap;                /* number of unmap requests to ignore */
 	int dockpos;                    /* position of the dockapp in the dock */
@@ -445,29 +433,25 @@ struct Dockapp {
 
 /* splash screen window */
 struct Splash {
-	struct Splash *prev, *next;             /* pointers for list of splash windows */
-	Window win;                             /* actual client window */
+	struct Object obj;
 	int x, y, w, h;                         /* splash screen geometry */
-};
-
-/* data of a monitor */
-struct Monitor {
-	struct Monitor *prev, *next;            /* pointers for list of monitors */
-	struct Desktop *desks;                  /* array of desktops */
-	struct Desktop *seldesk;                /* pointer to focused desktop on that monitor */
-	int mx, my, mw, mh;                     /* monitor size */
-	int wx, wy, ww, wh;                     /* window area */
-	int n;                                  /* monitor number */
 };
 
 /* notification structure */
 struct Notification {
-	struct Notification *prev, *next;       /* pointers for list of notifications */
+	struct Object obj;
 	Window frame;                           /* window to reparent the actual client window */
-	Window win;                             /* actual client window */
 	Pixmap pix;                             /* pixmap to draw the frame */
 	int w, h;                               /* geometry of the entire thing (content + decoration) */
 	int pw, ph;                             /* pixmap width and height */
+};
+
+/* structure returned by getwintype */
+struct Wintype {
+	struct Tab *parent;             /* window parent tab */
+	Window leader;                  /* window leader */
+	int type;                       /* window type */
+	int dockpos;                    /* position of the dockapp in the dock */
 };
 
 /* prompt structure, used only when calling promptisvalid() */
@@ -491,7 +475,7 @@ struct Theme {
 
 /* the dock */
 struct Dock {
-	struct Dockapp *head, *tail;    /* list of dockapps */
+	struct Queue dappq;
 	Window win;                     /* dock window */
 	Pixmap pix;                     /* dock pixmap */
 	int x, y, w, h;                 /* dock geometry */
@@ -510,16 +494,15 @@ struct MwmHints {
 
 /* window manager stuff */
 struct WM {
-	struct Bar *bars;                       /* list of bars */
-	struct Splash *splashlist;              /* list of splash screen windows */
-	struct Monitor *monhead, *montail;      /* list of monitors */
-	struct Notification *nhead, *ntail;     /* list of notifications */
-	struct Container *c;                    /* list of containers */
-	struct Container *focuslist;            /* list of containers ordered by focus history */
-	struct Container *fulllist;             /* list of containers ordered from topmost to bottommost */
-	struct Container *abovelist;            /* list of containers ordered from topmost to bottommost */
-	struct Container *centerlist;           /* list of containers ordered from topmost to bottommost */
-	struct Container *belowlist;            /* list of containers ordered from topmost to bottommost */
+	struct MonitorQueue monq;               /* queue of monitors */
+	struct Queue barq;                      /* queue of bars */
+	struct Queue splashq;                   /* queue of splash screen windows */
+	struct Queue notifq;                    /* queue of notifications */
+	struct ContainerQueue focusq;           /* queue of containers ordered by focus history */
+	struct ContainerQueue fullq;            /* queue of containers ordered from topmost to bottommost */
+	struct ContainerQueue aboveq;           /* queue of containers ordered from topmost to bottommost */
+	struct ContainerQueue centerq;          /* queue of containers ordered from topmost to bottommost */
+	struct ContainerQueue belowq;           /* queue of containers ordered from topmost to bottommost */
 	struct Container *focused;              /* pointer to focused container */
 	struct Container *prevfocused;          /* pointer to previously focused container */
 	struct Monitor *selmon;                 /* pointer to selected monitor */
@@ -1078,6 +1061,7 @@ initdock(void)
 {
 	XSetWindowAttributes swa;
 
+	TAILQ_INIT(&dock.dappq);
 	dock.pix = None;
 	swa.event_mask = SubstructureNotifyMask | SubstructureRedirectMask | ExposureMask;
 	swa.background_pixel = BlackPixel(dpy, screen);
@@ -1087,98 +1071,57 @@ initdock(void)
 		                     depth, InputOutput, visual, clientmask, &swa);
 }
 
-/* get pointer to proper structure given a window */
-static struct Winres
-getwin(Window win)
+#define GETMANAGED(type, head, p, w)                            \
+	TAILQ_FOREACH(p, &(head), entry)                        \
+		if (p->win == w)                                \
+			return (p);                             \
+
+/* get pointer to managed object given a window */
+static struct Object *
+getmanaged(Window win)
 {
-	struct Winres res;
-	struct Dockapp *dapp;
-	struct Bar *bar;
+	struct Object *p, *tab, *dial, *menu;
 	struct Container *c;
 	struct Column *col;
 	struct Row *row;
-	struct Tab *t;
-	struct Dialog *d;
-	struct Menu *menu;
-	struct Splash *splash;
-	struct Notification *n;
 	int i;
 
-	res = (struct Winres){0};
-	if (win == dock.win) {
-		res.dock = &dock;
-		return res;
-	}
-	for (dapp = dock.head; dapp != NULL; dapp = dapp->next) {
-		if (win == dapp->win) {
-			res.dapp = dapp;
-			return res;
-		}
-	}
-	for (bar = wm.bars; bar != NULL; bar = bar->next) {
-		if (win == bar->win) {
-			res.bar = bar;
-			return res;
-		}
-	}
-	for (n = wm.nhead; n != NULL; n = n->next) {
-		if (win == n->frame || win == n->win) {
-			res.n = n;
-			return res;
-		}
-	}
-	for (splash = wm.splashlist; splash != NULL; splash = splash->next) {
-		if (win == splash->win) {
-			res.splash = splash;
-			return res;
-		}
-	}
-	for (c = wm.c; c != NULL; c = c->next) {
-		if (win == c->frame) {
-			res.c = c;
-			return res;
-		}
-		for (i = 0; i < BORDER_LAST; i++) {
-			if (win == c->curswin[i]) {
-				res.c = c;
-				return res;
-			}
-		}
-		for (col = c->cols; col != NULL; col = col->next) {
-			for (row = col->rows; row != NULL; row = row->next) {
-				if (win == row->bar || win == row->bl || win == row->br) {
-					res.c = c;
-					res.row = row;
-					return res;
-				}
-				for (t = row->tabs; t != NULL; t = t->next) {
-					if (win == t->win || win == t->frame || win == t->title) {
-						res.c = c;
-						res.t = t;
-						return res;
-					}
-					for (d = t->ds; d != NULL; d = d->next) {
-						if (win == d->win || win == d->frame) {
-							res.c = c;
-							res.t = t;
-							res.d = d;
-							return res;
+	GETMANAGED(Dockapp, dock.dappq, p, win)
+	GETMANAGED(Bar, wm.barq, p, win)
+	GETMANAGED(Notification, wm.notifq, p, win)
+	GETMANAGED(Splash, wm.splashq, p, win)
+	TAILQ_FOREACH(c, &wm.focusq, entry) {
+		if (c->frame == win)
+			return (struct Object *)c->selcol->selrow->seltab;
+		for (i = 0; i < BORDER_LAST; i++)
+			if (c->curswin[i] == win)
+				return (struct Object *)c->selcol->selrow->seltab;
+		TAILQ_FOREACH(col, &(c)->colq, entry) {
+			TAILQ_FOREACH(row, &col->rowq, entry) {
+				if (row->bar == win || row->bl == win || row->br == win)
+					return (struct Object *)row->seltab;
+				TAILQ_FOREACH(tab, &row->tabq, entry) {
+					if (tab->win == win ||
+					    ((struct Tab *)tab)->frame == win ||
+					    ((struct Tab *)tab)->title == win)
+						return tab;
+					TAILQ_FOREACH(dial, &((struct Tab *)tab)->dialq, entry) {
+						if (dial->win == win ||
+						    ((struct Dialog *)dial)->frame == win)
+							return dial;
 						}
-					}
-					for (menu = t->menus; menu != NULL; menu = menu->next) {
-						if (win == menu->win || win == menu->frame || win == menu->button || win == menu->titlebar) {
-							res.c = c;
-							res.t = t;
-							res.menu = menu;
-							return res;
-						}
+					TAILQ_FOREACH(menu, &((struct Tab *)tab)->menuq, entry) {
+						if (menu->win == win ||
+						    ((struct Menu *)menu)->frame == win ||
+						    ((struct Menu *)menu)->button == win ||
+						    ((struct Menu *)menu)->titlebar == win)
+							return menu;
 					}
 				}
 			}
 		}
-
 	}
-	return res;
+	return NULL;
 }
 
 /* get monitor given coordinates */
@@ -1187,9 +1130,8 @@ getmon(int x, int y)
 {
 	struct Monitor *mon;
 
-	for (mon = wm.monhead; mon; mon = mon->next)
-		if (x >= mon->mx && x <= mon->mx + mon->mw &&
-		    y >= mon->my && y <= mon->my + mon->mh)
+	TAILQ_FOREACH(mon, &wm.monq, entry)
+		if (x >= mon->mx && x <= mon->mx + mon->mw && y >= mon->my && y <= mon->my + mon->mh)
 			return mon;
 	return NULL;
 }
@@ -1262,31 +1204,41 @@ getmwmhints(Window win)
 static struct Tab *
 getdialogfor(Window win)
 {
-	struct Winres res;
+	struct Object *obj;
 	Window tmpwin;
 
 	if (XGetTransientForHint(dpy, win, &tmpwin)) {
-		res = getwin(tmpwin);
-		return res.t;
+		obj = getmanaged(tmpwin);
+		if (obj->type == TYPE_NORMAL) {
+			return (struct Tab *)obj;
+		}
 	}
 	return NULL;
 }
+
+#define TAB_FOREACH_BEGIN(c, tab) {                             \
+	struct Column *col;                                     \
+	struct Row *row;                                        \
+	TAILQ_FOREACH(col, &(c)->colq, entry) {                 \
+		TAILQ_FOREACH(row, &col->rowq, entry) {         \
+			TAILQ_FOREACH(tab, &row->tabq, entry)
+#define TAB_FOREACH_END }                                       \
+		}                                               \
+	}
 
 /* get tab equal to leader or having leader as group leader */
 static struct Tab *
 getleaderof(Window leader)
 {
 	struct Container *c;
-	struct Column *col;
-	struct Row *row;
-	struct Tab *t;
+	struct Object *tab;
 
-	for (c = wm.c; c != NULL; c = c->next)
-		for (col = c->cols; col != NULL; col = col->next)
-			for (row = col->rows; row != NULL; row = row->next)
-				for (t = row->tabs; t != NULL; t = t->next)
-					if (t->win == leader || t->leader == leader)
-						return t;
+	TAILQ_FOREACH(c, &wm.focusq, entry) {
+		TAB_FOREACH_BEGIN(c, tab){
+			if (tab->win == leader || ((struct Tab *)tab)->leader == leader)
+				return (struct Tab *)tab;
+		}TAB_FOREACH_END
+	}
 	return NULL;
 }
 
@@ -1437,11 +1389,11 @@ clientsdecr(void)
 
 /* get focused fullscreen window in given monitor and desktop */
 static struct Container *
-getfullscreen(struct Monitor *mon, struct Desktop *desk)
+getfullscreen(struct Monitor *mon, int desk)
 {
 	struct Container *c;
 
-	for (c = wm.fulllist; c != NULL; c = c->rnext)
+	TAILQ_FOREACH(c, &wm.fullq, raiseentry)
 		if (!c->isminimized && c->mon == mon && (c->issticky || c->desk == desk))
 			return c;
 	return NULL;
@@ -1449,108 +1401,14 @@ getfullscreen(struct Monitor *mon, struct Desktop *desk)
 
 /* get next focused container after old on given monitor and desktop */
 static struct Container *
-getnextfocused(struct Monitor *mon, struct Desktop *desk)
+getnextfocused(struct Monitor *mon, int desk)
 {
 	struct Container *c;
 
-	for (c = wm.focuslist; c != NULL; c = c->fnext) {
-		if (c->mon == mon && (c->issticky || c->desk == desk)) {
-			break;
-		}
-	}
-	return c;
-}
-
-/* get next focused container in given direction from rel (relative) */
-static struct Container *
-getfocusedbydirection(struct Container *rel, int dir)
-{
-	struct Monitor *mon;
-	struct Desktop *desk;
-	struct Container *c, *ret;
-	int retx, rety, relx, rely, x, y;
-
-	ret = NULL;
-	relx = rel->x + rel->w / 2;
-	rely = rel->y + rel->h / 2;
-	mon = rel->mon;
-	desk = rel->issticky ? rel->mon->seldesk : rel->desk;
-	for (c = wm.focuslist; c != NULL; c = c->fnext) {
-		if (c == rel || c->isminimized)
-			continue;
-		if (c->mon == mon && (c->issticky || c->desk == desk)) {
-			x = c->x + c->w / 2;
-			y = c->y + c->h / 2;
-			switch (dir) {
-			case _SHOD_FOCUS_LEFT_CONTAINER:
-				if (x <= relx && (ret == NULL || x > retx))
-					ret = c;
-				break;
-			case _SHOD_FOCUS_RIGHT_CONTAINER:
-				if (x >= relx && (ret == NULL || x < retx))
-					ret = c;
-				break;
-			case _SHOD_FOCUS_TOP_CONTAINER:
-				if (y <= rely && (ret == NULL || y > rety))
-					ret = c;
-				break;
-			case _SHOD_FOCUS_BOTTOM_CONTAINER:
-				if (y >= rely && (ret == NULL || y < rety))
-					ret = c;
-				break;
-			default:
-				return NULL;
-			}
-			if (ret != NULL) {
-				retx = ret->x + ret->w / 2;
-				rety = ret->y + ret->h / 2;
-			}
-		}
-	}
-	return ret;
-}
-
-/* get first focused container in the same monitor and desktop of rel */
-static struct Container *
-getfirstfocused(struct Container *rel)
-{
-	struct Monitor *mon;
-	struct Desktop *desk;
-	struct Container *c;
-
-	mon = rel->mon;
-	desk = rel->issticky ? rel->mon->seldesk : rel->desk;
-	for (c = wm.focuslist; c != NULL; c = c->fnext) {
-		if (c == rel)
-			return NULL;
-		if (c->isminimized)
-			continue;
-		if (c->mon == mon && (c->issticky || c->desk == desk)) {
+	TAILQ_FOREACH(c, &wm.focusq, entry)
+		if (c->mon == mon && (c->issticky || c->desk == desk))
 			return c;
-		}
-	}
 	return NULL;
-}
-
-/* get last focused container in the same monitor and desktop of rel */
-static struct Container *
-getlastfocused(struct Container *rel)
-{
-	struct Monitor *mon;
-	struct Desktop *desk;
-	struct Container *c, *ret;
-
-	ret = NULL;
-	mon = rel->mon;
-	desk = rel->issticky ? rel->mon->seldesk : rel->desk;
-	for (c = rel; c != NULL; c = c->fnext) {
-		if (c->isminimized)
-			continue;
-		if (c != rel && c->mon == mon && (c->issticky || c->desk == desk)) {
-			ret = c;
-		}
-	}
-	return ret;
 }
 
 /* get pointer position within a container */
@@ -1588,42 +1446,20 @@ getdivisions(struct Container *c, struct Column **cdiv, struct Row **rdiv, int x
 
 	*cdiv = NULL;
 	*rdiv = NULL;
-	for (col = c->cols; col != NULL; col = col->next) {
-		if (col->next != NULL && x >= col->x + col->w && x < col->x + col->w + config.divwidth) {
+	TAILQ_FOREACH(col, &c->colq, entry) {
+		if (TAILQ_NEXT(col, entry) != NULL && x >= col->x + col->w && x < col->x + col->w + config.divwidth) {
 			*cdiv = col;
 			return;
 		}
 		if (x >= col->x && x < col->x + col->w) {
-			for (row = col->rows; row != NULL; row = row->next) {
-				if (row->next != NULL && y >= row->y + row->h && y < row->y + row->h + config.divwidth) {
+			TAILQ_FOREACH(row, &col->rowq, entry) {
+				if (TAILQ_NEXT(row, entry) != NULL && y >= row->y + row->h && y < row->y + row->h + config.divwidth) {
 					*rdiv = row;
 					return;
 				}
 			}
 		}
 	}
-}
-
-/* get pointer to nth desktop in focused monitor */
-static struct Desktop *
-getdesk(long int n, long int m)
-{
-	struct Monitor *mon, *tmp;
-	long int i;
-
-	if (n < 0 || n >= config.ndesktops)
-		return NULL;
-	if (m == 0) {
-		return &wm.selmon->desks[n];
-	} else {
-		mon = NULL;
-		for (i = 0, tmp = wm.selmon; i < m && tmp != NULL; i++, tmp = tmp->next)
-			mon = tmp;
-		if (mon != NULL) {
-		return &mon->desks[n];
-		}
-	}
-	return NULL;
 }
 
 /* check whether window was placed by the user */
@@ -1689,10 +1525,8 @@ ewmhsetshowingdesktop(int n)
 static void
 ewmhsetclients(void)
 {
+	struct Object *tab;
 	struct Container *c;
-	struct Column *col;
-	struct Row *row;
-	struct Tab *t;
 	Window *wins = NULL;
 	int i = 0;
 
@@ -1701,49 +1535,46 @@ ewmhsetclients(void)
 		return;
 	}
 	wins = ecalloc(wm.nclients, sizeof *wins);
-	for (c = wm.c; c != NULL; c = c->next) {
-		for (col = c->cols; col != NULL; col = col->next) {
-			for (row = col->rows; row != NULL; row = row->next) {
-				for (t = row->tabs; t != NULL; t = t->next) {
-					wins[i++] = t->win;
-				}
-			}
-		}
+	TAILQ_FOREACH(c, &wm.focusq, entry) {
+		TAB_FOREACH_BEGIN(c, tab){
+			wins[i++] = tab->win;
+		}TAB_FOREACH_END
 	}
 	XChangeProperty(dpy, root, atoms[_NET_CLIENT_LIST], XA_WINDOW, 32, PropModeReplace, (unsigned char *)wins, i);
 	free(wins);
 }
 
-#define LOOPSTACKING(array, list, index) {                                             \
-	struct Container *c;                                                           \
-	struct Column *col;                                                            \
-	struct Row *row;                                                               \
-	struct Tab *t;                                                                 \
-                                                                                       \
-	for (c = (list); c != NULL; c = c->rnext) {                                    \
-		for (col = c->cols; col != NULL; col = col->next) {                    \
-			if (col->selrow != NULL) {                                     \
-				if (col->selrow->seltab != NULL)                       \
-					(array)[--(index)] = col->selrow->seltab->win; \
-				for (t = col->selrow->tabs; t != NULL; t = t->next) {  \
-					if (t != col->selrow->seltab) {                \
-						(array)[--(index)] = t->win;           \
-					}                                              \
-				}                                                      \
-			}                                                              \
-			for (row = col->rows; row != NULL; row = row->next) {          \
-				if (row == col->selrow)                                \
-					continue;                                      \
-				if (row->seltab != NULL)                               \
-					(array)[--(index)] = row->seltab->win;         \
-				for (t = row->tabs; t != NULL; t = t->next) {          \
-					if (t != row->seltab) {                        \
-						(array)[--(index)] = t->win;           \
-					}                                              \
-				}                                                      \
-			}                                                              \
-		}                                                                      \
-	}                                                                              \
+#define LOOPSTACKING(array, list, index) {                                              \
+	struct Container *c;                                                            \
+	struct Column *col;                                                             \
+	struct Row *row;                                                                \
+	struct Object *p;                                                               \
+	struct Tab *t;                                                                  \
+                                                                                        \
+	TAILQ_FOREACH(c, &(list), raiseentry) {                                         \
+		TAILQ_FOREACH(col, &c->colq, entry) {                                   \
+			if (col->selrow->seltab != NULL)                                \
+				(array)[--(index)] = col->selrow->seltab->obj.win;      \
+			TAILQ_FOREACH(p, &col->selrow->tabq, entry) {                   \
+				t = (struct Tab *)p;                                    \
+				if (t != col->selrow->seltab) {                         \
+					(array)[--(index)] = t->obj.win;                \
+				}                                                       \
+			}                                                               \
+			TAILQ_FOREACH(row, &col->rowq, entry) {                         \
+				if (row == col->selrow)                                 \
+					continue;                                       \
+				if (row->seltab != NULL)                                \
+					(array)[--(index)] = row->seltab->obj.win;      \
+				TAILQ_FOREACH(p, &row->tabq, entry) {                   \
+					t = (struct Tab *)p;                            \
+					if (t != row->seltab) {                         \
+						(array)[--(index)] = t->obj.win;        \
+					}                                               \
+				}                                                       \
+			}                                                               \
+		}                                                                       \
+	}                                                                               \
 }
 
 /* set stacking list of clients hint */
@@ -1759,10 +1590,10 @@ ewmhsetclientsstacking(void)
 	}
 	wins = ecalloc(wm.nclients, sizeof *wins);
 	i = wm.nclients;
-	LOOPSTACKING(wins, wm.fulllist, i)
-	LOOPSTACKING(wins, wm.abovelist, i)
-	LOOPSTACKING(wins, wm.centerlist, i)
-	LOOPSTACKING(wins, wm.belowlist, i)
+	LOOPSTACKING(wins, wm.fullq, i)
+	LOOPSTACKING(wins, wm.aboveq, i)
+	LOOPSTACKING(wins, wm.centerq, i)
+	LOOPSTACKING(wins, wm.belowq, i)
 	XChangeProperty(dpy, root, atoms[_NET_CLIENT_LIST_STACKING], XA_WINDOW, 32, PropModeReplace, (unsigned char *)wins+i, wm.nclients-i);
 	free(wins);
 }
@@ -1785,23 +1616,13 @@ ewmhsetdesktop(Window win, long d)
 static void
 ewmhsetwmdesktop(struct Container *c)
 {
-	struct Column *col;
-	struct Row *row;
-	struct Tab *t;
-	struct Dialog *d;
-	long n;
+	struct Object *t;
+	unsigned long n;
 
-	n = (c->issticky || c->isminimized) ? 0xFFFFFFFF : c->desk->n;
-	for (col = c->cols; col != NULL; col = col->next) {
-		for (row = col->rows; row != NULL; row = row->next) {
-			for (t = row->tabs; t != NULL; t = t->next) {
-				ewmhsetdesktop(t->win, n);
-				for (d = t->ds; d; d = d->next) {
-					ewmhsetdesktop(d->win, n);
-				}
-			}
-		}
-	}
+	n = (c->issticky || c->isminimized) ? 0xFFFFFFFF : (unsigned long)c->desk;
+	TAB_FOREACH_BEGIN(c, t){
+		ewmhsetdesktop(t->win, n);
+	}TAB_FOREACH_END
 }
 
 /* set frames of window */
@@ -1819,10 +1640,7 @@ ewmhsetframeextents(Window win, int b, int t)
 static void
 ewmhsetstate(struct Container *c)
 {
-	struct Column *col;
-	struct Row *row;
-	struct Tab *t;
-	struct Dialog *d;
+	struct Object *t;
 	Atom data[9];
 	int n = 0;
 
@@ -1846,66 +1664,31 @@ ewmhsetstate(struct Container *c)
 		data[n++] = atoms[_NET_WM_STATE_ABOVE];
 	else if (c->layer < 0)
 		data[n++] = atoms[_NET_WM_STATE_BELOW];
-	for (col = c->cols; col != NULL; col = col->next) {
-		for (row = col->rows; row != NULL; row = row->next) {
-			for (t = row->tabs; t != NULL; t = t->next) {
-				XChangeProperty(dpy, t->win, atoms[_NET_WM_STATE], XA_ATOM, 32, PropModeReplace, (unsigned char *)data, n);
-				for (d = t->ds; d != NULL; d = d->next) {
-					XChangeProperty(dpy, d->win, atoms[_NET_WM_STATE], XA_ATOM, 32, PropModeReplace, (unsigned char *)data, n);
-				}
-			}
-		}
-	}
+	TAB_FOREACH_BEGIN(c, t){
+		XChangeProperty(dpy, t->win, atoms[_NET_WM_STATE], XA_ATOM, 32, PropModeReplace, (unsigned char *)data, n);
+	}TAB_FOREACH_END
 }
 
 /* set group of windows in client */
 static void
 shodgrouptab(struct Container *c)
 {
-	struct Column *col;
-	struct Row *row;
-	struct Tab *t;
-	struct Dialog *d;
-	struct Menu *menu;
+	struct Object *t;
 
-	for (col = c->cols; col != NULL; col = col->next) {
-		for (row = col->rows; row != NULL; row = row->next) {
-			for (t = row->tabs; t != NULL; t = t->next) {
-				XChangeProperty(dpy, t->win, atoms[_SHOD_GROUP_TAB], XA_WINDOW, 32, PropModeReplace, (unsigned char *)&row->seltab->win, 1);
-				for (d = t->ds; d != NULL; d = d->next) {
-					XChangeProperty(dpy, d->win, atoms[_SHOD_GROUP_TAB], XA_WINDOW, 32, PropModeReplace, (unsigned char *)&row->seltab->win, 1);
-				}
-				for (menu = t->menus; menu != NULL; menu = menu->next) {
-					XChangeProperty(dpy, menu->win, atoms[_SHOD_GROUP_TAB], XA_WINDOW, 32, PropModeReplace, (unsigned char *)&row->seltab->win, 1);
-				}
-			}
-		}
-	}
+	TAB_FOREACH_BEGIN(c, t){
+		XChangeProperty(dpy, t->win, atoms[_SHOD_GROUP_TAB], XA_WINDOW, 32, PropModeReplace, (unsigned char *)&row->seltab->obj.win, 1);
+	}TAB_FOREACH_END
 }
 
 /* set group of windows in client */
 static void
 shodgroupcontainer(struct Container *c)
 {
-	struct Column *col;
-	struct Row *row;
-	struct Tab *t;
-	struct Dialog *d;
-	struct Menu *menu;
+	struct Object *t;
 
-	for (col = c->cols; col != NULL; col = col->next) {
-		for (row = col->rows; row != NULL; row = row->next) {
-			for (t = row->tabs; t != NULL; t = t->next) {
-				XChangeProperty(dpy, t->win, atoms[_SHOD_GROUP_CONTAINER], XA_WINDOW, 32, PropModeReplace, (unsigned char *)&c->selcol->selrow->seltab->win, 1);
-				for (d = t->ds; d != NULL; d = d->next) {
-					XChangeProperty(dpy, d->win, atoms[_SHOD_GROUP_CONTAINER], XA_WINDOW, 32, PropModeReplace, (unsigned char *)&c->selcol->selrow->seltab->win, 1);
-				}
-				for (menu = t->menus; menu != NULL; menu = menu->next) {
-					XChangeProperty(dpy, menu->win, atoms[_SHOD_GROUP_CONTAINER], XA_WINDOW, 32, PropModeReplace, (unsigned char *)&c->selcol->selrow->seltab->win, 1);
-				}
-			}
-		}
-	}
+	TAB_FOREACH_BEGIN(c, t){
+		XChangeProperty(dpy, t->win, atoms[_SHOD_GROUP_CONTAINER], XA_WINDOW, 32, PropModeReplace, (unsigned char *)&c->selcol->selrow->seltab->obj.win, 1);
+	}TAB_FOREACH_END
 }
 
 /* send a WM_DELETE message to client */
@@ -2005,18 +1788,7 @@ tabgetstyle(struct Tab *t)
 static int
 containergetstyle(struct Container *c)
 {
-	struct Column *col;
-	struct Row *row;
-	struct Tab *t;
-
-	if (c == wm.focused)
-		return FOCUSED;
-	for (col = c->cols; col != NULL; col = col->next)
-		for (row = col->rows; row != NULL; row = row->next)
-			for (t = row->tabs; t != NULL; t = t->next)
-				if (t->isurgent)
-					return URGENT;
-	return UNFOCUSED;
+	return (c == wm.focused) ? FOCUSED : UNFOCUSED;
 }
 
 /* check if container can be shaded */
@@ -2028,27 +1800,30 @@ containerisshaded(struct Container *c)
 
 /* calculate size of dialogs of a tab */
 static void
-dialogcalcsize(struct Dialog *d)
+dialogcalcsize(struct Dialog *dial)
 {
-	struct Tab *t;
+	struct Tab *tab;
 
-	t = d->t;
-	d->w = max(1, min(d->maxw, t->winw - 2 * config.borderwidth));
-	d->h = max(1, min(d->maxh, t->winh - 2 * config.borderwidth));
-	d->x = t->winw / 2 - d->w / 2;
-	d->y = t->winh / 2 - d->h / 2;
+	tab = dial->tab;
+	dial->w = max(1, min(dial->maxw, tab->winw - 2 * config.borderwidth));
+	dial->h = max(1, min(dial->maxh, tab->winh - 2 * config.borderwidth));
+	dial->x = tab->winw / 2 - dial->w / 2;
+	dial->y = tab->winh / 2 - dial->h / 2;
 }
 
 /* calculate position and width of tabs of a row */
 static void
 rowcalctabs(struct Row *row)
 {
+	struct Object *p, *q;
 	struct Dialog *d;
 	struct Tab *t;
 	int i, x;
 
 	x = config.titlewidth;
-	for (i = 0, t = row->tabs; t != NULL; t = t->next, i++) {
+	i = 0;
+	TAILQ_FOREACH(p, &row->tabq, entry) {
+		t = (struct Tab *)p;
 		if (row == row->col->maxrow)
 			t->winh = max(1, row->col->c->h - 2 * row->col->c->b - row->col->nrows * config.titlewidth);
 		else
@@ -2057,9 +1832,11 @@ rowcalctabs(struct Row *row)
 		t->w = max(1, ((i + 1) * (t->winw - 2 * config.titlewidth) / row->ntabs) - (i * (t->winw - 2 * config.titlewidth) / row->ntabs));
 		t->x = x;
 		x += t->w;
-		for (d = t->ds; d != NULL; d = d->next) {
+		TAILQ_FOREACH(q, &t->dialq, entry) {
+			d = (struct Dialog *)q;
 			dialogcalcsize(d);
 		}
+		i++;
 	}
 }
 
@@ -2079,9 +1856,9 @@ colcalcrows(struct Column *col, int recalcfact, int recursive)
 	content = c->h - (col->nrows - 1) * config.divwidth - 2 * c->b;
 	sumh = 0;
 	recalc = 0;
-	for (row = col->rows; row != NULL; row = row->next) {
+	TAILQ_FOREACH(row, &col->rowq, entry) {
 		if (!recalcfact) {
-			if (row->next == NULL) {
+			if (TAILQ_NEXT(row, entry) == NULL) {
 				row->h = content - sumh;
 			} else {
 				row->h = row->fact * content;
@@ -2103,16 +1880,17 @@ colcalcrows(struct Column *col, int recalcfact, int recursive)
 		h = col->c->h - 2 * c->b - (col->nrows - 1) * config.divwidth;
 		y = c->b;
 	}
-	for (i = 0, row = col->rows; row != NULL; row = row->next, i++) {
+	i = 0;
+	TAILQ_FOREACH(row, &col->rowq, entry) {
 		if (recalc)
 			row->h = max(1, ((i + 1) * h / col->nrows) - (i * h / col->nrows));
 		if (recalc || recalcfact)
 			row->fact = (double)row->h/(double)c->h;
 		row->y = y;
 		y += row->h + config.divwidth;
-		if (recursive) {
+		if (recursive)
 			rowcalctabs(row);
-		}
+		i++;
 	}
 }
 
@@ -2153,9 +1931,9 @@ containercalccols(struct Container *c, int recalcfact, int recursive)
 	content = c->w - (c->ncols - 1) * config.divwidth - 2 * c->b;
 	sumw = 0;
 	recalc = 0;
-	for (col = c->cols; col != NULL; col = col->next) {
+	TAILQ_FOREACH(col, &c->colq, entry) {
 		if (!recalcfact) {
-			if (col->next == NULL) {
+			if (TAILQ_NEXT(col, entry) == NULL) {
 				col->w = content - sumw;
 			} else {
 				col->w = col->fact * content;
@@ -2171,19 +1949,19 @@ containercalccols(struct Container *c, int recalcfact, int recursive)
 
 	w = c->w - 2 * c->b - (c->ncols - 1) * config.divwidth;
 	x = c->b;
-	for (i = 0, col = c->cols; col != NULL; col = col->next, i++) {
-		if (containerisshaded(c)) {
+	i = 0;
+	TAILQ_FOREACH(col, &c->colq, entry) {
+		if (containerisshaded(c))
 			c->h = max(c->h, col->nrows * config.titlewidth);
-		}
 		if (recalc)
 			col->w = max(1, ((i + 1) * w / c->ncols) - (i * w / c->ncols));
 		if (recalc || recalcfact)
 			col->fact = (double)col->w/(double)c->w;
 		col->x = x;
 		x += col->w + config.divwidth;
-		if (recursive) {
+		if (recursive)
 			colcalcrows(col, recalcfact, 1);
-		}
+		i++;
 	}
 	if (containerisshaded(c)) {
 		c->h += 2 * c->b;
@@ -2192,9 +1970,8 @@ containercalccols(struct Container *c, int recalcfact, int recursive)
 
 /* find best position to place a container on screen */
 static void
-containerplace(struct Container *c, struct Desktop *desk, int userplaced)
+containerplace(struct Container *c, struct Monitor *mon, int desk, int userplaced)
 {
-	struct Monitor *mon;
 	struct Container *tmp;
 	int grid[DIV][DIV] = {{0}, {0}};
 	int lowest;
@@ -2204,10 +1981,9 @@ containerplace(struct Container *c, struct Desktop *desk, int userplaced)
 	int subx, suby;         /* position of the larger subregion */
 	int subw, subh;         /* larger subregion width and height */
 
-	if (desk == NULL || c == NULL || c->isminimized)
+	if (desk < 0 || desk >= config.ndesktops || c == NULL || c->isminimized)
 		return;
 
-	mon = desk->mon;
 	fitmonitor(mon, &c->nx, &c->ny, &c->nw, &c->nh, 1.0);
 
 	/* if the user placed the window, we should not re-place it */
@@ -2232,7 +2008,7 @@ containerplace(struct Container *c, struct Desktop *desk, int userplaced)
 	 */
 
 	/* increment cells of grid a window is in */
-	for (tmp = wm.c; tmp; tmp = tmp->next) {
+	TAILQ_FOREACH(tmp, &wm.focusq, entry) {
 		if (tmp != c && !tmp->isminimized && ((tmp->issticky && tmp->mon == mon) || tmp->desk == desk)) {
 			for (i = 0; i < DIV; i++) {
 				for (j = 0; j < DIV; j++) {
@@ -2383,7 +2159,7 @@ dialogdecorate(struct Dialog *d)
 	unsigned long *decor;
 	int fullw, fullh;       /* size of dialog window + borders */
 
-	decor = theme.border[tabgetstyle(d->t)];
+	decor = theme.border[tabgetstyle(d->tab)];
 	fullw = d->w + 2 * config.borderwidth;
 	fullh = d->h + 2 * config.borderwidth;
 
@@ -2594,8 +2370,7 @@ containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, in
 {
 	struct Column *col;
 	struct Row *row;
-	struct Tab *t;
-	struct Dialog *d;
+	struct Object *t, *d;
 	XRectangle *recs;
 	XGCValues val;
 	unsigned long *decor;
@@ -2771,17 +2546,17 @@ containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, in
 		}
 	}
 
-	for (col = c->cols; col != NULL; col = col->next) {
+	TAILQ_FOREACH(col, &c->colq, entry) {
 		/* draw column division */
-		if (col->next != NULL) {
+		if (TAILQ_NEXT(col, entry) != NULL) {
 			drawrectangle(c->pix, col->x + col->w, c->b, config.divwidth, c->h - 2 * c->b,
 			              (col == cdiv ? decor[COLOR_DARK] : decor[COLOR_LIGHT]),
 			              (col == cdiv ? decor[COLOR_LIGHT] : decor[COLOR_DARK]));
 		}
 
-		for (row = col->rows; row != NULL; row = row->next) {
+		TAILQ_FOREACH(row, &col->rowq, entry) {
 			/* draw row division */
-			if (!isshaded && col->maxrow == NULL && row->next != NULL) {
+			if (TAILQ_NEXT(row, entry) != NULL) {
 				drawrectangle(c->pix, col->x, row->y + row->h, col->w, config.divwidth,
 				              (row == rdiv ? decor[COLOR_DARK] : decor[COLOR_LIGHT]),
 				              (row == rdiv ? decor[COLOR_LIGHT] : decor[COLOR_DARK]));
@@ -2808,10 +2583,10 @@ containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, in
 
 			/* decorate tabs, if necessary */
 			if (recursive) {
-				for (t = row->tabs; t != NULL; t = t->next) {
-					tabdecorate(t, 0);
-					for (d = t->ds; d != NULL; d = d->next) {
-						dialogdecorate(d);
+				TAILQ_FOREACH(t, &row->tabq, entry) {
+					tabdecorate((struct Tab *)t, 0);
+					TAILQ_FOREACH(d, &((struct Tab *)t)->dialq, entry) {
+						dialogdecorate((struct Dialog *)d);
 					}
 				}
 			}
@@ -2948,41 +2723,42 @@ menudecorate(struct Menu *menu, int titlepressed)
 
 /* map menus */
 static void
-menumap(struct Tab *t)
+menumap(struct Tab *tab)
 {
-	struct Menu *menu;
+	struct Object *menu;
 
-	if (t == NULL)
+	if (tab == NULL)
 		return;
-	for (menu = t->menus; menu != NULL; menu = menu->next) {
-		XMapWindow(dpy, menu->frame);
+	TAILQ_FOREACH(menu, &tab->menuq, entry) {
+		XMapWindow(dpy, ((struct Menu *)menu)->frame);
 		icccmwmstate(menu->win, NormalState);
 	}
 }
 
 /* unmap menus */
 static void
-menuunmap(struct Tab *t)
+menuunmap(struct Tab *tab)
 {
-	struct Menu *menu;
+	struct Object *menu;
 
-	if (t == NULL)
+	if (tab == NULL)
 		return;
-	for (menu = t->menus; menu != NULL; menu = menu->next) {
-		XUnmapWindow(dpy, menu->frame);
+	TAILQ_FOREACH(menu, &tab->menuq, entry) {
+		XUnmapWindow(dpy, ((struct Menu *)menu)->frame);
 		icccmwmstate(menu->win, IconicState);
 	}
 }
 
 /* raise menus */
 static void
-menuraise(struct Tab *t)
+menuraise(struct Tab *tab)
 {
 	struct Container *c;
+	struct Object *p;
 	struct Menu *menu;
 	Window wins[2], layer;
 
-	c = t->row->col->c;
+	c = tab->row->col->c;
 	if (c == NULL || c->isminimized)
 		return;
 	if (c->isfullscreen)
@@ -2994,7 +2770,8 @@ menuraise(struct Tab *t)
 	else
 		layer = wm.layerwins[LAYER_NORMAL];
 	wins[0] = layer;
-	for (menu = t->menus; menu != NULL; menu = menu->next) {
+	TAILQ_FOREACH(p, &tab->menuq, entry) {
+		menu = (struct Menu *)p;
 		wins[1] = menu->frame;
 		XRestackWindows(dpy, wins, 2);
 		wins[0] = menu->frame;
@@ -3003,30 +2780,19 @@ menuraise(struct Tab *t)
 
 /* remove menu from the menu list */
 static void
-menudelraise(struct Tab *t, struct Menu *menu)
+menudelraise(struct Tab *tab, struct Menu *menu)
 {
-	if (menu->next != NULL) {
-		menu->next->prev = menu->prev;
-	}
-	if (menu->prev != NULL) {
-		menu->prev->next = menu->next;
-	} else if (t->menus == menu) {
-		t->menus = menu->next;
-	}
-	menu->next = NULL;
-	menu->prev = NULL;
+	if (TAILQ_EMPTY(&tab->menuq))
+		return;
+	TAILQ_REMOVE(&tab->menuq, (struct Object *)menu, entry);
 }
 
 /* put menu on beginning of menu list */
 static void
-menuaddraise(struct Tab *t, struct Menu *menu)
+menuaddraise(struct Tab *tab, struct Menu *menu)
 {
-	menudelraise(t, menu);
-	menu->next = t->menus;
-	menu->prev = NULL;
-	if (t->menus != NULL)
-		t->menus->prev = menu;
-	t->menus = menu;
+	menudelraise(tab, menu);
+	TAILQ_INSERT_HEAD(&tab->menuq, (struct Object *)menu, entry);
 }
 
 /* place menu next to its container */
@@ -3035,7 +2801,7 @@ menuplace(struct Menu *menu)
 {
 	struct Container *c;
 
-	c = menu->t->row->col->c;
+	c = menu->tab->row->col->c;
 	if (menu->x < c->mon->wx || menu->x + menu->w >= c->mon->wx + c->mon->ww)
 		menu->x = c->mon->wx;
 	if (menu->y < c->mon->wy || menu->y + menu->h >= c->mon->wy + c->mon->wh)
@@ -3043,29 +2809,32 @@ menuplace(struct Menu *menu)
 	XMoveWindow(dpy, menu->frame, menu->x, menu->y);
 }
 
-/* delete dialog */
-static void
-menudel(struct Menu *menu)
+/* delete menu; return whether menu was deleted */
+static int
+menudel(struct Object *obj, int ignoreunmap)
 {
-	if (menu->next != NULL)
-		menu->next->prev = menu->prev;
-	if (menu->prev != NULL)
-		menu->prev->next = menu->next;
-	else
-		menu->t->menus = menu->next;
+	struct Menu *menu;
+
+	menu = (struct Menu *)obj;
+	if (ignoreunmap && menu->ignoreunmap) {
+		menu->ignoreunmap--;
+		return 0;
+	}
+	menudelraise(menu->tab, menu);
 	if (menu->pix != None)
 		XFreePixmap(dpy, menu->pix);
 	if (menu->pixbutton != None)
 		XFreePixmap(dpy, menu->pixbutton);
 	if (menu->pixtitlebar != None)
 		XFreePixmap(dpy, menu->pixtitlebar);
-	icccmdeletestate(menu->win);
-	XReparentWindow(dpy, menu->win, root, 0, 0);
+	icccmdeletestate(menu->obj.win);
+	XReparentWindow(dpy, menu->obj.win, root, 0, 0);
 	XDestroyWindow(dpy, menu->frame);
 	XDestroyWindow(dpy, menu->titlebar);
 	XDestroyWindow(dpy, menu->button);
 	free(menu->name);
 	free(menu);
+	return 1;
 }
 
 /* commit menu geometry */
@@ -3073,23 +2842,21 @@ static void
 menumoveresize(struct Menu *menu)
 {
 	XMoveResizeWindow(dpy, menu->frame, menu->x, menu->y, menu->w, menu->h);
-	XResizeWindow(dpy, menu->win, menu->w - 2 * config.borderwidth, menu->h - 2 * config.borderwidth - config.titlewidth);
+	XResizeWindow(dpy, menu->obj.win, menu->w - 2 * config.borderwidth, menu->h - 2 * config.borderwidth - config.titlewidth);
 }
 
 /* remove container from the focus list */
 static void
 containerdelfocus(struct Container *c)
 {
-	if (c->fnext != NULL) {
-		c->fnext->fprev = c->fprev;
-	}
-	if (c->fprev != NULL) {
-		c->fprev->fnext = c->fnext;
-	} else if (wm.focuslist == c) {
-		wm.focuslist = c->fnext;
-	}
-	c->fnext = NULL;
-	c->fprev = NULL;
+	TAILQ_REMOVE(&wm.focusq, c, entry);
+}
+
+/* add container into head of focus queue */
+static void
+containerinsertfocus(struct Container *c)
+{
+	TAILQ_INSERT_HEAD(&wm.focusq, c, entry);
 }
 
 /* put container on beginning of focus list */
@@ -3099,21 +2866,14 @@ containeraddfocus(struct Container *c)
 	if (c == NULL || c->isminimized)
 		return;
 	containerdelfocus(c);
-	c->fnext = wm.focuslist;
-	c->fprev = NULL;
-	if (wm.focuslist)
-		wm.focuslist->fprev = c;
-	wm.focuslist = c;
+	containerinsertfocus(c);
 }
 
 /* hide container */
 static void
 containerhide(struct Container *c, int hide)
 {
-	struct Column *col;
-	struct Row *row;
-	struct Tab *t;
-	struct Dialog *d;
+	struct Object *t, *d;
 
 	if (c == NULL)
 		return;
@@ -3124,36 +2884,32 @@ containerhide(struct Container *c, int hide)
 	} else {
 		XMapWindow(dpy, c->frame);
 	}
-	for (col = c->cols; col != NULL; col = col->next) {
-		for (row = col->rows; row != NULL; row = row->next) {
-			for (t = row->tabs; t != NULL; t = t->next) {
-				icccmwmstate(t->win, (hide ? IconicState : NormalState));
-				for (d = t->ds; d != NULL; d = d->next) {
-					icccmwmstate(d->win, (hide ? IconicState : NormalState));
-				}
-			}
+	TAB_FOREACH_BEGIN(c, t) {
+		icccmwmstate(t->win, (hide ? IconicState : NormalState));
+		TAILQ_FOREACH(d, &((struct Tab *)t)->dialq, entry) {
+			icccmwmstate(d->win, (hide ? IconicState : NormalState));
 		}
-	}
+	}TAB_FOREACH_END
 }
 
 /* commit dialog size and position */
 static void
-dialogmoveresize(struct Dialog *d)
+dialogmoveresize(struct Dialog *dial)
 {
 	struct Container *c;
 	int dx, dy, dw, dh;
 
-	dialogcalcsize(d);
-	c = d->t->row->col->c;
-	dx = d->x - config.borderwidth;
-	dy = d->y - config.borderwidth;
-	dw = d->w + 2 * config.borderwidth;
-	dh = d->h + 2 * config.borderwidth;
-	XMoveResizeWindow(dpy, d->frame, dx, dy, dw, dh);
-	XMoveResizeWindow(dpy, d->win, config.borderwidth, config.borderwidth, d->w, d->h);
-	winnotify(d->win, c->x + d->t->row->col->x + d->x, c->y + d->t->row->y + d->y, d->w, d->h);
-	if (d->pw != dw || d->ph != dh) {
-		dialogdecorate(d);
+	dialogcalcsize(dial);
+	c = dial->tab->row->col->c;
+	dx = dial->x - config.borderwidth;
+	dy = dial->y - config.borderwidth;
+	dw = dial->w + 2 * config.borderwidth;
+	dh = dial->h + 2 * config.borderwidth;
+	XMoveResizeWindow(dpy, dial->frame, dx, dy, dw, dh);
+	XMoveResizeWindow(dpy, dial->obj.win, config.borderwidth, config.borderwidth, dial->w, dial->h);
+	winnotify(dial->obj.win, c->x + dial->tab->row->col->x + dial->x, c->y + dial->tab->row->y + dial->y, dial->w, dial->h);
+	if (dial->pw != dw || dial->ph != dh) {
+		dialogdecorate(dial);
 	}
 }
 
@@ -3178,7 +2934,7 @@ tabmoveresize(struct Tab *t)
 	if (t->ptw != t->w) {
 		tabdecorate(t, 0);
 	}
-	winnotify(t->win, t->row->col->c->x + t->row->col->x, t->row->col->c->y + t->row->y + config.titlewidth, t->winw, t->winh);
+	winnotify(t->obj.win, t->row->col->c->x + t->row->col->x, t->row->col->c->y + t->row->y + config.titlewidth, t->winw, t->winh);
 }
 
 /* commit titlebar size and position */
@@ -3194,10 +2950,11 @@ titlebarmoveresize(struct Row *row, int x, int y, int w)
 static void
 containermoveresize(struct Container *c)
 {
+	struct Object *t, *d;
 	struct Column *col;
 	struct Row *row;
-	struct Tab *t;
-	struct Dialog *d;
+	struct Tab *tab;
+	struct Dialog *dial;
 	int rowy, rowh;
 	int isshaded;
 
@@ -3213,17 +2970,17 @@ containermoveresize(struct Container *c)
 	XMoveResizeWindow(dpy, c->curswin[BORDER_SW], 0, c->h - config.corner, config.corner, config.corner);
 	XMoveResizeWindow(dpy, c->curswin[BORDER_SE], c->w - config.corner, c->h - config.corner, config.corner, config.corner);
 	isshaded = containerisshaded(c);
-	for (col = c->cols; col != NULL; col = col->next) {
+	TAILQ_FOREACH(col, &c->colq, entry) {
 		rowy = c->b;
 		rowh = max(1, c->h - 2 * c->b - col->nrows * config.titlewidth);
-		if (col->next != NULL) {
+		if (TAILQ_NEXT(col, entry) != NULL) {
 			XMoveResizeWindow(dpy, col->div, col->x + col->w, c->b, config.divwidth, c->h - 2 * c->b);
 			XMapWindow(dpy, col->div);
 		} else {
 			XUnmapWindow(dpy, col->div);
 		}
-		for (row = col->rows; row != NULL; row = row->next) {
-			if (!isshaded && row->next != NULL && col->maxrow == NULL) {
+		TAILQ_FOREACH(row, &col->rowq, entry) {
+			if (!isshaded && TAILQ_NEXT(row, entry) != NULL && col->maxrow == NULL) {
 				XMoveResizeWindow(dpy, row->div, col->x, row->y + row->h, col->w, config.divwidth);
 				XMapWindow(dpy, row->div);
 			} else {
@@ -3243,15 +3000,17 @@ containermoveresize(struct Container *c)
 				XUnmapWindow(dpy, row->frame);
 			}
 			rowy += config.titlewidth;
-			for (t = row->tabs; t != NULL; t = t->next) {
-				XMoveResizeWindow(dpy, t->frame, 0, 0, t->winw, t->winh);
-				for (d = t->ds; d != NULL; d = d->next) {
-					dialogmoveresize(d);
-					ewmhsetframeextents(d->win, c->b, 0);
+			TAILQ_FOREACH(t, &row->tabq, entry) {
+				tab = (struct Tab *)t;
+				XMoveResizeWindow(dpy, tab->frame, 0, 0, tab->winw, tab->winh);
+				TAILQ_FOREACH(d, &tab->dialq, entry) {
+					dial = (struct Dialog *)d;
+					dialogmoveresize(dial);
+					ewmhsetframeextents(dial->obj.win, c->b, 0);
 				}
-				XResizeWindow(dpy, t->win, t->winw, t->winh);
-				ewmhsetframeextents(t->win, c->b, TITLEWIDTH(c));
-				tabmoveresize(t);
+				XResizeWindow(dpy, tab->obj.win, tab->winw, tab->winh);
+				ewmhsetframeextents(tab->obj.win, c->b, TITLEWIDTH(c));
+				tabmoveresize(tab);
 			}
 		}
 	}
@@ -3289,64 +3048,57 @@ containerconfigure(struct Container *c, unsigned int valuemask, XWindowChanges *
 static void
 containerdelraise(struct Container *c)
 {
-	if (c->rnext != NULL) {
-		c->rnext->rprev = c->rprev;
+	if (c->isfullscreen) {
+		if (!TAILQ_EMPTY(&wm.fullq)) {
+			TAILQ_REMOVE(&wm.fullq, c, raiseentry);
+		}
+	} else if (c->layer > 0) {
+		if (!TAILQ_EMPTY(&wm.aboveq)) {
+			TAILQ_REMOVE(&wm.aboveq, c, raiseentry);
+		}
+	} else if (c->layer < 0) {
+		if (!TAILQ_EMPTY(&wm.belowq)) {
+			TAILQ_REMOVE(&wm.belowq, c, raiseentry);
+		}
+	} else {
+		if (!TAILQ_EMPTY(&wm.centerq)) {
+			TAILQ_REMOVE(&wm.centerq, c, raiseentry);
+		}
 	}
-	if (c->rprev != NULL) {
-		c->rprev->rnext = c->rnext;
-	} else if (wm.fulllist == c) {
-		wm.fulllist = c->rnext;
-	} else if (wm.abovelist == c) {
-		wm.abovelist = c->rnext;
-	} else if (wm.centerlist == c) {
-		wm.centerlist = c->rnext;
-	} else if (wm.belowlist == c) {
-		wm.belowlist = c->rnext;
-	}
-	c->rnext = NULL;
-	c->rprev = NULL;
 }
 
-/* put container on beginning of a raise list */
+/* add container into head of focus queue */
 static void
-containeraddraise(struct Container *c)
+containerinsertraise(struct Container *c)
 {
-	struct Container **list;
-
-	containerdelraise(c);
-	if (c->isfullscreen)
-		list = &wm.fulllist;
-	else if (c->layer > 0)
-		list = &wm.abovelist;
-	else if (c->layer < 0)
-		list = &wm.belowlist;
-	else
-		list = &wm.centerlist;
-	c->rnext = *list;
-	c->rprev = NULL;
-	if (*list != NULL)
-		(*list)->rprev = c;
-	*list = c;
+	TAILQ_INSERT_HEAD(&wm.centerq, c, raiseentry);
 }
 
 /* raise container */
 static void
-containerraise(struct Container *c)
+containerraise(struct Container *c, int isfullscreen, int layer)
 {
 	Window wins[2];
 
 	if (c == NULL || c->isminimized)
 		return;
-	containeraddraise(c);
+	containerdelraise(c);
 	wins[1] = c->frame;
-	if (c->isfullscreen)
+	if (isfullscreen) {
+		TAILQ_INSERT_HEAD(&wm.fullq, c, raiseentry);
 		wins[0] = wm.layerwins[LAYER_FULLSCREEN];
-	else if (c->layer > 0)
+	} else if (layer > 0) {
+		TAILQ_INSERT_HEAD(&wm.aboveq, c, raiseentry);
 		wins[0] = wm.layerwins[LAYER_ABOVE];
-	else if (c->layer < 0)
+	} else if (layer < 0) {
+		TAILQ_INSERT_HEAD(&wm.belowq, c, raiseentry);
 		wins[0] = wm.layerwins[LAYER_BELOW];
-	else
+	} else {
+		TAILQ_INSERT_HEAD(&wm.centerq, c, raiseentry);
 		wins[0] = wm.layerwins[LAYER_NORMAL];
+	}
+	c->isfullscreen = isfullscreen;
+	c->layer = layer;
 	XRestackWindows(dpy, wins, 2);
 	menuraise(c->selcol->selrow->seltab);
 	ewmhsetclientsstacking();
@@ -3354,21 +3106,21 @@ containerraise(struct Container *c)
 
 /* send container to desktop, raise it and optionally place it */
 static void
-containersendtodesk(struct Container *c, struct Desktop *desk, int place, int userplaced)
+containersendtodesk(struct Container *c, struct Monitor *mon, int desk, int place, int userplaced)
 {
-	if (c == NULL || desk == NULL || c->isminimized)
+	if (c == NULL || desk < 0 || desk >= config.ndesktops || c->isminimized)
 		return;
 	c->desk = desk;
-	c->mon = desk->mon;
+	c->mon = mon;
 	if (c->issticky) {
 		c->issticky = 0;
 		ewmhsetstate(c);
 	}
 	if (place)
-		containerplace(c, c->desk, userplaced);
-	if (desk != desk->mon->seldesk)  /* container was sent to invisible desktop */
+		containerplace(c, mon, desk, userplaced);
+	if (desk != mon->seldesk)  /* container was sent to invisible desktop */
 		containerhide(c, 1);
-	containerraise(c);
+	containerraise(c, c->isfullscreen, c->layer);
 	ewmhsetwmdesktop(c);
 }
 
@@ -3392,7 +3144,7 @@ containerminimize(struct Container *c, int minimize, int focus)
 		}
 	} else if (minimize != ADD && c->isminimized) {
 		c->isminimized = 0;
-		containersendtodesk(c, wm.selmon->seldesk, 1, 0);
+		containersendtodesk(c, wm.selmon, wm.selmon->seldesk, 1, 0);
 		containermoveresize(c);
 		containerhide(c, 0);
 		tabfocus(c->selcol->selrow->seltab, 0);
@@ -3407,12 +3159,11 @@ static void
 containerfullscreen(struct Container *c, int fullscreen)
 {
 	if (fullscreen != REMOVE && !c->isfullscreen)
-		c->isfullscreen = 1;
+		containerraise(c, 1, c->layer);
 	else if (fullscreen != ADD && c->isfullscreen)
-		c->isfullscreen = 0;
+		containerraise(c, 0, c->layer);
 	else
 		return;
-	containerraise(c);
 	containercalccols(c, 0, 1);
 	containermoveresize(c);
 	containerredecorate(c, NULL, NULL, 0);
@@ -3473,7 +3224,7 @@ containerstick(struct Container *c, int stick)
 		c->issticky = 1;
 	} else if (stick != ADD && c->issticky) {
 		c->issticky = 0;
-		containersendtodesk(c, c->mon->seldesk, 0, 0);
+		containersendtodesk(c, c->mon, c->mon->seldesk, 0, 0);
 	} else {
 		return;
 	}
@@ -3486,12 +3237,11 @@ static void
 containerabove(struct Container *c, int above)
 {
 	if (above != REMOVE && c->layer != 1)
-		c->layer = 1;
+		containerraise(c, c->isfullscreen, 1);
 	else if (above != ADD && c->layer != 0)
-		c->layer = 0;
+		containerraise(c, c->isfullscreen, 0);
 	else
 		return;
-	containerraise(c);
 	ewmhsetstate(c);
 }
 
@@ -3500,12 +3250,11 @@ static void
 containerbelow(struct Container *c, int below)
 {
 	if (below != REMOVE && c->layer != -1)
-		c->layer = -1;
+		containerraise(c, c->isfullscreen, -1);
 	else if (below != ADD && c->layer != 0)
-		c->layer = 0;
+		containerraise(c, c->isfullscreen, 0);
 	else
 		return;
-	containerraise(c);
 	ewmhsetstate(c);
 }
 
@@ -3527,6 +3276,7 @@ containernew(int x, int y, int w, int h)
 		.b = config.borderwidth,
 		.pix = None,
 	};
+	TAILQ_INIT(&c->colq);
 	c->frame = XCreateWindow(dpy, root, c->x, c->y, c->w, c->h, 0, depth, CopyFromParent, visual, clientmask, &clientswa);
 	c->curswin[BORDER_N] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = theme.cursors[CURSOR_N]});
 	c->curswin[BORDER_S] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = theme.cursors[CURSOR_S]});
@@ -3538,82 +3288,82 @@ containernew(int x, int y, int w, int h)
 	c->curswin[BORDER_SE] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = theme.cursors[CURSOR_SE]});
 	for (i = 0; i < BORDER_LAST; i++)
 		XMapWindow(dpy, c->curswin[i]);
-	if (wm.c)
-		wm.c->prev = c;
-	c->next = wm.c;
-	wm.c = c;
-	containeraddfocus(c);
+	containerinsertfocus(c);
+	containerinsertraise(c);
 	return c;
 }
 
-/* delete dialog */
-static void
-dialogdel(struct Dialog *d)
+/* delete dialog; return whether dialog was deleted */
+static int
+dialogdel(struct Object *obj, int ignoreunmap)
 {
-	if (d->next)
-		d->next->prev = d->prev;
-	if (d->prev)
-		d->prev->next = d->next;
-	else
-		d->t->ds = d->next;
-	if (d->pix != None)
-		XFreePixmap(dpy, d->pix);
-	icccmdeletestate(d->win);
-	XReparentWindow(dpy, d->win, root, 0, 0);
-	XDestroyWindow(dpy, d->frame);
-	free(d);
+	struct Dialog *dial;
+
+	dial = (struct Dialog *)obj;
+	if (ignoreunmap && dial->ignoreunmap) {
+		dial->ignoreunmap--;
+		return 0;
+	}
+	TAILQ_REMOVE(&dial->tab->dialq, (struct Object *)dial, entry);
+	if (dial->pix != None)
+		XFreePixmap(dpy, dial->pix);
+	icccmdeletestate(dial->obj.win);
+	XReparentWindow(dpy, dial->obj.win, root, 0, 0);
+	XDestroyWindow(dpy, dial->frame);
+	free(dial);
+	return 1;
 }
 
 /* detach tab from row */
 static void
-tabdetach(struct Tab *t, int x, int y, int w, int h)
+tabdetach(struct Tab *tab, int x, int y, int w, int h)
 {
 	struct Row *row;
 
-	row = t->row;
-	if (row->seltab == t)
-		row->seltab = (t->prev != NULL) ? t->prev : t->next;
+	row = tab->row;
+	if (row->seltab == tab) {
+		row->seltab = (struct Tab *)TAILQ_PREV((struct Object *)tab, Queue, entry);
+		if (row->seltab == NULL) {
+			row->seltab = (struct Tab *)TAILQ_NEXT((struct Object *)tab, entry);
+		}
+	}
 	row->ntabs--;
-	t->ignoreunmap = IGNOREUNMAP;
-	XReparentWindow(dpy, t->title, root, x, y);
-	if (t->next)
-		t->next->prev = t->prev;
-	if (t->prev)
-		t->prev->next = t->next;
-	else
-		row->tabs = t->next;
-	t->winw = w;
-	t->winh = h;
-	t->next = NULL;
-	t->prev = NULL;
-	t->row = NULL;
+	tab->ignoreunmap = IGNOREUNMAP;
+	XReparentWindow(dpy, tab->title, root, x, y);
+	TAILQ_REMOVE(&row->tabq, (struct Object *)tab, entry);
+	tab->winw = w;
+	tab->winh = h;
+	tab->row = NULL;
 	rowcalctabs(row);
 }
 
 /* delete tab */
 static void
-tabdel(struct Tab *t)
+tabdel(struct Tab *tab)
 {
-	while (t->ds) {
-		XDestroyWindow(dpy, t->ds->win);
-		dialogdel(t->ds);
+	struct Dialog *dial;
+	struct Menu *menu;
+
+	while ((dial = (struct Dialog *)TAILQ_FIRST(&tab->dialq)) != NULL) {
+		XDestroyWindow(dpy, dial->obj.win);
+		dialogdel((struct Object *)dial, 0);
 	}
-	while (t->menus) {
-		XDestroyWindow(dpy, t->menus->win);
-		menudel(t->menus);
+	while ((menu = (struct Menu *)TAILQ_FIRST(&tab->menuq)) != NULL) {
+		XDestroyWindow(dpy, menu->obj.win);
+		menudel((struct Object *)menu, 0);
 	}
-	tabdetach(t, 0, 0, t->winw, t->winh);
-	if (t->pixtitle != None)
-		XFreePixmap(dpy, t->pixtitle);
-	if (t->pix != None)
-		XFreePixmap(dpy, t->pix);
-	icccmdeletestate(t->win);
-	XReparentWindow(dpy, t->win, root, 0, 0);
-	XDestroyWindow(dpy, t->title);
-	XDestroyWindow(dpy, t->frame);
+	tabdetach(tab, 0, 0, tab->winw, tab->winh);
+	if (tab->pixtitle != None)
+		XFreePixmap(dpy, tab->pixtitle);
+	if (tab->pix != None)
+		XFreePixmap(dpy, tab->pix);
+	icccmdeletestate(tab->obj.win);
+	XReparentWindow(dpy, tab->obj.win, root, 0, 0);
+	XDestroyWindow(dpy, tab->title);
+	XDestroyWindow(dpy, tab->frame);
 	clientsdecr();
-	free(t->name);
-	free(t);
+	free(tab->name);
+	free(tab);
 }
 
 /* stack rows */
@@ -3637,19 +3387,19 @@ rowstack(struct Column *col, struct Row *row)
 static void
 rowdetach(struct Row *row, int recalc)
 {
-	if (row->col->selrow == row)
-		row->col->selrow = (row->prev != NULL) ? row->prev : row->next;
-	row->col->nrows--;
-	if (row->next)
-		row->next->prev = row->prev;
-	if (row->prev)
-		row->prev->next = row->next;
-	else
-		row->col->rows = row->next;
+	struct Column *col;
+
+	col = row->col;
+	if (col->selrow == row) {
+		col->selrow = TAILQ_PREV(row, RowQueue, entry);
+		if (col->selrow == NULL) {
+			col->selrow = TAILQ_NEXT(row, entry);
+		}
+	}
+	col->nrows--;
+	TAILQ_REMOVE(&col->rowq, row, entry);
 	if (row == row->col->maxrow)
 		row->col->maxrow = NULL;
-	row->next = NULL;
-	row->prev = NULL;
 	if (recalc) {
 		colcalcrows(row->col, 1, 0);
 	}
@@ -3659,8 +3409,10 @@ rowdetach(struct Row *row, int recalc)
 static void
 rowdel(struct Row *row)
 {
-	while (row->tabs)
-		tabdel(row->tabs);
+	struct Tab *tab;
+
+	while ((tab = (struct Tab *)TAILQ_FIRST(&row->tabq)) != NULL)
+		tabdel(tab);
 	rowdetach(row, 1);
 	XDestroyWindow(dpy, row->frame);
 	XDestroyWindow(dpy, row->bar);
@@ -3678,17 +3430,17 @@ rowdel(struct Row *row)
 static void
 coldetach(struct Column *col)
 {
-	if (col->c->selcol == col)
-		col->c->selcol = (col->prev != NULL) ? col->prev : col->next;
-	col->c->ncols--;
-	if (col->next)
-		col->next->prev = col->prev;
-	if (col->prev)
-		col->prev->next = col->next;
-	else
-		col->c->cols = col->next;
-	col->next = NULL;
-	col->prev = NULL;
+	struct Container *c;
+
+	c = col->c;
+	if (c->selcol == col) {
+		c->selcol = TAILQ_PREV(col, ColumnQueue, entry);
+		if (c->selcol == NULL) {
+			c->selcol = TAILQ_NEXT(col, entry);
+		}
+	}
+	c->ncols--;
+	TAILQ_REMOVE(&c->colq, col, entry);
 	containercalccols(col->c, 1, 0);
 }
 
@@ -3696,8 +3448,10 @@ coldetach(struct Column *col)
 static void
 coldel(struct Column *col)
 {
-	while (col->rows)
-		rowdel(col->rows);
+	struct Row *row;
+
+	while ((row = TAILQ_FIRST(&col->rowq)) != NULL)
+		rowdel(row);
 	coldetach(col);
 	XDestroyWindow(dpy, col->div);
 	free(col);
@@ -3707,20 +3461,16 @@ coldel(struct Column *col)
 static void
 containerdel(struct Container *c)
 {
+	struct Column *col;
 	int i;
 
 	containerdelfocus(c);
 	containerdelraise(c);
 	if (wm.focused == c)
 		wm.focused = NULL;
-	if (c->next)
-		c->next->prev = c->prev;
-	if (c->prev)
-		c->prev->next = c->next;
-	else
-		wm.c = c->next;
-	while (c->cols)
-		coldel(c->cols);
+	TAILQ_REMOVE(&wm.focusq, c, entry);
+	while ((col = TAILQ_FIRST(&c->colq)) != NULL)
+		coldel(col);
 	if (c->pix != None)
 		XFreePixmap(dpy, c->pix);
 	XDestroyWindow(dpy, c->frame);
@@ -3739,19 +3489,10 @@ containeraddcol(struct Container *c, struct Column *col, struct Column *prev)
 	col->c = c;
 	c->selcol = col;
 	c->ncols++;
-	if (prev == NULL || c->cols == NULL) {
-		col->prev = NULL;
-		col->next = c->cols;
-		if (c->cols != NULL)
-			c->cols->prev = col;
-		c->cols = col;
-	} else {
-		if (prev->next != NULL)
-			prev->next->prev = col;
-		col->next = prev->next;
-		col->prev = prev;
-		prev->next = col;
-	}
+	if (prev == NULL || TAILQ_EMPTY(&c->colq))
+		TAILQ_INSERT_HEAD(&c->colq, col, entry);
+	else
+		TAILQ_INSERT_AFTER(&c->colq, prev, col, entry);
 	XReparentWindow(dpy, col->div, c->frame, 0, 0);
 	containercalccols(c, 1, 0);
 	if (oldc != NULL && oldc->ncols == 0) {
@@ -3767,6 +3508,7 @@ colnew(void)
 
 	col = emalloc(sizeof(*col));
 	*col = (struct Column){ };
+	TAILQ_INIT(&col->rowq);
 	col->div = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
 	                         CopyFromParent, InputOnly, CopyFromParent, CWCursor,
 	                         &(XSetWindowAttributes){.cursor = theme.cursors[CURSOR_H]});
@@ -3785,19 +3527,10 @@ coladdrow(struct Column *col, struct Row *row, struct Row *prev)
 	row->col = col;
 	col->selrow = row;
 	col->nrows++;
-	if (prev == NULL || col->rows == NULL) {
-		row->prev = NULL;
-		row->next = col->rows;
-		if (col->rows != NULL)
-			col->rows->prev = row;
-		col->rows = row;
-	} else {
-		if (prev->next)
-			prev->next->prev = row;
-		row->next = prev->next;
-		row->prev = prev;
-		prev->next = row;
-	}
+	if (prev == NULL || TAILQ_EMPTY(&col->rowq))
+		TAILQ_INSERT_HEAD(&col->rowq, row, entry);
+	else
+		TAILQ_INSERT_AFTER(&col->rowq, prev, row, entry);
 	colcalcrows(col, 1, 0);    /* set row->y, row->h, etc */
 	XReparentWindow(dpy, row->div, c->frame, col->x + col->w, c->b);
 	XReparentWindow(dpy, row->bar, c->frame, col->x, row->y);
@@ -3819,6 +3552,7 @@ rownew(void)
 	*row = (struct Row){
 		.pixbar = None,
 	};
+	TAILQ_INIT(&row->tabq);
 	row->frame = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
 	                           depth, CopyFromParent, visual,
 	                           clientmask, &clientswa);
@@ -3845,38 +3579,29 @@ rownew(void)
 
 /* add tab to row */
 static void
-rowaddtab(struct Row *row, struct Tab *t, struct Tab *prev)
+rowaddtab(struct Row *row, struct Tab *tab, struct Tab *prev)
 {
 	struct Row *oldrow;
 
-	oldrow = t->row;
-	t->row = row;
-	row->seltab = t;
+	oldrow = tab->row;
+	tab->row = row;
+	row->seltab = tab;
 	row->ntabs++;
-	if (prev == NULL || row->tabs == NULL) {
-		t->prev = NULL;
-		t->next = row->tabs;
-		if (row->tabs != NULL)
-			row->tabs->prev = t;
-		row->tabs = t;
-	} else {
-		if (prev->next)
-			prev->next->prev = t;
-		t->next = prev->next;
-		t->prev = prev;
-		prev->next = t;
-	}
-	rowcalctabs(row);               /* set t->x, t->w, etc */
-	if (t->title == None) {
-		t->title = XCreateWindow(dpy, row->bar, t->x, 0, t->w, config.titlewidth, 0,
+	if (prev == NULL || TAILQ_EMPTY(&row->tabq))
+		TAILQ_INSERT_HEAD(&row->tabq, (struct Object *)tab, entry);
+	else
+		TAILQ_INSERT_AFTER(&row->tabq, (struct Object *)prev, (struct Object *)tab, entry);
+	rowcalctabs(row);               /* set tab->x, tab->w, etc */
+	if (tab->title == None) {
+		tab->title = XCreateWindow(dpy, row->bar, tab->x, 0, tab->w, config.titlewidth, 0,
 		                         depth, CopyFromParent, visual,
 		                         clientmask, &clientswa);
 	} else {
-		XReparentWindow(dpy, t->title, row->bar, t->x, 0);
+		XReparentWindow(dpy, tab->title, row->bar, tab->x, 0);
 	}
-	XReparentWindow(dpy, t->frame, row->frame, 0, 0);
-	XMapWindow(dpy, t->frame);
-	XMapWindow(dpy, t->title);
+	XReparentWindow(dpy, tab->frame, row->frame, 0, 0);
+	XMapWindow(dpy, tab->frame);
+	XMapWindow(dpy, tab->title);
 	if (oldrow != NULL) {           /* deal with the row this tab came from */
 		if (oldrow->ntabs == 0) {
 			rowdel(oldrow);
@@ -3888,9 +3613,9 @@ rowaddtab(struct Row *row, struct Tab *t, struct Tab *prev)
 
 /* check if desktop is visible */
 static int
-deskisvisible(struct Desktop *desk)
+deskisvisible(struct Monitor *mon, int desk)
 {
-	return desk->mon->seldesk == desk;
+	return mon->seldesk == desk;
 }
 
 /* (un)show desktop */
@@ -3899,7 +3624,7 @@ deskshow(int show)
 {
 	struct Container *c;
 
-	for (c = wm.c; c != NULL; c = c->next)
+	TAILQ_FOREACH(c, &wm.focusq, entry)
 		if (!c->isminimized)
 			containerhide(c, show);
 	wm.showingdesk = show;
@@ -3908,35 +3633,35 @@ deskshow(int show)
 
 /* change desktop */
 static void
-deskfocus(struct Desktop *desk, int focus)
+deskfocus(struct Monitor *mon, int desk, int focus)
 {
 	void tabfocus(struct Tab *t, int gotodesk);
 	struct Container *c;
 
-	if (desk == NULL || desk == wm.selmon->seldesk)
+	if (desk < 0 || desk >= config.ndesktops || desk == wm.selmon->seldesk)
 		return;
-	if (!deskisvisible(desk)) {
+	if (!deskisvisible(mon, desk)) {
 		/* unhide cointainers of new current desktop
 		 * hide containers of previous current desktop */
-		for (c = wm.c; c != NULL; c = c->next) {
+		TAILQ_FOREACH(c, &wm.focusq, entry) {
 			if (!c->isminimized && c->desk == desk) {
 				containerhide(c, 0);
-			} else if (!c->issticky && c->desk == desk->mon->seldesk) {
+			} else if (!c->issticky && c->desk == mon->seldesk) {
 				containerhide(c, 1);
 			}
 		}
 	}
 
 	/* update current desktop */
-	wm.selmon = desk->mon;
+	wm.selmon = mon;
 	wm.selmon->seldesk = desk;
 	if (wm.showingdesk)
 		deskshow(0);
-	ewmhsetcurrentdesktop(desk->n);
+	ewmhsetcurrentdesktop(desk);
 
 	/* focus client on the new current desktop */
 	if (focus) {
-		c = getnextfocused(desk->mon, desk);
+		c = getnextfocused(mon, desk);
 		if (c != NULL) {
 			tabfocus(c->selcol->selrow->seltab, 0);
 		} else {
@@ -3953,19 +3678,15 @@ snaptoedge(int *x, int *y, int w, int h)
 
 	if (config.snap <= 0)
 		return;
-	if (abs(*y - wm.selmon->wy) < config.snap) {
+	if (abs(*y - wm.selmon->wy) < config.snap)
 		*y = wm.selmon->wy;
-	}
-	if (abs(*y + h - wm.selmon->wy - wm.selmon->wh) < config.snap) {
+	if (abs(*y + h - wm.selmon->wy - wm.selmon->wh) < config.snap)
 		*y = wm.selmon->wy + wm.selmon->wh - h;
-	}
-	if (abs(*x - wm.selmon->wx) < config.snap) {
+	if (abs(*x - wm.selmon->wx) < config.snap)
 		*x = wm.selmon->wx;
-	}
-	if (abs(*x + w - wm.selmon->wx - wm.selmon->ww) < config.snap) {
+	if (abs(*x + w - wm.selmon->wx - wm.selmon->ww) < config.snap)
 		*x = wm.selmon->wx + wm.selmon->ww - w;
-	}
-	for (c = wm.c; c != NULL; c = c->next) {
+	TAILQ_FOREACH(c, &wm.focusq, entry) {
 		if (!c->isminimized && c->mon == wm.selmon &&
 		    (c->issticky || c->desk == wm.selmon->seldesk)) {
 			if (*x + w >= c->x && *x <= c->x + c->w) {
@@ -4005,9 +3726,8 @@ static void
 containerincrmove(struct Container *c, int x, int y, int done)
 {
 	struct Monitor *monto;
-	struct Column *col;
-	struct Row *row;
-	struct Tab *t;
+	struct Object *t;
+	struct Tab *tab;
 
 	if (c == NULL || c->isminimized || c->ismaximized || c->isfullscreen)
 		return;
@@ -4020,20 +3740,17 @@ containerincrmove(struct Container *c, int x, int y, int done)
 		containermoveresize(c);
 	} else {
 		XMoveWindow(dpy, c->frame, c->x, c->y);
-		for (col = c->cols; col != NULL; col = col->next) {
-			for (row = col->rows; row != NULL; row = row->next) {
-				for (t = row->tabs; t != NULL; t = t->next) {
-					winnotify(t->win, c->x + col->x, c->y + row->y + config.titlewidth, t->winw, t->winh);
-				}
-			}
-		}
+		TAB_FOREACH_BEGIN(c, t){
+			tab = (struct Tab *)t;
+			winnotify(tab->obj.win, c->x + col->x, c->y + row->y + config.titlewidth, tab->winw, tab->winh);
+		}TAB_FOREACH_END
 	}
 	if (!c->issticky) {
 		monto = getmon(c->nx + c->nw / 2, c->ny + c->nh / 2);
 		if (monto != NULL && monto != c->mon) {
-			containersendtodesk(c, monto->seldesk, 0, 0);
+			containersendtodesk(c, monto, monto->seldesk, 0, 0);
 			if (wm.focused == c) {
-				deskfocus(monto->seldesk, 0);
+				deskfocus(monto, monto->seldesk, 0);
 			}
 		}
 	}
@@ -4043,33 +3760,37 @@ containerincrmove(struct Container *c, int x, int y, int done)
 static struct Tab *
 tabnew(Window win, Window leader, int ignoreunmap)
 {
-	struct Tab *t;
+	struct Tab *tab;
 
-	t = emalloc(sizeof(*t));
-	*t = (struct Tab){
+	tab = emalloc(sizeof(*tab));
+	*tab = (struct Tab){
 		.ignoreunmap = ignoreunmap,
 		.pix = None,
 		.pixtitle = None,
 		.title = None,
 		.leader = leader,
-		.win = win,
+		.obj.win = win,
+		.obj.type = TYPE_NORMAL,
 	};
-	t->frame = XCreateWindow(dpy, root, 0, 0, 1, 1, 0, depth, CopyFromParent, visual, clientmask, &clientswa),
-	XReparentWindow(dpy, t->win, t->frame, 0, 0);
-	XMapWindow(dpy, t->win);
+	TAILQ_INIT(&tab->dialq);
+	TAILQ_INIT(&tab->menuq);
+	((struct Object *)tab)->type = TYPE_NORMAL;
+	tab->frame = XCreateWindow(dpy, root, 0, 0, 1, 1, 0, depth, CopyFromParent, visual, clientmask, &clientswa),
+	XReparentWindow(dpy, tab->obj.win, tab->frame, 0, 0);
+	XMapWindow(dpy, tab->obj.win);
 	icccmwmstate(win, NormalState);
 	clientsincr();
-	return t;
+	return tab;
 }
 
 /* clear window urgency */
 static void
-tabclearurgency(struct Tab *t)
+tabclearurgency(struct Tab *tab)
 {
 	XWMHints wmh = {0};
 
-	XSetWMHints(dpy, t->win, &wmh);
-	t->isurgent = 0;
+	XSetWMHints(dpy, tab->obj.win, &wmh);
+	tab->isurgent = 0;
 }
 
 /* update tab urgency */
@@ -4090,50 +3811,52 @@ tabupdateurgency(struct Tab *t, int isurgent)
 
 /* focus tab */
 void
-tabfocus(struct Tab *t, int gotodesk)
+tabfocus(struct Tab *tab, int gotodesk)
 {
 	struct Container *c;
+	struct Dialog *dial;
 
 	wm.prevfocused = wm.focused;
-	if (t == NULL) {
+	if (tab == NULL) {
 		wm.focused = NULL;
 		XSetInputFocus(dpy, wm.focuswin, RevertToParent, CurrentTime);
 		ewmhsetactivewindow(None);
 	} else {
-		c = t->row->col->c;
+		c = tab->row->col->c;
 		if (!c->isfullscreen && getfullscreen(c->mon, c->desk) != NULL)
 			return;         /* we should not focus a client below a fullscreen client */
 		wm.focused = c;
-		t->row->seltab = t;
-		t->row->col->selrow = t->row;
-		t->row->col->c->selcol = t->row->col;
+		tab->row->seltab = tab;
+		tab->row->col->selrow = tab->row;
+		tab->row->col->c->selcol = tab->row->col;
 		if (gotodesk)
-			deskfocus(c->issticky ? c->mon->seldesk : c->desk, 0);
-		if (t->row->col->maxrow != NULL && t->row->col->maxrow != t->row)
-			rowstack(t->row->col, t->row);
-		XRaiseWindow(dpy, t->frame);
+			deskfocus(c->mon, c->issticky ? c->mon->seldesk : c->desk, 0);
+		if (tab->row->col->maxrow != NULL && tab->row->col->maxrow != tab->row)
+			rowstack(tab->row->col, tab->row);
+		XRaiseWindow(dpy, tab->frame);
 		if (c->isshaded) {
 			XSetInputFocus(dpy, c->frame, RevertToParent, CurrentTime);
-		} else if (t->ds != NULL) {
-			XRaiseWindow(dpy, t->ds->frame);
-			XSetInputFocus(dpy, t->ds->win, RevertToParent, CurrentTime);
+		} else if (!TAILQ_EMPTY(&tab->dialq)) {
+			dial = (struct Dialog *)TAILQ_FIRST(&tab->dialq);
+			XRaiseWindow(dpy, dial->frame);
+			XSetInputFocus(dpy, dial->obj.win, RevertToParent, CurrentTime);
 		} else {
-			XSetInputFocus(dpy, t->win, RevertToParent, CurrentTime);
+			XSetInputFocus(dpy, tab->obj.win, RevertToParent, CurrentTime);
 		}
-		ewmhsetactivewindow(t->win);
-		if (t->isurgent)
-			tabclearurgency(t);
-		menumap(t);
+		ewmhsetactivewindow(tab->obj.win);
+		if (tab->isurgent)
+			tabclearurgency(tab);
+		menumap(tab);
 		containeraddfocus(c);
 		containerdecorate(c, NULL, NULL, 1, 0);
 		containerminimize(c, 0, 0);
-		containerraise(c);
+		containerraise(c, c->isfullscreen, c->layer);
 		shodgrouptab(c);
 		shodgroupcontainer(c);
 		ewmhsetstate(c);
 	}
 	if (wm.prevfocused != NULL) {
-		if (t != wm.prevfocused->selcol->selrow->seltab)
+		if (tab != wm.prevfocused->selcol->selrow->seltab)
 			menuunmap(wm.prevfocused->selcol->selrow->seltab);
 		containerdecorate(wm.prevfocused, NULL, NULL, 1, 0);
 		ewmhsetstate(wm.prevfocused);
@@ -4150,18 +3873,19 @@ winupdatetitle(Window win, char **name)
 
 /* try to attach tab in a client of specified client list */
 static int
-tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
+tryattach(struct ContainerQueue *queue, struct Tab *det, int xroot, int yroot)
 {
 	struct Container *c;
 	struct Column *col, *ncol;
 	struct Row *row, *nrow;
-	struct Tab *t, *next;
+	struct Tab *tab, *next;
+	struct Object *t;
 	int rowy, rowh;
 
-	for (c = list; c != NULL; c = c->rnext) {
+	for (c = TAILQ_FIRST(queue); c != NULL; c = TAILQ_NEXT(c, raiseentry)) {
 		if (c->ishidden || xroot < c->x || xroot >= c->x + c->w || yroot < c->y || yroot >= c->y + c->h)
 			continue;
-		for (col = c->cols; col != NULL; col = col->next) {
+		TAILQ_FOREACH(col, &c->colq, entry) {
 			if (xroot - c->x >= col->x - DROPPIXELS &&
 				   xroot - c->x < col->x + col->w + DROPPIXELS) {
 				if (yroot - c->y < c->b) {
@@ -4172,7 +3896,7 @@ tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 					goto done;
 				}
 				rowy = c->b;
-				for (row = col->rows; row != NULL; row = row->next) {
+				TAILQ_FOREACH(row, &col->rowq, entry) {
 					if (col->maxrow != NULL) {
 						if (row == col->maxrow) {
 							rowh = c->h - 2 * c->b - (col->nrows - 1) * config.titlewidth;
@@ -4184,10 +3908,10 @@ tryattach(struct Container *list, struct Tab *det, int xroot, int yroot)
 					}
 					if (yroot - c->y >= rowy &&
 					    yroot - c->y < rowy + config.titlewidth) {
-						for (next = t = row->tabs; t != NULL; t = t->next) {
-							next = t;
-							if (xroot - c->x + col->x < col->x + t->x + t->w / 2) {
-								rowaddtab(row, det, t->prev);
+						TAILQ_FOREACH(t, &row->tabq, entry) {
+							next = tab = (struct Tab *)t;
+							if (xroot - c->x + col->x < col->x + tab->x + tab->w / 2) {
+								rowaddtab(row, det, (struct Tab *)TAILQ_PREV(t, Queue, entry));
 								rowcalctabs(row);
 								goto done;
 							}
@@ -4246,13 +3970,13 @@ done:
 static int
 tabattach(struct Tab *t, int xroot, int yroot)
 {
-	if (tryattach(wm.fulllist, t, xroot, yroot))
+	if (tryattach(&wm.fullq, t, xroot, yroot))
 		return 1;
-	if (tryattach(wm.abovelist, t, xroot, yroot))
+	if (tryattach(&wm.aboveq, t, xroot, yroot))
 		return 1;
-	if (tryattach(wm.centerlist, t, xroot, yroot))
+	if (tryattach(&wm.centerq, t, xroot, yroot))
 		return 1;
-	if (tryattach(wm.belowlist, t, xroot, yroot))
+	if (tryattach(&wm.belowq, t, xroot, yroot))
 		return 1;
 	return 0;
 }
@@ -4261,20 +3985,21 @@ tabattach(struct Tab *t, int xroot, int yroot)
 static struct Dialog *
 dialognew(Window win, int maxw, int maxh, int ignoreunmap)
 {
-	struct Dialog *d;
+	struct Dialog *dial;
 
-	d = emalloc(sizeof(*d));
-	*d = (struct Dialog){
+	dial = emalloc(sizeof(*dial));
+	*dial = (struct Dialog){
 		.pix = None,
 		.maxw = maxw,
 		.maxh = maxh,
 		.ignoreunmap = ignoreunmap,
-		.win = win,
+		.obj.win = win,
+		.obj.type = TYPE_DIALOG,
 	};
-	d->frame = XCreateWindow(dpy, root, 0, 0, maxw, maxh, 0, depth, CopyFromParent, visual, clientmask, &clientswa),
-	XReparentWindow(dpy, d->win, d->frame, 0, 0);
-	XMapWindow(dpy, d->win);
-	return d;
+	dial->frame = XCreateWindow(dpy, root, 0, 0, maxw, maxh, 0, depth, CopyFromParent, visual, clientmask, &clientswa),
+	XReparentWindow(dpy, dial->obj.win, dial->frame, 0, 0);
+	XMapWindow(dpy, dial->obj.win);
+	return dial;
 }
 
 /* create new splash screen */
@@ -4285,10 +4010,12 @@ splashnew(Window win, int w, int h)
 
 	splash = emalloc(sizeof(*splash));
 	*splash = (struct Splash){
-		.win = win,
+		.obj.win = win,
+		.obj.type = TYPE_SPLASH,
 		.w = w,
 		.h = h,
 	};
+	((struct Object *)splash)->type = TYPE_SPLASH;
 	XReparentWindow(dpy, win, root, 0, 0);
 	return splash;
 }
@@ -4301,24 +4028,24 @@ splashplace(struct Splash *splash)
 	fitmonitor(wm.selmon, &splash->x, &splash->y, &splash->w, &splash->h, 0.5);
 	splash->x = wm.selmon->wx + (wm.selmon->ww - splash->w) / 2;
 	splash->y = wm.selmon->wy + (wm.selmon->wh - splash->h) / 2;
-	wins[1] = splash->win;
+	wins[1] = splash->obj.win;
 	wins[0] = wm.layerwins[LAYER_SPLASH];
-	XMoveWindow(dpy, splash->win, splash->x, splash->y);
+	XMoveWindow(dpy, splash->obj.win, splash->x, splash->y);
 	XRestackWindows(dpy, wins, 2);
 }
 
 /* delete splash screen window */
-static void
-splashdel(struct Splash *splash)
+static int
+splashdel(struct Object *obj, int dummy)
 {
-	if (splash->next != NULL)
-		splash->next->prev = splash->prev;
-	if (splash->prev != NULL)
-		splash->prev->next = splash->next;
-	else
-		wm.splashlist = splash->next;
-	icccmdeletestate(splash->win);
+	struct Splash *splash;
+
+	splash = (struct Splash *)obj;
+	(void)dummy;
+	TAILQ_REMOVE(&wm.splashq, (struct Object *)splash, entry);
+	icccmdeletestate(splash->obj.win);
 	free(splash);
+	return 0;
 }
 
 /* check if monitor geometry is unique */
@@ -4337,7 +4064,6 @@ static void
 monnew(XineramaScreenInfo *info)
 {
 	struct Monitor *mon;
-	int i;
 
 	mon = emalloc(sizeof *mon);
 	*mon = (struct Monitor){
@@ -4350,19 +4076,8 @@ monnew(XineramaScreenInfo *info)
 		.ww = info->width,
 		.wh = info->height,
 	};
-	mon->desks = ecalloc(config.ndesktops, sizeof(*mon->desks));
-	for (i = 0; i < config.ndesktops; i++) {
-		mon->desks[i].mon = mon;
-		mon->desks[i].n = i;
-	}
-	mon->seldesk = &mon->desks[0];
-	if (wm.montail != NULL) {
-		wm.montail->next = mon;
-		mon->prev = wm.montail;
-	} else {
-		wm.monhead = mon;
-	}
-	wm.montail = mon;
+	mon->seldesk = 0;
+	TAILQ_INSERT_TAIL(&wm.monq, mon, entry);
 }
 
 /* delete monitor and set monitor of clients on it to NULL */
@@ -4371,18 +4086,10 @@ mondel(struct Monitor *mon)
 {
 	struct Container *c;
 
-	if (mon->next)
-		mon->next->prev = mon->prev;
-	else
-		wm.montail = mon->prev;
-	if (mon->prev)
-		mon->prev->next = mon->next;
-	else
-		wm.monhead = mon->next;
-	for (c = wm.c; c; c = c->next)
+	TAILQ_REMOVE(&wm.monq, mon, entry);
+	TAILQ_FOREACH(c, &wm.focusq, entry)
 		if (c->mon == mon)
 			c->mon = NULL;
-	free(mon->desks);
 	free(mon);
 }
 
@@ -4392,14 +4099,9 @@ monupdate(void)
 {
 	XineramaScreenInfo *info = NULL;
 	XineramaScreenInfo *unique = NULL;
-	struct Monitor *mon;
-	struct Monitor *tmp;
+	struct Monitor *mon, *tmp;
 	struct Container *c, *focus;
-	struct Column *col;
-	struct Splash *splash;
-	struct Row *row;
-	struct Tab *t;
-	struct Menu *menu;
+	struct Object *t, *m, *s;
 	int delselmon = 0;
 	int del, add;
 	int i, j, n;
@@ -4416,8 +4118,8 @@ monupdate(void)
 	moncount = j;
 
 	/* look for monitors that do not exist anymore and delete them */
-	mon = wm.monhead;
-	while (mon) {
+	mon = TAILQ_FIRST(&wm.monq);
+	while (mon != NULL) {
 		del = 1;
 		for (i = 0; i < moncount; i++) {
 			if (unique[i].x_org == mon->mx && unique[i].y_org == mon->my &&
@@ -4427,7 +4129,7 @@ monupdate(void)
 			}
 		}
 		tmp = mon;
-		mon = mon->next;
+		mon = TAILQ_NEXT(mon, entry);
 		if (del) {
 			if (tmp == wm.selmon)
 				delselmon = 1;
@@ -4438,7 +4140,7 @@ monupdate(void)
 	/* look for new monitors and add them */
 	for (i = 0; i < moncount; i++) {
 		add = 1;
-		for (mon = wm.monhead; mon; mon = mon->next) {
+		TAILQ_FOREACH(mon, &wm.monq, entry) {
 			if (unique[i].x_org == mon->mx && unique[i].y_org == mon->my &&
 			    unique[i].width == mon->mw && unique[i].height == mon->mh) {
 				add = 0;
@@ -4450,34 +4152,26 @@ monupdate(void)
 		}
 	}
 	if (delselmon)
-		wm.selmon = wm.monhead;
-
-	/* update monitor number */
-	for (i = 0, mon = wm.monhead; mon; mon = mon->next, i++)
-		mon->n = i;
+		wm.selmon = TAILQ_FIRST(&wm.monq);
 
 	/* send containers which do not belong to a window to selected desktop */
 	focus = NULL;
-	for (c = wm.c; c; c = c->next) {
+	TAILQ_FOREACH(c, &wm.focusq, entry) {
 		if (!c->isminimized && c->mon == NULL) {
 			focus = c;
-			containersendtodesk(c, wm.selmon->seldesk, 1, 0);
+			containersendtodesk(c, wm.selmon, wm.selmon->seldesk, 1, 0);
 			containermoveresize(c);
 
 			/* move menus to new monitor */
-			for (col = c->cols; col != NULL; col = col->next) {
-				for (row = col->rows; row != NULL; row = row->next) {
-					for (t = row->tabs; t != NULL; t = t->next) {
-						for (menu = t->menus; menu != NULL; menu = menu->next) {
-							menuplace(menu);
-						}
-					}
+			TAB_FOREACH_BEGIN(c, t) {
+				TAILQ_FOREACH(m, &((struct Tab *)t)->menuq, entry) {
+					menuplace((struct Menu *)m);
 				}
-			}
+			} TAB_FOREACH_END
 		}
 	}
-	for (splash = wm.splashlist; splash != NULL; splash = splash->next)
-		splashplace(splash);
+	TAILQ_FOREACH(s, &wm.splashq, entry)
+		splashplace((struct Splash *)s);
 	if (focus != NULL)              /* if a contained changed desktop, focus it */
 		tabfocus(focus->selcol->selrow->seltab, 1);
 
@@ -4490,16 +4184,17 @@ monupdatearea(void)
 {
 	struct Monitor *mon;
 	struct Bar *bar;
+	struct Object *p;
 	struct Container *c;
 	int t, b, l, r;
 
-	for (mon = wm.monhead; mon != NULL; mon = mon->next) {
+	TAILQ_FOREACH(mon, &wm.monq, entry) {
 		mon->wx = mon->mx;
 		mon->wy = mon->my;
 		mon->ww = mon->mw;
 		mon->wh = mon->mh;
 		t = b = l = r = 0;
-		if (mon == wm.monhead && dock.mapped) {
+		if (mon == TAILQ_FIRST(&wm.monq) && dock.mapped) {
 			switch (config.dockgravity[0]) {
 			case 'N':
 				t = config.dockwidth;
@@ -4516,7 +4211,8 @@ monupdatearea(void)
 				break;
 			}
 		}
-		for (bar = wm.bars; bar != NULL; bar = bar->next) {
+		TAILQ_FOREACH(p, &wm.barq, entry) {
+			bar = (struct Bar *)p;
 			if (bar->strut[STRUT_TOP] != 0) {
 				if (bar->strut[STRUT_TOP] >= mon->my &&
 				    bar->strut[STRUT_TOP] < mon->my + mon->mh &&
@@ -4556,7 +4252,7 @@ monupdatearea(void)
 		mon->wx += l;
 		mon->ww -= l + r;
 	}
-	for (c = wm.c; c != NULL; c = c->next) {
+	TAILQ_FOREACH(c, &wm.focusq, entry) {
 		if (c->ismaximized) {
 			containercalccols(c, 0, 1);
 			containermoveresize(c);
@@ -4619,83 +4315,84 @@ promptcalcgeom(int *x, int *y, int *w, int *h, int *fw, int *fh)
 static void
 notifnew(Window win, int w, int h)
 {
-	struct Notification *n;
+	struct Notification *notif;
 
-	n = emalloc(sizeof(*n));
-	*n = (struct Notification){
+	notif = emalloc(sizeof(*notif));
+	*notif = (struct Notification){
 		.w = w + 2 * config.borderwidth,
 		.h = h + 2 * config.borderwidth,
 	};
-	n->prev = wm.ntail;
-	n->next = NULL;
-	if (wm.ntail != NULL)
-		wm.ntail->next = n;
-	else
-		wm.nhead = n;
-	wm.ntail = n;
-	n->pix = None;
-	n->win = win;
-	n->frame = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
-	                             depth, CopyFromParent, visual,
-	                             clientmask,
-	                             &(XSetWindowAttributes){.event_mask = SubstructureNotifyMask | SubstructureRedirectMask,
-	                                                     .colormap = colormap});
-	XReparentWindow(dpy, n->win, n->frame, 0, 0);
-	XMapWindow(dpy, n->win);
+	((struct Object *)notif)->type = TYPE_NOTIFICATION;
+	TAILQ_INSERT_TAIL(&wm.notifq, (struct Object *)notif, entry);
+	notif->pix = None;
+	notif->obj.win = win;
+	notif->frame = XCreateWindow(
+		dpy, root, 0, 0, 1, 1, 0,
+		depth, CopyFromParent, visual,
+		clientmask,
+		&(XSetWindowAttributes){
+			.event_mask = SubstructureNotifyMask | SubstructureRedirectMask,
+			.colormap = colormap
+		}
+	);
+	XReparentWindow(dpy, notif->obj.win, notif->frame, 0, 0);
+	XMapWindow(dpy, notif->obj.win);
 }
 
 /* place notifications */
 static void
 notifplace(void)
 {
-	struct Notification *n;
+	struct Object *n;
+	struct Notification *notif;
 	int x, y, h;
 
 	h = 0;
-	for (n = wm.nhead; n; n = n->next) {
-		x = wm.monhead->wx;
-		y = wm.monhead->wy;
+	TAILQ_FOREACH(n, &wm.notifq, entry) {
+		notif = (struct Notification *)n;
+		x = TAILQ_FIRST(&wm.monq)->wx;
+		y = TAILQ_FIRST(&wm.monq)->wy;
 		switch (config.notifgravity[0]) {
 		case 'N':
 			switch (config.notifgravity[1]) {
 			case 'W':
 				break;
 			case 'E':
-				x += wm.monhead->ww - n->w;
+				x += TAILQ_FIRST(&wm.monq)->ww - notif->w;
 				break;
 			default:
-				x += (wm.monhead->ww - n->w) / 2;
+				x += (TAILQ_FIRST(&wm.monq)->ww - notif->w) / 2;
 				break;
 			}
 			break;
 		case 'S':
 			switch(config.notifgravity[1]) {
 			case 'W':
-				y += wm.monhead->wh - n->h;
+				y += TAILQ_FIRST(&wm.monq)->wh - notif->h;
 				break;
 			case 'E':
-				x += wm.monhead->ww - n->w;
-				y += wm.monhead->wh - n->h;
+				x += TAILQ_FIRST(&wm.monq)->ww - notif->w;
+				y += TAILQ_FIRST(&wm.monq)->wh - notif->h;
 				break;
 			default:
-				x += (wm.monhead->ww - n->w) / 2;
-				y += wm.monhead->wh - n->h;
+				x += (TAILQ_FIRST(&wm.monq)->ww - notif->w) / 2;
+				y += TAILQ_FIRST(&wm.monq)->wh - notif->h;
 				break;
 			}
 			break;
 		case 'W':
-			y += (wm.monhead->wh - n->h) / 2;
+			y += (TAILQ_FIRST(&wm.monq)->wh - notif->h) / 2;
 			break;
 		case 'C':
-			x += (wm.monhead->ww - n->w) / 2;
-			y += (wm.monhead->wh - n->h) / 2;
+			x += (TAILQ_FIRST(&wm.monq)->ww - notif->w) / 2;
+			y += (TAILQ_FIRST(&wm.monq)->wh - notif->h) / 2;
 			break;
 		case 'E':
-			x += wm.monhead->ww - n->w;
-			y += (wm.monhead->wh - n->h) / 2;
+			x += TAILQ_FIRST(&wm.monq)->ww - notif->w;
+			y += (TAILQ_FIRST(&wm.monq)->wh - notif->h) / 2;
 			break;
 		default:
-			x += wm.monhead->ww - n->w;
+			x += TAILQ_FIRST(&wm.monq)->ww - notif->w;
 			break;
 		}
 
@@ -4703,36 +4400,34 @@ notifplace(void)
 			y -= h;
 		else
 			y += h;
-		h += n->h + config.notifgap + config.borderwidth * 2;
+		h += notif->h + config.notifgap + config.borderwidth * 2;
 
-		XMoveResizeWindow(dpy, n->frame, x, y, n->w, n->h);
-		XMoveResizeWindow(dpy, n->win, config.borderwidth, config.borderwidth, n->w - 2 * config.borderwidth, n->h - 2 * config.borderwidth);
-		XMapWindow(dpy, n->frame);
-		if (n->pw != n->w || n->ph != n->h) {
-			notifdecorate(n);
+		XMoveResizeWindow(dpy, notif->frame, x, y, notif->w, notif->h);
+		XMoveResizeWindow(dpy, notif->obj.win, config.borderwidth, config.borderwidth, notif->w - 2 * config.borderwidth, notif->h - 2 * config.borderwidth);
+		XMapWindow(dpy, notif->frame);
+		if (notif->pw != notif->w || notif->ph != notif->h) {
+			notifdecorate(notif);
 		}
-		winnotify(n->win, x + config.borderwidth, y + config.borderwidth, n->w - 2 * config.borderwidth, n->h - 2 * config.borderwidth);
+		winnotify(notif->obj.win, x + config.borderwidth, y + config.borderwidth, notif->w - 2 * config.borderwidth, notif->h - 2 * config.borderwidth);
 	}
 }
 
 /* delete notification */
-static void
-notifdel(struct Notification *n)
+static int
+notifdel(struct Object *obj, int dummy)
 {
-	if (n->next)
-		n->next->prev = n->prev;
-	else
-		wm.ntail = n->prev;
-	if (n->prev)
-		n->prev->next = n->next;
-	else
-		wm.nhead = n->next;
-	if (n->pix != None)
-		XFreePixmap(dpy, n->pix);
-	XReparentWindow(dpy, n->win, root, 0, 0);
-	XDestroyWindow(dpy, n->frame);
-	free(n);
+	struct Notification *notif;
+
+	(void)dummy;
+	notif = (struct Notification *)obj;
+	TAILQ_REMOVE(&wm.notifq, (struct Object *)notif, entry);
+	if (notif->pix != None)
+		XFreePixmap(dpy, notif->pix);
+	XReparentWindow(dpy, notif->obj.win, root, 0, 0);
+	XDestroyWindow(dpy, notif->frame);
+	free(notif);
 	notifplace();
+	return 0;
 }
 
 /* fill strut array of bar */
@@ -4745,10 +4440,10 @@ barstrut(struct Bar *bar)
 	for (i = 0; i < STRUT_LAST; i++)
 		bar->strut[i] = 0;
 	bar->partial = 1;
-	l = getcardprop(bar->win, atoms[_NET_WM_STRUT_PARTIAL], &arr);
+	l = getcardprop(bar->obj.win, atoms[_NET_WM_STRUT_PARTIAL], &arr);
 	if (arr == NULL) {
 		bar->partial = 0;
-		l = getcardprop(bar->win, atoms[_NET_WM_STRUT], &arr);
+		l = getcardprop(bar->obj.win, atoms[_NET_WM_STRUT], &arr);
 		if (arr == NULL) {
 			return;
 		}
@@ -4759,17 +4454,17 @@ barstrut(struct Bar *bar)
 }
 
 /* delete bar */
-static void
-bardel(struct Bar *bar)
+static int
+bardel(struct Object *obj, int dummy)
 {
-	if (bar->next != NULL)
-		bar->next->prev = bar->prev;
-	if (bar->prev != NULL)
-		bar->prev->next = bar->next;
-	else
-		wm.bars = bar->next;
+	struct Bar *bar;
+
+	(void)dummy;
+	bar = (struct Bar *)obj;
+	TAILQ_REMOVE(&wm.barq, (struct Object *)bar, entry);
 	free(bar);
 	monupdatearea();
+	return 0;
 }
 
 /* decorate dock */
@@ -4799,13 +4494,15 @@ dockdecorate(void)
 static void
 dockupdate(void)
 {
+	struct Object *p;
 	struct Dockapp *dapp;
 	Window wins[2];
 	int size;
 	int n;
 
 	size = 0;
-	for (dapp = dock.head; dapp != NULL; dapp = dapp->next) {
+	TAILQ_FOREACH(p, &dock.dappq, entry) {
+		dapp = (struct Dockapp *)p;
 		switch (config.dockgravity[0]) {
 		case 'N':
 			dapp->x = DOCKBORDER + size;
@@ -4857,7 +4554,7 @@ dockupdate(void)
 		break;
 	case 'S':
 		dock.h = config.dockwidth;
-		dock.y = wm.monhead->mh - config.dockwidth;
+		dock.y = TAILQ_FIRST(&wm.monq)->mh - config.dockwidth;
 		break;
 	case 'W':
 		dock.w = config.dockwidth;
@@ -4866,45 +4563,46 @@ dockupdate(void)
 	case 'E':
 	default:
 		dock.w = config.dockwidth;
-		dock.x = wm.monhead->mw - config.dockwidth;
-		dock.h = min(size, wm.monhead->mh);
-		dock.y = wm.monhead->mh / 2 - size / 2;
+		dock.x = TAILQ_FIRST(&wm.monq)->mw - config.dockwidth;
+		dock.h = min(size, TAILQ_FIRST(&wm.monq)->mh);
+		dock.y = TAILQ_FIRST(&wm.monq)->mh / 2 - size / 2;
 		break;
 	}
 	if (config.dockgravity[0] == 'N' || config.dockgravity[0] == 'S') {
 		switch (config.dockgravity[1]) {
 		case 'W':
-			dock.w = min(size, wm.monhead->mw);
+			dock.w = min(size, TAILQ_FIRST(&wm.monq)->mw);
 			dock.x = 0;
 			break;
 		case 'E':
-			dock.w = min(size, wm.monhead->mw);
-			dock.x = wm.monhead->mw - size;
+			dock.w = min(size, TAILQ_FIRST(&wm.monq)->mw);
+			dock.x = TAILQ_FIRST(&wm.monq)->mw - size;
 			break;
 		default:
-			dock.w = min(size, wm.monhead->mw);
-			dock.x = wm.monhead->mw / 2 - size / 2;
+			dock.w = min(size, TAILQ_FIRST(&wm.monq)->mw);
+			dock.x = TAILQ_FIRST(&wm.monq)->mw / 2 - size / 2;
 			break;
 		}
 	} else if (config.dockgravity[0] != '\0') {
 		switch (config.dockgravity[1]) {
 		case 'N':
-			dock.h = min(size, wm.monhead->mh);
+			dock.h = min(size, TAILQ_FIRST(&wm.monq)->mh);
 			dock.y = 0;
 			break;
 		case 'S':
-			dock.h = min(size, wm.monhead->mh);
-			dock.y = wm.monhead->mh - size;
+			dock.h = min(size, TAILQ_FIRST(&wm.monq)->mh);
+			dock.y = TAILQ_FIRST(&wm.monq)->mh - size;
 			break;
 		default:
-			dock.h = min(size, wm.monhead->mh);
-			dock.y = wm.monhead->mh / 2 - size / 2;
+			dock.h = min(size, TAILQ_FIRST(&wm.monq)->mh);
+			dock.y = TAILQ_FIRST(&wm.monq)->mh / 2 - size / 2;
 			break;
 		}
 	}
-	for (dapp = dock.head; dapp != NULL; dapp = dapp->next) {
-		XMoveWindow(dpy, dapp->win, dapp->x, dapp->y);
-		winnotify(dapp->win, dock.x + dapp->x, dock.y + dapp->y, dapp->w, dapp->h);
+	TAILQ_FOREACH(p, &dock.dappq, entry) {
+		dapp = (struct Dockapp *)p;
+		XMoveWindow(dpy, dapp->obj.win, dapp->x, dapp->y);
+		winnotify(dapp->obj.win, dock.x + dapp->x, dock.y + dapp->y, dapp->w, dapp->h);
 	}
 	dockdecorate();
 	wins[0] = wm.layerwins[LAYER_DOCK];
@@ -4919,55 +4617,45 @@ dockupdate(void)
 static void
 dockappnew(Window win, int w, int h, int dockpos, int ignoreunmap)
 {
-	struct Dockapp *dapp, *tmp;
+	struct Dockapp *dapp;
+	struct Object *prev;
 
 	dapp = emalloc(sizeof(*dapp));
 	*dapp = (struct Dockapp){
-		.win = win,
+		.obj.type = TYPE_DOCKAPP,
+		.obj.win = win,
 		.w = w,
 		.h = h,
 		.ignoreunmap = ignoreunmap,
 		.dockpos = dockpos,
 	};
-	for (tmp = dock.tail; tmp != NULL; tmp = tmp->prev)
-		if (tmp->dockpos <= dockpos)
+	TAILQ_FOREACH_REVERSE(prev, &dock.dappq, Queue, entry)
+		if (((struct Dockapp *)prev)->dockpos <= dockpos)
 			break;
-	if (tmp != NULL) {
-		dapp->prev = tmp;
-		dapp->next = tmp->next;
-		if (tmp->next != NULL)
-			tmp->next->prev = dapp;
-		else
-			dock.tail = dapp;
-		tmp->next = dapp;
+	if (prev != NULL) {
+		TAILQ_INSERT_AFTER(&dock.dappq, prev, (struct Object *)dapp, entry);
 	} else {
-		dapp->next = dock.head;
-		dapp->prev = NULL;
-		if (dock.head != NULL)
-			dock.head->prev = dapp;
-		else
-			dock.tail = dapp;
-		dock.head = dapp;
+		TAILQ_INSERT_HEAD(&dock.dappq, (struct Object *)dapp, entry);
 	}
-	printf("\n");
 }
 
 /* delete dockapp */
-static void
-dockappdel(struct Dockapp *dapp)
+static int
+dockappdel(struct Object *obj, int ignoreunmap)
 {
-	if (dapp->next != NULL)
-		dapp->next->prev = dapp->prev;
-	else
-		dock.tail = dapp->prev;
-	if (dapp->prev != NULL)
-		dapp->prev->next = dapp->next;
-	else
-		dock.head = dapp->next;
-	XReparentWindow(dpy, dapp->win, root, 0, 0);
+	struct Dockapp *dapp;
+
+	dapp = (struct Dockapp *)obj;
+	if (ignoreunmap && dapp->ignoreunmap) {
+		dapp->ignoreunmap--;
+		return 0;
+	}
+	TAILQ_REMOVE(&dock.dappq, (struct Object *)dapp, entry);
+	XReparentWindow(dpy, dapp->obj.win, root, 0, 0);
 	free(dapp);
 	dockupdate();
 	monupdatearea();
+	return 0;
 }
 
 /* create new menu */
@@ -4980,7 +4668,8 @@ menunew(Window win, int x, int y, int w, int h, int ignoreunmap)
 	*menu = (struct Menu){
 		.titlebar = None,
 		.button = None,
-		.win = win,
+		.obj.win = win,
+		.obj.type = TYPE_MENU,
 		.pix = None,
 		.pixbutton = None,
 		.pixtitlebar = None,
@@ -5006,8 +4695,8 @@ menunew(Window win, int x, int y, int w, int h, int ignoreunmap)
 	                             clientmask, &clientswa);
 	menu->pixbutton = XCreatePixmap(dpy, menu->button, config.titlewidth, config.titlewidth, depth);
 	XDefineCursor(dpy, menu->button, theme.cursors[CURSOR_PIRATE]);
-	XReparentWindow(dpy, menu->win, menu->frame, config.borderwidth, config.borderwidth + config.titlewidth);
-	XMapWindow(dpy, menu->win);
+	XReparentWindow(dpy, menu->obj.win, menu->frame, config.borderwidth, config.borderwidth + config.titlewidth);
+	XMapWindow(dpy, menu->obj.win);
 	XMapWindow(dpy, menu->button);
 	XMapWindow(dpy, menu->titlebar);
 	return menu;
@@ -5015,33 +4704,57 @@ menunew(Window win, int x, int y, int w, int h, int ignoreunmap)
 
 /* call the proper decorate function */
 static void
-decorate(struct Winres *res)
+decorate(Window win)
 {
+	struct Object *obj;
+	struct Container *c;
+	struct Row *row;
+	struct Notification *notif;
+	struct Dialog *dial;
+	struct Menu *menu;
+	struct Tab *tab;
 	int fullw, fullh;
 
-	if (res->dock) {
-		XCopyArea(dpy, res->dock->pix, res->dock->win, gc, 0, 0, res->dock->w, res->dock->h, 0, 0);
-	} else if (res->n) {
-		XCopyArea(dpy, res->n->pix, res->n->frame, gc, 0, 0, res->n->w, res->n->h, 0, 0);
-	} else if (res->menu != NULL) {
-		XCopyArea(dpy, res->menu->pix, res->menu->frame, gc, 0, 0, res->menu->pw, res->menu->ph, 0, 0);
-		XCopyArea(dpy, res->menu->pixbutton, res->menu->button, gc, 0, 0, config.titlewidth, config.titlewidth, 0, 0);
-		XCopyArea(dpy, res->menu->pixtitlebar, res->menu->titlebar, gc, 0, 0, res->menu->tw, res->menu->th, 0, 0);
-	} else if (res->d != NULL) {
-		fullw = res->d->w + 2 * config.borderwidth;
-		fullh = res->d->h + 2 * config.borderwidth;
-		XCopyArea(dpy, res->d->pix, res->d->frame, gc, 0, 0, fullw, fullh, 0, 0);
-	} else if (res->t != NULL) {
-		XCopyArea(dpy, res->t->pixtitle, res->t->title, gc, 0, 0, res->t->w, config.titlewidth, 0, 0);
-		XCopyArea(dpy, res->t->pix, res->t->frame, gc, 0, 0, res->t->winw, res->t->winh, 0, 0);
-	} else if (res->row != NULL) {
-		XCopyArea(dpy, res->row->pixbar, res->row->bar, gc, 0, 0, res->row->pw, config.titlewidth, 0, 0);
-		XCopyArea(dpy, res->row->pixbl, res->row->bl, gc, 0, 0, config.titlewidth, config.titlewidth, 0, 0);
-		XCopyArea(dpy, res->row->pixbr, res->row->br, gc, 0, 0, config.titlewidth, config.titlewidth, 0, 0);
-	} else if (res->c != NULL) {
-		fullw = res->c->w;
-		fullh = res->c->h;
-		XCopyArea(dpy, res->c->pix, res->c->frame, gc, 0, 0, fullw, fullh, 0, 0);
+	if (win == dock.win) {
+		XCopyArea(dpy, dock.pix, dock.win, gc, 0, 0, dock.w, dock.h, 0, 0);
+		return;
+	}
+	if ((obj = getmanaged(win)) == NULL)
+		return;
+	switch (obj->type) {
+	case TYPE_MENU:
+		menu = (struct Menu *)obj;
+		XCopyArea(dpy, menu->pix, menu->frame, gc, 0, 0, menu->pw, menu->ph, 0, 0);
+		XCopyArea(dpy, menu->pixbutton, menu->button, gc, 0, 0, config.titlewidth, config.titlewidth, 0, 0);
+		XCopyArea(dpy, menu->pixtitlebar, menu->titlebar, gc, 0, 0, menu->tw, menu->th, 0, 0);
+		break;
+	case TYPE_DIALOG:
+		dial = (struct Dialog *)obj;
+		fullw = dial->w + 2 * config.borderwidth;
+		fullh = dial->h + 2 * config.borderwidth;
+		XCopyArea(dpy, dial->pix, dial->frame, gc, 0, 0, fullw, fullh, 0, 0);
+		break;
+	case TYPE_NOTIFICATION:
+		notif = (struct Notification *)obj;
+		XCopyArea(dpy, notif->pix, notif->frame, gc, 0, 0, notif->w, notif->h, 0, 0);
+		break;
+	case TYPE_NORMAL:
+		tab = (struct Tab *)obj;
+		c = tab->row->col->c;
+		row = tab->row;
+		if (win == c->frame)
+			XCopyArea(dpy, c->pix, c->frame, gc, 0, 0, c->w, c->h, 0, 0);
+		else if (win == row->bar)
+			XCopyArea(dpy, row->pixbar, row->bar, gc, 0, 0, row->pw, config.titlewidth, 0, 0);
+		else if (win == row->bl)
+			XCopyArea(dpy, row->pixbl, row->bl, gc, 0, 0, config.titlewidth, config.titlewidth, 0, 0);
+		else if (win == row->br)
+			XCopyArea(dpy, row->pixbr, row->br, gc, 0, 0, config.titlewidth, config.titlewidth, 0, 0);
+		else if (win == tab->title)
+			XCopyArea(dpy, tab->pixtitle, tab->title, gc, 0, 0, tab->w, config.titlewidth, 0, 0);
+		else if (win == tab->frame)
+			XCopyArea(dpy, tab->pix, tab->frame, gc, 0, 0, tab->winw, tab->winh, 0, 0);
+		break;
 	}
 }
 
@@ -5049,48 +4762,39 @@ decorate(struct Winres *res)
 static void
 managesplash(struct Splash *splash)
 {
-	if (wm.splashlist != NULL)
-		wm.splashlist->prev = splash;
-	splash->next = wm.splashlist;
-	wm.splashlist = splash;
-	icccmwmstate(splash->win, NormalState);
+	TAILQ_INSERT_HEAD(&wm.splashq, (struct Object *)splash, entry);
+	icccmwmstate(splash->obj.win, NormalState);
 	splashplace(splash);
-	XMapWindow(dpy, splash->win);
+	XMapWindow(dpy, splash->obj.win);
 }
 
 /* add dialog window into tab */
 static void
-managedialog(struct Tab *t, struct Dialog *d)
+managedialog(struct Tab *tab, struct Dialog *dial)
 {
-	d->t = t;
-	if (t->ds != NULL)
-		t->ds->prev = d;
-	d->next = t->ds;
-	t->ds = d;
-	XReparentWindow(dpy, d->frame, t->frame, 0, 0);
-	icccmwmstate(d->win, NormalState);
-	dialogmoveresize(d);
-	XMapRaised(dpy, d->frame);
-	if (wm.focused != NULL && wm.focused->selcol->selrow->seltab == t)
-		tabfocus(t, 0);
+	dial->tab = tab;
+	TAILQ_INSERT_HEAD(&tab->dialq, (struct Object *)dial, entry);
+	XReparentWindow(dpy, dial->frame, tab->frame, 0, 0);
+	icccmwmstate(dial->obj.win, NormalState);
+	dialogmoveresize(dial);
+	XMapRaised(dpy, dial->frame);
+	if (wm.focused != NULL && wm.focused->selcol->selrow->seltab == tab)
+		tabfocus(tab, 0);
 	ewmhsetclients();
 	ewmhsetclientsstacking();
 }
 
 /* assign menu to tab */
 static void
-managemenu(struct Tab *t, struct Menu *menu)
+managemenu(struct Tab *tab, struct Menu *menu)
 {
-	menu->t = t;
-	if (t->menus != NULL)
-		t->menus->prev = menu;
-	menu->next = t->menus;
-	t->menus = menu;
-	icccmwmstate(menu->win, NormalState);
+	menu->tab = tab;
+	TAILQ_INSERT_HEAD(&tab->menuq, (struct Object *)menu, entry);
+	icccmwmstate(menu->obj.win, NormalState);
 	menudecorate(menu, 0);
 	menuplace(menu);
-	if (wm.focused != NULL && wm.focused->selcol->selrow->seltab == t)
-		tabfocus(t, 0);
+	if (wm.focused != NULL && wm.focused->selcol->selrow->seltab == tab)
+		tabfocus(tab, 0);
 	ewmhsetclients();
 	ewmhsetclientsstacking();
 }
@@ -5100,7 +4804,6 @@ static void
 manageprompt(Window win, int w, int h)
 {
 	struct Prompt prompt;
-	struct Winres res;
 	XEvent ev;
 	int x, y, fw, fh;
 
@@ -5122,8 +4825,7 @@ manageprompt(Window win, int w, int h)
 				if (ev.xexpose.window == prompt.frame) {
 					promptdecorate(&prompt, fw, fh);
 				} else {
-					res = getwin(ev.xexpose.window);
-					decorate(&res);
+					decorate(ev.xexpose.window);
 				}
 			}
 			break;
@@ -5185,7 +4887,7 @@ managenotif(Window win, int w, int h)
 
 /* create container for tab */
 static void
-managecontainer(struct Container *c, struct Tab *t, struct Desktop *desk, int userplaced)
+managecontainer(struct Container *c, struct Tab *tab, struct Monitor *mon, int desk, int userplaced)
 {
 	struct Column *col;
 	struct Row *row;
@@ -5194,14 +4896,14 @@ managecontainer(struct Container *c, struct Tab *t, struct Desktop *desk, int us
 	col = colnew();
 	containeraddcol(c, col, NULL);
 	coladdrow(col, row, NULL);
-	rowaddtab(row, t, NULL);
-	containersendtodesk(c, desk, 1, userplaced);
+	rowaddtab(row, tab, NULL);
+	containersendtodesk(c, mon, desk, 1, userplaced);
 	containercalccols(c, 1, 1);
 	containermoveresize(c);
 	containerredecorate(c, NULL, NULL, 0);
 	XMapSubwindows(dpy, c->frame);
 	containerhide(c, 0);
-	tabfocus(t, 0);
+	tabfocus(tab, 0);
 	/* no need to call shodgrouptab() and shodgroupcontainer(); tabfocus() already calls them */
 	ewmhsetclients();
 	ewmhsetclientsstacking();
@@ -5215,12 +4917,8 @@ managebar(Window win)
 	Window wins[2] = {wm.layerwins[LAYER_DOCK], win};
 
 	bar = emalloc(sizeof(*bar));
-	bar->prev = bar->next = NULL;
-	bar->win = win;
-	if (wm.bars != NULL)
-		wm.bars->prev = bar;
-	bar->next = wm.bars;
-	wm.bars = bar;
+	bar->obj.win = win;
+	TAILQ_INSERT_HEAD(&wm.barq, (struct Object *)bar, entry);
 	XRestackWindows(dpy, wins, 2);
 	XMapWindow(dpy, win);
 	barstrut(bar);
@@ -5231,7 +4929,6 @@ managebar(Window win)
 static void
 manage(Window win, int x, int y, int w, int h, int ignoreunmap)
 {
-	struct Winres res;
 	struct Tab *t;
 	struct Container *c;
 	struct Dialog *d;
@@ -5239,8 +4936,7 @@ manage(Window win, int x, int y, int w, int h, int ignoreunmap)
 	struct Menu *menu;
 	struct Wintype wintype;
 	int userplaced;
-	res = getwin(win);
-	if (res.dock != NULL || res.c != NULL || res.bar != NULL || res.dapp != NULL || res.n != NULL || res.menu != NULL)
+	if (getmanaged(win) != NULL)
 		return;
 	getwintype(win, &wintype);
 	switch (wintype.type) {
@@ -5275,35 +4971,43 @@ manage(Window win, int x, int y, int w, int h, int ignoreunmap)
 	case TYPE_MENU:
 		preparewin(win);
 		menu = menunew(win, x, y, w, h, ignoreunmap);
-		winupdatetitle(menu->win, &menu->name);
+		winupdatetitle(menu->obj.win, &menu->name);
 		managemenu(wintype.parent, menu);
 		break;
 	default:
 		preparewin(win);
 		userplaced = isuserplaced(win);
 		t = tabnew(win, wintype.leader, ignoreunmap);
-		winupdatetitle(t->win, &t->name);
+		winupdatetitle(t->obj.win, &t->name);
 		c = containernew(x, y, w, h);
-		managecontainer(c, t, wm.selmon->seldesk, userplaced);
+		managecontainer(c, t, wm.selmon, wm.selmon->seldesk, userplaced);
 		break;
 	}
 }
 
-/* unmanage tab (and delete its row if it is the only tab) */
-static void
-unmanage(struct Tab *t)
+/* unmanage tab (and delete its row if it is the only tab); return whether deletion occurred */
+static int
+unmanage(struct Object *obj, int ignoreunmap)
 {
 	struct Container *c, *next;
 	struct Column *col;
 	struct Row *row;
-	struct Desktop *desk;
+	struct Tab *t;
+	struct Monitor *mon;
+	int desk;
 	int moveresize;
 	int focus;
 
+	t = (struct Tab *)obj;
+	if (ignoreunmap && t->ignoreunmap) {
+		t->ignoreunmap--;
+		return 0;
+	}
 	row = t->row;
 	col = row->col;
 	c = col->c;
 	desk = c->desk;
+	mon = c->mon;
 	moveresize = 1;
 	next = c;
 	tabdel(t);
@@ -5314,7 +5018,7 @@ unmanage(struct Tab *t)
 			coldel(col);
 			if (c->ncols == 0) {
 				containerdel(c);
-				next = getnextfocused(desk->mon, desk);
+				next = getnextfocused(mon, desk);
 				moveresize = 0;
 			}
 		}
@@ -5329,6 +5033,7 @@ unmanage(struct Tab *t)
 	if (focus) {
 		tabfocus((next != NULL) ? next->selcol->selrow->seltab : NULL, 0);
 	}
+	return 1;
 }
 
 /* scan for already existing windows and adopt them */
@@ -5378,7 +5083,6 @@ mouseretab(struct Tab *t, int xroot, int yroot, int x, int y)
 	struct Container *c, *newc;
 	struct Column *col;
 	struct Row *row;
-	struct Winres res;
 	XEvent ev;
 	int recalc, redraw;
 
@@ -5396,8 +5100,7 @@ mouseretab(struct Tab *t, int xroot, int yroot, int x, int y)
 				if (ev.xexpose.window == t->title) {
 					XCopyArea(dpy, t->pixtitle, t->title, gc, 0, 0, t->w, config.titlewidth, 0, 0);
 				} else {
-					res = getwin(ev.xexpose.window);
-					decorate(&res);
+					decorate(ev.xexpose.window);
 				}
 			}
 			break;
@@ -5419,7 +5122,7 @@ done:
 		if (mon == NULL)
 			mon = wm.selmon;
 		newc = containernew(xroot - x - config.titlewidth, yroot - y, t->winw, t->winh);
-		managecontainer(newc, t, mon->seldesk, 1);
+		managecontainer(newc, t, mon, mon->seldesk, 1);
 	}
 	recalc = 1;
 	redraw = 0;
@@ -5452,7 +5155,6 @@ mouseresize(int type, void *obj, int xroot, int yroot, enum Octant o)
 {
 	struct Container *c;
 	struct Menu *menu;
-	struct Winres res;
 	Window frame;
 	Cursor curs;
 	XEvent ev;
@@ -5533,10 +5235,8 @@ mouseresize(int type, void *obj, int xroot, int yroot, enum Octant o)
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
 		case Expose:
-			if (ev.xexpose.count == 0) {
-				res = getwin(ev.xexpose.window);
-				decorate(&res);
-			}
+			if (ev.xexpose.count == 0)
+				decorate(ev.xexpose.window);
 			break;
 		case ButtonRelease:
 			goto done;
@@ -5601,13 +5301,12 @@ done:
 	XUngrabPointer(dpy, CurrentTime);
 }
 
-/* move floating object (container or menu) with mouse */
+/* move floating entity (container or menu) with mouse */
 static void
-mousemove(int type, void *obj, int xroot, int yroot, enum Octant o)
+mousemove(int type, void *p, int xroot, int yroot, enum Octant o)
 {
 	struct Container *c;
 	struct Menu *menu;
-	struct Winres res;
 	Window frame;
 	XEvent ev;
 	Time lasttime;
@@ -5615,11 +5314,11 @@ mousemove(int type, void *obj, int xroot, int yroot, enum Octant o)
 	int floatx, floaty;
 
 	if (type == FLOAT_MENU) {
-		menu = (struct Menu *)obj;
+		menu = (struct Menu *)p;
 		menudecorate(menu, o);
 		frame = menu->frame;
 	} else {
-		c = (struct Container *)obj;
+		c = (struct Container *)p;
 		containerdecorate(c, NULL, NULL, 0, o);
 		frame = c->frame;
 	}
@@ -5630,10 +5329,8 @@ mousemove(int type, void *obj, int xroot, int yroot, enum Octant o)
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
 		case Expose:
-			if (ev.xexpose.count == 0) {
-				res = getwin(ev.xexpose.window);
-				decorate(&res);
-			}
+			if (ev.xexpose.count == 0)
+				decorate(ev.xexpose.window);
 			break;
 		case ButtonRelease:
 			goto done;
@@ -5667,110 +5364,24 @@ done:
 	XUngrabPointer(dpy, CurrentTime);
 }
 
-/* control placement of row with mouse */
-static void
-mousererow(struct Row *row)
-{
-	struct Container *c;
-	struct Column *origcol, *col, *newcol, *prevcol;
-	struct Row *prev, *r;
-	struct Tab *t;
-	struct Winres res;
-	XEvent ev;
-	int dy, y, sumh;
-
-	origcol = row->col;
-	if (origcol->maxrow != NULL)
-		return;
-	prevcol = origcol;
-	c = row->col->c;
-	newcol = NULL;
-	y = 0;
-	buttonleftdecorate(row, 1);
-	XRaiseWindow(dpy, row->bar);
-	if (XGrabPointer(dpy, row->bar, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, None, CurrentTime) != GrabSuccess)
-		goto done;
-	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
-		switch(ev.type) {
-		case Expose:
-			if (ev.xexpose.count == 0) {
-				res = getwin(ev.xexpose.window);
-				decorate(&res);
-			}
-			break;
-		case MotionNotify:
-			for (col = c->cols; col != NULL; col = col->next) {
-				if (ev.xmotion.x_root >= c->x + col->x &&
-				    ev.xmotion.x_root < c->x + col->x + col->w &&
-				    ev.xmotion.y_root >= c->y + c->b &&
-				    ev.xmotion.y_root < c->y + c->h - c->b - config.titlewidth) {
-					newcol = col;
-					y = ev.xmotion.y_root - c->y;
-					if (prevcol != newcol) {
-						row->col = col;
-						rowcalctabs(row);
-						for (t = row->tabs; t != NULL; t = t->next) {
-							tabmoveresize(t);
-							tabdecorate(t, 0);
-						}
-						row->col = origcol;
-					}
-					titlebarmoveresize(row, col->x, y, col->w);
-					prevcol = col;
-				}
-			}
-			break;
-		case ButtonRelease:
-			goto done;
-		}
-	}
-done:
-	sumh = c->b;
-	prev = NULL;
-	col = row->col;
-	if (newcol != NULL) {
-		for (r = newcol->rows; r != NULL; r = r->next) {
-			sumh += row->h;
-			prev = r;
-			if (y < sumh)
-				break;
-		}
-		if (prev != row && prev != NULL) {
-			rowdetach(row, 0);
-			coladdrow(newcol, row, prev);
-		}
-		if (row->prev != NULL) {
-			dy = y - row->y;
-			row->h -= dy;
-			row->prev->h += dy;
-		}
-	}
-	containercalccols(c, 0, 1);
-	containermoveresize(c);
-	buttonleftdecorate(row, 0);
-	containerdecorate(c, NULL, NULL, 0, 0);
-	XUngrabPointer(dpy, CurrentTime);
-}
-
 /* close tab with mouse */
 static void
 mouseclose(int type, void *obj)
 {
 	struct Row *row;
 	struct Menu *menu;
-	struct Winres res;
 	Window win, button;
 	XEvent ev;
 
 	if (type == FLOAT_MENU) {
 		menu = (struct Menu *)obj;
 		button = menu->button;
-		win = menu->win;
+		win = menu->obj.win;
 		buttonrightdecorate(button, menu->pixbutton, FOCUSED, 1);
 	} else {
 		row = (struct Row *)obj;
 		button = row->br;
-		win = row->seltab->ds != NULL ? row->seltab->ds->win : row->seltab->win;
+		win = TAILQ_EMPTY(&row->seltab->dialq) ? row->seltab->obj.win : TAILQ_FIRST(&row->seltab->dialq)->win;
 		buttonrightdecorate(button, row->pixbr, tabgetstyle(row->seltab), 1);
 	}
 	if (XGrabPointer(dpy, button, False, ButtonReleaseMask, GrabModeAsync, GrabModeAsync, None, None, CurrentTime) != GrabSuccess)
@@ -5778,10 +5389,8 @@ mouseclose(int type, void *obj)
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch(ev.type) {
 		case Expose:
-			if (ev.xexpose.count == 0) {
-				res = getwin(ev.xexpose.window);
-				decorate(&res);
-			}
+			if (ev.xexpose.count == 0)
+				decorate(ev.xexpose.window);
 			break;
 		case ButtonRelease:
 			if (ev.xbutton.window == button &&
@@ -5805,16 +5414,15 @@ done:
 static void
 mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroot, int yroot)
 {
-	struct Winres res;
 	XEvent ev;
 	Cursor curs;
 	Time lasttime;
 	int x, y;
 	int update;
 
-	if (cdiv != NULL && cdiv->next != NULL)
+	if (cdiv != NULL && TAILQ_NEXT(cdiv, entry) != NULL)
 		curs = theme.cursors[CURSOR_H];
-	else if (rdiv != NULL && rdiv->next != NULL && rdiv->col->maxrow == NULL)
+	else if (rdiv != NULL && TAILQ_NEXT(rdiv, entry) != NULL && rdiv->col->maxrow == NULL)
 		curs = theme.cursors[CURSOR_V];
 	else
 		return;
@@ -5827,10 +5435,8 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
 		case Expose:
-			if (ev.xexpose.count == 0) {
-				res = getwin(ev.xexpose.window);
-				decorate(&res);
-			}
+			if (ev.xexpose.count == 0)
+				decorate(ev.xexpose.window);
 			break;
 		case ButtonRelease:
 			goto done;
@@ -5841,12 +5447,12 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 			if (cdiv != NULL) {
 				if (x < 0 && cdiv->w + x > wm.minsize) {
 					cdiv->w += x;
-					cdiv->next->w -= x;
+					TAILQ_NEXT(cdiv, entry)->w -= x;
 					if (ev.xmotion.time - lasttime > RESIZETIME) {
 						update = 1;
 					}
-				} else if (x > 0 && cdiv->next->w - x > wm.minsize) {
-					cdiv->next->w -= x;
+				} else if (x > 0 && TAILQ_NEXT(cdiv, entry)->w - x > wm.minsize) {
+					TAILQ_NEXT(cdiv, entry)->w -= x;
 					cdiv->w += x;
 					if (ev.xmotion.time - lasttime > RESIZETIME) {
 						update = 1;
@@ -5855,12 +5461,12 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 			} else if (rdiv != NULL) {
 				if (y < 0 && rdiv->h + y > wm.minsize) {
 					rdiv->h += y;
-					rdiv->next->h -= y;
+					TAILQ_NEXT(rdiv, entry)->h -= y;
 					if (ev.xmotion.time - lasttime > RESIZETIME) {
 						update = 1;
 					}
-				} else if (y > 0 && rdiv->next->h - y > wm.minsize) {
-					rdiv->next->h -= y;
+				} else if (y > 0 && TAILQ_NEXT(rdiv, entry)->h - y > wm.minsize) {
+					TAILQ_NEXT(rdiv, entry)->h -= y;
 					rdiv->h += y;
 					if (ev.xmotion.time - lasttime > RESIZETIME) {
 						update = 1;
@@ -5890,7 +5496,6 @@ done:
 static void
 mousestack(struct Row *row)
 {
-	struct Winres res;
 	XEvent ev;
 
 	buttonleftdecorate(row, 1);
@@ -5899,10 +5504,8 @@ mousestack(struct Row *row)
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch(ev.type) {
 		case Expose:
-			if (ev.xexpose.count == 0) {
-				res = getwin(ev.xexpose.window);
-				decorate(&res);
-			}
+			if (ev.xexpose.count == 0)
+				decorate(ev.xexpose.window);
 			break;
 		case ButtonRelease:
 			if (row->col->nrows > 1 &&
@@ -5925,107 +5528,110 @@ done:
 static void
 xeventbuttonpress(XEvent *e)
 {
-	struct Winres res;
+	struct Object *obj;
 	struct Monitor *mon;
 	struct Container *c;
 	struct Column *cdiv;
 	struct Row *rdiv;
-	struct Tab *t;
+	struct Tab *tab;
+	struct Menu *menu;
 	enum Octant o;
 	XButtonPressedEvent *ev;
 	Window dw;
 	int x, y;
 
 	ev = &e->xbutton;
-	res = getwin(ev->window);
 
-	/* if user clicked in no window, focus the monitor below cursor */
-	c = res.c;
-	if (c == NULL) {
-		mon = getmon(ev->x_root, ev->y_root);
-		if (mon)
-			deskfocus(mon->seldesk, 1);
+	if ((obj = getmanaged(ev->window)) == NULL) {
+		/* if user clicked in no window, focus the monitor below cursor */
+		if ((mon = getmon(ev->x_root, ev->y_root)) != NULL)
+			deskfocus(mon, mon->seldesk, 1);
 		goto done;
 	}
 
-	if (res.t != NULL) {
-		t = res.t;
-	} else if (res.d != NULL) {
-		t = res.d->t;
-	} else if (res.menu != NULL) {
-		t = res.menu->t;
-	} else if (res.row != NULL) {
-		t = res.row->seltab;
-	} else {
-		t = c->selcol->selrow->seltab;
-	}
-	if (t == NULL) {
+	menu = NULL;
+	tab = NULL;
+	switch (obj->type) {
+	case TYPE_NORMAL:
+		tab = (struct Tab *)obj;
+		c = tab->row->col->c;
+		break;
+	case TYPE_DIALOG:
+		tab = ((struct Dialog *)obj)->tab;
+		c = tab->row->col->c;
+		break;
+	case TYPE_MENU:
+		menu = (struct Menu *)obj;
+		tab = menu->tab;
+		c = tab->row->col->c;
+		break;
+	default:
+		if ((mon = getmon(ev->x_root, ev->y_root)) != NULL)
+			deskfocus(mon, mon->seldesk, 1);
 		goto done;
 	}
 
 	/* raise menu above others */
-	if (res.menu != NULL)
-		menuaddraise(t, res.menu);
+	if (menu != NULL)
+		menuaddraise(tab, menu);
 
 	/* focus client */
-	if ((wm.focused == NULL || t != wm.focused->selcol->selrow->seltab) && ev->button == Button1)
-		tabfocus(t, 1);
+	if ((wm.focused == NULL || tab != wm.focused->selcol->selrow->seltab) && ev->button == Button1)
+		tabfocus(tab, 1);
 
 	/* raise client */
 	if (ev->button == Button1)
-		containerraise(c);
+		containerraise(c, c->isfullscreen, c->layer);
 
-	/* do action performed by mouse on non-maximized windows */
-	if (XTranslateCoordinates(dpy, ev->window, c->frame, ev->x, ev->y, &x, &y, &dw) != True)
-		goto done;
-	o = getoctant(c, x, y);
-	if (res.menu != NULL) {
-		if (ev->window == res.menu->titlebar && ev->button == Button1) {
-			mousemove(FLOAT_MENU, res.menu, ev->x_root, ev->y_root, 1);
-		} else if (ev->window == res.menu->button && ev->button == Button1) {
-			mouseclose(FLOAT_MENU, res.menu);
-		} else if (ev->window == res.menu->frame && ev->button == Button3) {
-			mousemove(FLOAT_MENU, res.menu, ev->x_root, ev->y_root, 0);
+	/* do action performed by mouse */
+	if (menu != NULL) {
+		if (ev->window == menu->titlebar && ev->button == Button1) {
+			mousemove(FLOAT_MENU, menu, ev->x_root, ev->y_root, 1);
+		} else if (ev->window == menu->button && ev->button == Button1) {
+			mouseclose(FLOAT_MENU, menu);
+		} else if (ev->window == menu->frame && ev->button == Button3) {
+			mousemove(FLOAT_MENU, menu, ev->x_root, ev->y_root, 0);
 		}
-	} else if (ev->window == t->title && ev->button == Button3) {
-		mouseretab(t, ev->x_root, ev->y_root, ev->x, ev->y);
-	} else if (res.row != NULL && ev->window == res.row->bl && ev->button == Button1) {
-		mousestack(res.row);
-	} else if (res.row != NULL && ev->window == res.row->bl && ev->button == Button3) {
-		mousererow(res.row);
-	} else if (res.row != NULL && ev->window == res.row->br && ev->button == Button1) {
-		mouseclose(FLOAT_CONTAINER, res.row);
-	} else if (ev->window == c->frame && ev->button == Button1 && o == C) {
-		getdivisions(c, &cdiv, &rdiv, x, y);
-		if (cdiv != NULL || rdiv != NULL) {
-			mouseretile(c, cdiv, rdiv, ev->x_root, ev->y_root);
-		}
-	} else if (!c->isfullscreen && !c->isminimized && !c->ismaximized) {
-		if (ev->state == config.modifier && ev->button == Button1) {
-			mousemove(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, 0);
-		} else if (ev->window == c->frame && ev->button == Button3) {
-			mousemove(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, o);
-		} else if ((ev->state == config.modifier && ev->button == Button3) ||
-		           (o != C && ev->window == c->frame && ev->button == Button1)) {
-			if (o == C) {
-				if (x >= c->w / 2 && y >= c->h / 2) {
-					o = SE;
-				}
-				if (x >= c->w / 2 && y <= c->h / 2) {
-					o = NE;
-				}
-				if (x <= c->w / 2 && y >= c->h / 2) {
-					o = SW;
-				}
-				if (x <= c->w / 2 && y <= c->h / 2) {
-					o = NW;
-				}
+	} else if (XTranslateCoordinates(dpy, ev->window, c->frame, ev->x, ev->y, &x, &y, &dw)) {
+		o = getoctant(c, x, y);
+		if (ev->window == tab->title && ev->button == Button3) {
+			mouseretab(tab, ev->x_root, ev->y_root, ev->x, ev->y);
+		} else if (ev->window == tab->row->bl && ev->button == Button1) {
+			mousestack(tab->row);
+		} else if (ev->window == tab->row->br && ev->button == Button1) {
+			mouseclose(FLOAT_CONTAINER, tab->row);
+		} else if (ev->window == c->frame && ev->button == Button1 && o == C) {
+			getdivisions(c, &cdiv, &rdiv, x, y);
+			if (cdiv != NULL || rdiv != NULL) {
+				mouseretile(c, cdiv, rdiv, ev->x_root, ev->y_root);
 			}
-			mouseresize(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, o);
-		} else if (ev->window == t->title && ev->button == Button1) {
-			tabdecorate(t, 1);
-			mousemove(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, 0);
-			tabdecorate(t, 0);
+		} else if (!c->isfullscreen && !c->isminimized && !c->ismaximized) {
+			if (ev->state == config.modifier && ev->button == Button1) {
+				mousemove(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, 0);
+			} else if (ev->window == c->frame && ev->button == Button3) {
+				mousemove(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, o);
+			} else if ((ev->state == config.modifier && ev->button == Button3) ||
+		           	   (o != C && ev->window == c->frame && ev->button == Button1)) {
+				if (o == C) {
+					if (x >= c->w / 2 && y >= c->h / 2) {
+						o = SE;
+					}
+					if (x >= c->w / 2 && y <= c->h / 2) {
+						o = NE;
+					}
+					if (x <= c->w / 2 && y >= c->h / 2) {
+						o = SW;
+					}
+					if (x <= c->w / 2 && y <= c->h / 2) {
+						o = NW;
+					}
+				}
+				mouseresize(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, o);
+			} else if (ev->window == tab->title && ev->button == Button1) {
+				tabdecorate(tab, 1);
+				mousemove(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, 0);
+				tabdecorate(tab, 0);
+			}
 		}
 	}
 
@@ -6038,165 +5644,146 @@ static void
 xeventclientmessage(XEvent *e)
 {
 	struct Monitor *mon;
-	struct Desktop *prevdesk, *desk;
-	struct Container *c;
-	struct Tab *t;
-	struct Winres res;
+	struct Container *c = NULL;
+	struct Tab *tab = NULL;
+	struct Menu *menu = NULL;
+	struct Object *obj;
 	XClientMessageEvent *ev;
 	XWindowChanges wc;
 	unsigned value_mask = 0;
+	int prevdesk;
 	int floattype;
 	int i;
-	void *obj;
+	void *p;
 
 	ev = &e->xclient;
-	res = getwin(ev->window);
+	if ((obj = getmanaged(ev->window)) != NULL) {
+		switch (obj->type) {
+		case TYPE_NORMAL:
+			tab = (struct Tab *)obj;
+			c = tab->row->col->c;
+			break;
+		case TYPE_DIALOG:
+			tab = ((struct Dialog *)obj)->tab;
+			c = tab->row->col->c;
+			break;
+		case TYPE_MENU:
+			menu = (struct Menu *)obj;
+			tab = menu->tab;
+			c = tab->row->col->c;
+			break;
+		}
+	}
 	if (ev->message_type == atoms[_NET_CURRENT_DESKTOP]) {
-		deskfocus(getdesk(ev->data.l[0], ev->data.l[2]), 1);
+		deskfocus(wm.selmon, ev->data.l[0], 1);
 	} else if (ev->message_type == atoms[_NET_SHOWING_DESKTOP]) {
 		if (ev->data.l[0]) {
 			deskshow(1);
 		} else {
-			deskfocus(wm.selmon->seldesk, 1);
+			deskfocus(wm.selmon, wm.selmon->seldesk, 1);
 		}
 	} else if (ev->message_type == atoms[_NET_WM_STATE]) {
-		if (res.c == NULL || res.d != NULL || res.menu != NULL)
+		if (obj == NULL || obj->type != TYPE_NORMAL)
 			return;
 		if (((Atom)ev->data.l[1] == atoms[_NET_WM_STATE_MAXIMIZED_VERT] ||
 		     (Atom)ev->data.l[1] == atoms[_NET_WM_STATE_MAXIMIZED_HORZ]) &&
 		    ((Atom)ev->data.l[2] == atoms[_NET_WM_STATE_MAXIMIZED_VERT]  ||
 		     (Atom)ev->data.l[2] == atoms[_NET_WM_STATE_MAXIMIZED_HORZ])) {
-			containermaximize(res.c, ev->data.l[0]);
+			containermaximize(c, ev->data.l[0]);
 		}
 		for (i = 1; i < 3; i++) {
 			if ((Atom)ev->data.l[i] == atoms[_NET_WM_STATE_FULLSCREEN]) {
-				containerfullscreen(res.c, ev->data.l[0]);
+				containerfullscreen(c, ev->data.l[0]);
 			} else if ((Atom)ev->data.l[i] == atoms[_NET_WM_STATE_SHADED]) {
-				containershade(res.c, ev->data.l[0]);
+				containershade(c, ev->data.l[0]);
 			} else if ((Atom)ev->data.l[i] == atoms[_NET_WM_STATE_STICKY]) {
-				containerstick(res.c, ev->data.l[0]);
+				containerstick(c, ev->data.l[0]);
 			} else if ((Atom)ev->data.l[i] == atoms[_NET_WM_STATE_HIDDEN]) {
-				containerminimize(res.c, ev->data.l[0], (res.c == wm.focused));
+				containerminimize(c, ev->data.l[0], (c == wm.focused));
 			} else if ((Atom)ev->data.l[i] == atoms[_NET_WM_STATE_ABOVE]) {
-				containerabove(res.c, ev->data.l[0]);
+				containerabove(c, ev->data.l[0]);
 			} else if ((Atom)ev->data.l[i] == atoms[_NET_WM_STATE_BELOW]) {
-				containerbelow(res.c, ev->data.l[0]);
+				containerbelow(c, ev->data.l[0]);
 			} else if ((Atom)ev->data.l[i] == atoms[_NET_WM_STATE_DEMANDS_ATTENTION]) {
-				tabupdateurgency(res.t, ev->data.l[0] == ADD || (ev->data.l[0] == TOGGLE && !res.t->isurgent));
+				tabupdateurgency(tab, ev->data.l[0] == ADD || (ev->data.l[0] == TOGGLE && !tab->isurgent));
 			}
 		}
 	} else if (ev->message_type == atoms[_NET_ACTIVE_WINDOW]) {
-		if (res.t == NULL && wm.focused != NULL) {
-			res.c = wm.focused;
-			res.t = wm.focused->selcol->selrow->seltab;
+#define ACTIVATECOL(col) { if ((col) != NULL) tabfocus((col)->selrow->seltab, 1); }
+#define ACTIVATEROW(row) { if ((row) != NULL) tabfocus((row)->seltab, 1); }
+		if (tab == NULL && wm.focused != NULL) {
+			c = wm.focused;
+			tab = wm.focused->selcol->selrow->seltab;
 		}
-		c = NULL;
-		t = NULL;
+		if (tab == NULL)
+			return;
 		switch (ev->data.l[3]) {
 		case _SHOD_FOCUS_LEFT_CONTAINER:
 		case _SHOD_FOCUS_RIGHT_CONTAINER:
 		case _SHOD_FOCUS_TOP_CONTAINER:
 		case _SHOD_FOCUS_BOTTOM_CONTAINER:
-			if (res.c != NULL && (c = getfocusedbydirection(res.c, ev->data.l[3])) != NULL)
-				t = c->selcol->selrow->seltab;
-			break;
 		case _SHOD_FOCUS_PREVIOUS_CONTAINER:
-			if (res.c != NULL && res.c->fprev != NULL) {
-				c = res.c->fprev;
-				t = c->selcol->selrow->seltab;
-			} else if (ev->data.l[4] && res.c != NULL && (c = getlastfocused(res.c)) != NULL) {
-				t = c->selcol->selrow->seltab;
-			}
-			break;
 		case _SHOD_FOCUS_NEXT_CONTAINER:
-			if (res.c != NULL && res.c->fnext != NULL) {
-				c = res.c->fnext;
-				t = c->selcol->selrow->seltab;
-			} else if (ev->data.l[4] && res.c != NULL && (c = getfirstfocused(res.c)) != NULL) {
-				t = c->selcol->selrow->seltab;
-			}
+			// removed
 			break;
 		case _SHOD_FOCUS_LEFT_WINDOW:
-			if (res.t != NULL && res.t->row->col->prev != NULL) {
-				c = res.c;
-				t = res.t->row->col->prev->selrow->seltab;
-			}
+			ACTIVATECOL(TAILQ_PREV(tab->row->col, ColumnQueue, entry))
 			break;
 		case _SHOD_FOCUS_RIGHT_WINDOW:
-			if (res.t != NULL && res.t->row->col->next != NULL) {
-				c = res.c;
-				t = res.t->row->col->next->selrow->seltab;
-			}
+			ACTIVATECOL(TAILQ_NEXT(tab->row->col, entry))
 			break;
 		case _SHOD_FOCUS_TOP_WINDOW:
-			if (res.t != NULL && res.t->row->prev != NULL) {
-				c = res.c;
-				t = res.t->row->prev->seltab;
-			}
+			ACTIVATEROW(TAILQ_PREV(tab->row, RowQueue, entry))
 			break;
 		case _SHOD_FOCUS_BOTTOM_WINDOW:
-			if (res.t != NULL && res.t->row->next != NULL) {
-				c = res.c;
-				t = res.t->row->next->seltab;
-			}
+			ACTIVATEROW(TAILQ_NEXT(tab->row, entry))
 			break;
 		case _SHOD_FOCUS_PREVIOUS_WINDOW:
-			c = res.c;
-			if (res.t != NULL && res.t->prev != NULL) {
-				t = res.t->prev;
-			} else if (ev->data.l[4] && res.t != NULL) {
-				for (t = res.t->row->tabs; t != NULL; t = t->next) {
-					if (t->next == NULL) {
-						break;
-					}
-				}
-			}
+			obj = (struct Object *)tab;
+			if (TAILQ_PREV(obj, Queue, entry) != NULL)
+				tabfocus((struct Tab *)TAILQ_PREV(obj, Queue, entry), 1);
+			else
+				tabfocus((struct Tab *)TAILQ_LAST(&tab->row->tabq, Queue), 1);
 			break;
 		case _SHOD_FOCUS_NEXT_WINDOW:
-			c = res.c;
-			if (res.t != NULL && res.t->next != NULL) {
-				t = res.t->next;
-			} else if (ev->data.l[4] && res.t != NULL) {
-				t = res.t->row->tabs;
-			}
+			obj = (struct Object *)tab;
+			if (TAILQ_NEXT(obj, entry) != NULL)
+				tabfocus((struct Tab *)TAILQ_NEXT(obj, entry), 1);
+			else
+				tabfocus((struct Tab *)TAILQ_FIRST(&tab->row->tabq), 1);
 			break;
 		default:
-			c = res.c;
-			t = res.t;
+			tabfocus(tab, 1);
 			break;
 		}
-		if (c == NULL || t == NULL)
-			return;
-		tabfocus(t, 1);
 	} else if (ev->message_type == atoms[_NET_CLOSE_WINDOW]) {
 		winclose(ev->window);
 	} else if (ev->message_type == atoms[_NET_MOVERESIZE_WINDOW]) {
-		value_mask = 0;
-		if (res.c == NULL)
+		if (c == NULL)
 			return;
 		value_mask = CWX | CWY | CWWidth | CWHeight;
-		wc.x = (ev->data.l[0] & _SHOD_MOVERESIZE_RELATIVE) ? res.c->x + ev->data.l[1] : ev->data.l[1];
-		wc.y = (ev->data.l[0] & _SHOD_MOVERESIZE_RELATIVE) ? res.c->y + ev->data.l[2] : ev->data.l[2];
-		wc.width = (ev->data.l[0] & _SHOD_MOVERESIZE_RELATIVE) ? res.c->w + ev->data.l[3] : ev->data.l[3];
-		wc.height = (ev->data.l[0] & _SHOD_MOVERESIZE_RELATIVE) ? res.c->h + ev->data.l[4] : ev->data.l[4];
-		if (res.d != NULL) {
-			dialogconfigure(res.d, value_mask, &wc);
-		} else {
-			containerconfigure(res.c, value_mask, &wc);
+		wc.x = (ev->data.l[0] & _SHOD_MOVERESIZE_RELATIVE) ? c->x + ev->data.l[1] : ev->data.l[1];
+		wc.y = (ev->data.l[0] & _SHOD_MOVERESIZE_RELATIVE) ? c->y + ev->data.l[2] : ev->data.l[2];
+		wc.width = (ev->data.l[0] & _SHOD_MOVERESIZE_RELATIVE) ? c->w + ev->data.l[3] : ev->data.l[3];
+		wc.height = (ev->data.l[0] & _SHOD_MOVERESIZE_RELATIVE) ? c->h + ev->data.l[4] : ev->data.l[4];
+		if (obj->type == TYPE_DIALOG) {
+			dialogconfigure((struct Dialog *)obj, value_mask, &wc);
+		} else if (obj->type == TYPE_NORMAL) {
+			containerconfigure(c, value_mask, &wc);
 		}
 	} else if (ev->message_type == atoms[_NET_WM_DESKTOP]) {
-		if (res.c == NULL)
+		if (obj == NULL || obj->type != TYPE_NORMAL)
 			return;
 		if (ev->data.l[0] == 0xFFFFFFFF) {
-			containerstick(res.c, ADD);
-		} else if (!res.c->isminimized) {
-			if ((desk = getdesk(ev->data.l[0], ev->data.l[2])) == NULL || desk == res.c->desk)
+			containerstick(c, ADD);
+		} else if (!c->isminimized) {
+			if (ev->data.l[0] < 0 || ev->data.l[0] >= config.ndesktops || c->desk == ev->data.l[0])
 				return;
-			if (res.c->issticky)
-				containerstick(res.c, REMOVE);
-			mon = res.c->mon;
-			prevdesk = res.c->desk;
-			containersendtodesk(res.c, desk, 0, 0);
+			if (c->issticky)
+				containerstick(c, REMOVE);
+			mon = c->mon;
+			prevdesk = c->desk;
+			containersendtodesk(c, mon, ev->data.l[0], 0, 0);
 			c = getnextfocused(mon, prevdesk);
 			if (c != NULL) {
 				tabfocus(c->selcol->selrow->seltab, 0);
@@ -6205,7 +5792,7 @@ xeventclientmessage(XEvent *e)
 			}
 		}
 	} else if (ev->message_type == atoms[_NET_REQUEST_FRAME_EXTENTS]) {
-		if (res.c == NULL) {
+		if (c == NULL) {
 			/*
 			 * A client can request an estimate for the frame size
 			 * which the window manager will put around it before
@@ -6214,49 +5801,49 @@ xeventclientmessage(XEvent *e)
 			 */
 			ewmhsetframeextents(ev->window, config.borderwidth, config.titlewidth);
 		} else {
-			ewmhsetframeextents(ev->window, res.c->b, (res.d != NULL ? 0 : TITLEWIDTH(res.c)));
+			ewmhsetframeextents(ev->window, c->b, (obj->type == TYPE_DIALOG ? 0 : TITLEWIDTH(c)));
 		}
 	} else if (ev->message_type == atoms[_NET_WM_MOVERESIZE]) {
 		/*
 		 * Client-side decorated Gtk3 windows emit this signal when being
 		 * dragged by their GtkHeaderBar
 		 */
-		if (res.d != NULL || res.c == NULL || res.c != wm.focused)
+		if (obj == NULL || (obj->type != TYPE_NORMAL && obj->type != TYPE_MENU))
 			return;
-		if (res.menu != NULL) {
-			obj = res.menu;
+		if (menu != NULL) {
+			p = menu;
 			floattype = FLOAT_MENU;
 		} else {
-			obj = res.c;
+			p = c;
 			floattype = FLOAT_CONTAINER;
 		}
 		switch (ev->data.l[2]) {
 		case _NET_WM_MOVERESIZE_SIZE_TOPLEFT:
-			mouseresize(floattype, obj, ev->data.l[0], ev->data.l[1], NW);
+			mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], NW);
 			break;
 		case _NET_WM_MOVERESIZE_SIZE_TOP:
-			mouseresize(floattype, obj, ev->data.l[0], ev->data.l[1], N);
+			mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], N);
 			break;
 		case _NET_WM_MOVERESIZE_SIZE_TOPRIGHT:
-			mouseresize(floattype, obj, ev->data.l[0], ev->data.l[1], NE);
+			mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], NE);
 			break;
 		case _NET_WM_MOVERESIZE_SIZE_RIGHT:
-			mouseresize(floattype, obj, ev->data.l[0], ev->data.l[1], E);
+			mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], E);
 			break;
 		case _NET_WM_MOVERESIZE_SIZE_BOTTOMRIGHT:
-			mouseresize(floattype, obj, ev->data.l[0], ev->data.l[1], SE);
+			mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], SE);
 			break;
 		case _NET_WM_MOVERESIZE_SIZE_BOTTOM:
-			mouseresize(floattype, obj, ev->data.l[0], ev->data.l[1], S);
+			mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], S);
 			break;
 		case _NET_WM_MOVERESIZE_SIZE_BOTTOMLEFT:
-			mouseresize(floattype, obj, ev->data.l[0], ev->data.l[1], SW);
+			mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], SW);
 			break;
 		case _NET_WM_MOVERESIZE_SIZE_LEFT:
-			mouseresize(floattype, obj, ev->data.l[0], ev->data.l[1], W);
+			mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], W);
 			break;
 		case _NET_WM_MOVERESIZE_MOVE:
-			mousemove(floattype, obj, ev->data.l[0], ev->data.l[1], C);
+			mousemove(floattype, p, ev->data.l[0], ev->data.l[1], C);
 			break;
 		default:
 			XUngrabPointer(dpy, CurrentTime);
@@ -6286,7 +5873,7 @@ xeventconfigurerequest(XEvent *e)
 {
 	XConfigureRequestEvent *ev;
 	XWindowChanges wc;
-	struct Winres res;
+	struct Object *obj;
 
 	ev = &e->xconfigurerequest;
 	wc.x = ev->x;
@@ -6296,66 +5883,68 @@ xeventconfigurerequest(XEvent *e)
 	wc.border_width = ev->border_width;
 	wc.sibling = ev->above;
 	wc.stack_mode = ev->detail;
-	res = getwin(ev->window);
-	if (res.d != NULL) {
-		dialogconfigure(res.d, ev->value_mask, &wc);
-	} else if (res.c != NULL) {
-		if (config.honorconfig) {
-			containerconfigure(res.c, ev->value_mask, &wc);
-		} else {
-			containermoveresize(res.c);
-		}
-	} else if (res.c == NULL && res.dapp == NULL){
+	obj = getmanaged(ev->window);
+	if (obj == NULL) {
 		XConfigureWindow(dpy, ev->window, ev->value_mask, &wc);
+	} else if (obj->type == TYPE_DIALOG) {
+		dialogconfigure((struct Dialog *)obj, ev->value_mask, &wc);
+	} else if (obj->type == TYPE_NORMAL) {
+		if (config.honorconfig) {
+			containerconfigure(((struct Tab *)obj)->row->col->c, ev->value_mask, &wc);
+		} else {
+			containermoveresize(((struct Tab *)obj)->row->col->c);
+		}
 	}
 }
+
+static int (*unmanagetab[TYPE_LAST])(struct Object *, int) = {
+	[TYPE_DOCKAPP]      = dockappdel,
+	[TYPE_SPLASH]       = splashdel,
+	[TYPE_NOTIFICATION] = notifdel,
+	[TYPE_DOCK]         = bardel,
+	[TYPE_DIALOG]       = dialogdel,
+	[TYPE_MENU]         = menudel,
+	[TYPE_NORMAL]       = unmanage,
+};
 
 /* forget about client */
 static void
 xeventdestroynotify(XEvent *e)
 {
 	XDestroyWindowEvent *ev;
-	struct Winres res;
+	struct Object *obj;
 
 	ev = &e->xdestroywindow;
-	res = getwin(ev->window);
-	if (res.dapp && ev->window == res.dapp->win) {
-		dockappdel(res.dapp);
-	} else if (res.splash != NULL) {
-		splashdel(res.splash);
-		return;
-	} else if (res.n && ev->window == res.n->win) {
-		notifdel(res.n);
-		return;
-	} else if (res.bar != NULL && ev->window == res.bar->win) {
-		bardel(res.bar);
-		return;
-	} else if (res.d && ev->window == res.d->win) {
-		dialogdel(res.d);
-	} else if (res.menu && ev->window == res.menu->win) {
-		menudel(res.menu);
-	} else if (res.t && ev->window == res.t->win) {
-		unmanage(res.t);
-	} else {
-		return;
+	if ((obj = getmanaged(ev->window)) != NULL) {
+		if (obj->win == ev->window && (*unmanagetab[obj->type])(obj, 0)) {
+			ewmhsetclients();
+			ewmhsetclientsstacking();
+		}
 	}
-	ewmhsetclients();
-	ewmhsetclientsstacking();
 }
 
 /* focus window when cursor enter it (only if there is no focus button) */
 static void
 xevententernotify(XEvent *e)
 {
-	struct Winres res;
+	struct Object *obj;
 
 	if (!config.sloppyfocus)
 		return;
 	while (XCheckTypedEvent(dpy, EnterNotify, e))
 		;
-	res = getwin(e->xcrossing.window);
-	if (res.t != NULL) {
-		tabfocus(res.t, 1);
+	if ((obj = getmanaged(e->xcrossing.window)) == NULL)
+		return;
+	switch (obj->type) {
+	case TYPE_MENU:
+		tabfocus(((struct Menu *)obj)->tab, 1);
+		break;
+	case TYPE_DIALOG:
+		tabfocus(((struct Dialog *)obj)->tab, 1);
+		break;
+	case TYPE_NORMAL:
+		tabfocus((struct Tab *)obj, 1);
+		break;
 	}
 }
 
@@ -6364,12 +5953,10 @@ static void
 xeventexpose(XEvent *e)
 {
 	XExposeEvent *ev;
-	struct Winres res;
 
 	ev = &e->xexpose;
 	if (ev->count == 0) {
-		res = getwin(ev->window);
-		decorate(&res);
+		decorate(ev->window);
 	}
 }
 
@@ -6378,15 +5965,33 @@ static void
 xeventfocusin(XEvent *e)
 {
 	XFocusChangeEvent *ev;
-	struct Winres res;
+	struct Object *obj;
 
 	ev = &e->xfocus;
-	res = getwin(ev->window);
 	if (wm.focused == NULL) {
 		tabfocus(NULL, 0);
-	} else if (wm.focused != res.c) {
-		tabfocus(wm.focused->selcol->selrow->seltab, 1);
+		return;
 	}
+	obj = getmanaged(ev->window);
+	if (obj == NULL)
+		goto focus;
+	switch (obj->type) {
+	case TYPE_MENU:
+		if (((struct Menu *)obj)->tab != wm.focused->selcol->selrow->seltab)
+			goto focus;
+		break;
+	case TYPE_DIALOG:
+		if (((struct Dialog *)obj)->tab != wm.focused->selcol->selrow->seltab)
+			goto focus;
+		break;
+	case TYPE_NORMAL:
+		if ((struct Tab *)obj != wm.focused->selcol->selrow->seltab)
+			goto focus;
+		break;
+	}
+	return;
+focus:
+	tabfocus(wm.focused->selcol->selrow->seltab, 1);
 }
 
 /* manage window */
@@ -6409,26 +6014,32 @@ static void
 xeventpropertynotify(XEvent *e)
 {
 	XPropertyEvent *ev;
-	struct Winres res;
+	struct Object *obj;
+	struct Tab *tab;
+	struct Menu *menu;
 
 	ev = &e->xproperty;
 	if (ev->state == PropertyDelete)
 		return;
-	res = getwin(ev->window);
-	if (res.t != NULL && ev->window == res.t->win) {
+	obj = getmanaged(ev->window);
+	if (obj == NULL)
+		return;
+	if (obj->type == TYPE_NORMAL && ev->window == obj->win) {
+		tab = (struct Tab *)obj;
 		if (ev->atom == XA_WM_NAME || ev->atom == atoms[_NET_WM_NAME]) {
-			winupdatetitle(res.t->win, &res.t->name);
-			tabdecorate(res.t, 0);
+			winupdatetitle(tab->obj.win, &tab->name);
+			tabdecorate(tab, 0);
 		} else if (ev->atom == XA_WM_HINTS) {
-			tabupdateurgency(res.t, winisurgent(res.t->win));
-		} else if (res.bar != NULL && (ev->atom == _NET_WM_STRUT_PARTIAL || ev->atom == _NET_WM_STRUT)) {
-			barstrut(res.bar);
-			monupdatearea();
+			tabupdateurgency(tab, winisurgent(tab->obj.win));
 		}
-	} else if (res.menu != NULL && ev->window == res.menu->win) {
+	} else if (obj->type == TYPE_DOCK && (ev->atom == _NET_WM_STRUT_PARTIAL || ev->atom == _NET_WM_STRUT)) {
+		barstrut((struct Bar *)obj);
+		monupdatearea();
+	} else if (obj->type == TYPE_MENU && ev->window == obj->win) {
+		menu = (struct Menu *)obj;
 		if (ev->atom == XA_WM_NAME || ev->atom == atoms[_NET_WM_NAME]) {
-			winupdatetitle(res.menu->win, &res.menu->name);
-			menudecorate(res.menu, 0);
+			winupdatetitle(menu->obj.win, &menu->name);
+			menudecorate(menu, 0);
 		}
 	}
 }
@@ -6438,52 +6049,15 @@ static void
 xeventunmapnotify(XEvent *e)
 {
 	XUnmapEvent *ev;
-	struct Winres res;
+	struct Object *obj;
 
 	ev = &e->xunmap;
-	res = getwin(ev->window);
-	if (res.bar != NULL && ev->window == res.bar->win) {
-		bardel(res.bar);
-		return;
-	} else if (res.splash != NULL) {
-		splashdel(res.splash);
-		return;
-	} else if (res.n && ev->window == res.n->win) {
-		notifdel(res.n);
-		return;
-	} else if (res.dapp && ev->window == res.dapp->win) {
-		if (res.dapp->ignoreunmap) {
-			res.dapp->ignoreunmap--;
-		} else {
-			dockappdel(res.dapp);
+	if ((obj = getmanaged(ev->window)) != NULL) {
+		if (obj->win == ev->window && (*unmanagetab[obj->type])(obj, 1)) {
+			ewmhsetclients();
+			ewmhsetclientsstacking();
 		}
-		return;
-	} else if (res.d && ev->window == res.d->win) {
-		if (res.d->ignoreunmap) {
-			res.d->ignoreunmap--;
-			return;
-		} else {
-			dialogdel(res.d);
-		}
-	} else if (res.menu && ev->window == res.menu->win) {
-		if (res.menu->ignoreunmap) {
-			res.menu->ignoreunmap--;
-			return;
-		} else {
-			menudel(res.menu);
-		}
-	} else if (res.t && ev->window == res.t->win) {
-		if (res.t->ignoreunmap) {
-			res.t->ignoreunmap--;
-			return;
-		} else {
-			unmanage(res.t);
-		}
-	} else {
-		return;
 	}
-	ewmhsetclients();
-	ewmhsetclientsstacking();
 }
 
 /* run stdin on sh */
@@ -6531,30 +6105,24 @@ cleancursors(void)
 static void
 cleanwm(void)
 {
-	while (wm.c != NULL) {
-		containerdel(wm.c);
-	}
-	while (wm.nhead != NULL) {
-		notifdel(wm.nhead);
-	}
-	while (wm.bars != NULL) {
-		bardel(wm.bars);
-	}
-	while (wm.monhead != NULL) {
-		mondel(wm.monhead);
-	}
-}
+	struct Monitor *mon;
+	struct Object *obj;
+	struct Container *c;
 
-/* clean dock */
-static void
-cleandock(void)
-{
-	while (dock.head != NULL) {
-		dockappdel(dock.head);
-	}
-	if (dock.pix != None) {
+	while ((mon = TAILQ_FIRST(&wm.monq)) != NULL)
+		mondel(mon);
+	while ((c = TAILQ_FIRST(&wm.focusq)) != NULL)
+		containerdel(c);
+	while ((obj = TAILQ_FIRST(&wm.notifq)) != NULL)
+		(void)notifdel(obj, 0);
+	while ((obj = TAILQ_FIRST(&wm.barq)) != NULL)
+		(void)bardel(obj, 0);
+	while ((obj = TAILQ_FIRST(&wm.splashq)) != NULL)
+		(void)splashdel(obj, 0);
+	while ((obj = TAILQ_FIRST(&dock.dappq)) != NULL)
+		(void)dockappdel(obj, 0);
+	if (dock.pix != None)
 		XFreePixmap(dpy, dock.pix);
-	}
 	XDestroyWindow(dpy, dock.win);
 }
 
@@ -6616,9 +6184,20 @@ main(int argc, char *argv[])
 	inittheme();
 	initdock();
 
+	/* initialize queues */
+	TAILQ_INIT(&wm.monq);
+	TAILQ_INIT(&wm.barq);
+	TAILQ_INIT(&wm.splashq);
+	TAILQ_INIT(&wm.notifq);
+	TAILQ_INIT(&wm.focusq);
+	TAILQ_INIT(&wm.fullq);
+	TAILQ_INIT(&wm.aboveq);
+	TAILQ_INIT(&wm.centerq);
+	TAILQ_INIT(&wm.belowq);
+
 	/* set up list of monitors */
 	monupdate();
-	wm.selmon = wm.monhead;
+	wm.selmon = TAILQ_FIRST(&wm.monq);
 
 	/* initialize ewmh hints */
 	ewmhinit();
@@ -6644,7 +6223,6 @@ main(int argc, char *argv[])
 	cleandummywindows();
 	cleancursors();
 	cleantheme();
-	cleandock();
 	cleanwm();
 
 	/* clear ewmh hints */
