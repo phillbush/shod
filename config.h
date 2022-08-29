@@ -48,4 +48,15 @@ struct Config config = {
 
 	/* size of 3D shadow effect, must be less than borderwidth */
 	.shadowthickness = 2,
+
+	/* the following are hardcoded rules; use X Resources to set rules without recompiling */
+	.rules = (struct Rule []){
+		/* class        instance      role                    type */ 
+
+		/* Although Firefox's PictureInPicture is technically a utility (sub)window, make it a normal one */
+		{ NULL,         NULL,         "PictureInPicture",     TYPE_NORMAL},
+
+		/* Last rule must be all NULL! */
+		{ NULL,         NULL,         NULL,                   TYPE_NORMAL},
+	}
 };

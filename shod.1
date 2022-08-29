@@ -641,46 +641,31 @@ The width of the title bar.
 The body color, light shadow color, and dark shadow color for the 3D
 effect of the borders and title bars of urgent windows.
 .SS Window-dependent resources
-The resources below are named based on the class or the name of a window.
+The resources below are named based on the class, name instance, and role of a window.
 Therefore, those resources are client-specific.
 Replace
 .I CLASS
-with the class of the window, and replace
+with the class of the window,
 .I NAME
-with the name of the window.
+with the name of the instance of the window, and
+.I ROLE
+with the role of the window.
 .TP
-\fBshod.class.\fICLASS\fB.type\fP
-Define the type of a window whose class is equal to
-.IR CLASS .
+\fBshod.\fICLASS\fB.\fINAME\fB.\fIROLE\fB.type\fP
+Define the type of a window matching the given class, name and role.
 Possible types are
+.B NORMAL
+(for normal windows),
 .B DESKTOP
-(for desktop windows)
+(for desktop windows),
 .B DOCKAPP
-(for docked applications)
+(for docked applications),
 or
 .B PROMPT
 (for prompt windows).
 .TP
-\fBshod.class.\fICLASS\fB.dockpos\fP
-Define the position in the dock of a docked application whose class is equal to
-.IR CLASS .
-Its value should be a number, starting from position 0.
-.TP
-\fBshod.name.\fICLASS\fB.type\fP
-Define the type of a window whose name is equal to
-.IR NAME .
-Possible types are
-.B DESKTOP
-(for desktop windows)
-.B DOCKAPP
-(for docked applications)
-or
-.B PROMPT
-(for prompt windows).
-.TP
-\fBshod.name.\fINAME\fB.dockpos\fP
-Define the position in the dock of a docked application whose name is equal to
-.IR NAME .
+\fBshod.\fICLASS\fB.\fINAME\fB.\fIROLE\fB.dockpos\fP
+Define the position in the dock of a docked application matching the given class, name and role.
 Its value should be a number, starting from position 0.
 .SH ENVIRONMENT
 The following environment variables affect the execution of

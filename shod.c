@@ -25,7 +25,7 @@
 #define DEF_SHELL               "sh"
 #define DIV                     15      /* see containerplace() for details */
 #define IGNOREUNMAP             6       /* number of unmap notifies to ignore while scanning existing clients */
-#define NAMEMAXLEN              1024    /* maximum length of window's name */
+#define NAMEMAXLEN              256     /* maximum length of window's name */
 #define DROPPIXELS              30      /* number of pixels from the border where a tab can be dropped in */
 #define RESIZETIME              64      /* time to redraw containers during resizing */
 #define MOVETIME                32      /* time to redraw containers during moving */
@@ -38,6 +38,7 @@
 
 /* window type */
 enum {
+	TYPE_UNKNOWN,
 	TYPE_NORMAL,
 	TYPE_DESKTOP,
 	TYPE_DOCK,
@@ -56,7 +57,7 @@ enum {
 	FLOAT_MENU,
 };
 
-/* state action */
+/* container state action */
 enum {
 	REMOVE = 0,
 	ADD    = 1,
@@ -534,6 +535,12 @@ struct Config {
 	const char *dockcolors[COLOR_LAST];
 	const char *notifcolors[COLOR_LAST];
 	const char *promptcolors[COLOR_LAST];
+	struct Rule {
+		const char *class;
+		const char *instance;
+		const char *role;
+		int type;
+	} *rules;
 
 	/* the values below are computed from the values above */
 	int corner;
@@ -1124,6 +1131,112 @@ getmanaged(Window win)
 	return NULL;
 }
 
+/* win was exposed, return the pixmap of its contents and the pixmap's size */
+static int
+getexposed(Window win, Pixmap *pix, int *pw, int *ph)
+{
+	struct Object *n, *t, *d, *m;
+	struct Container *c;
+	struct Column *col;
+	struct Row *row;
+	struct Tab *tab;
+	struct Dialog *dial;
+	struct Menu *menu;
+	struct Notification *notif;
+
+	if (dock.win == win) {
+		*pix = dock.pix;
+		*pw = dock.w;
+		*ph = dock.h;
+		return 1;
+	}
+	TAILQ_FOREACH(n, &wm.notifq, entry) {
+		notif = (struct Notification *)n;
+		if (notif->frame == win) {
+			*pix = notif->frame;
+			*pw = notif->pw;
+			*ph = notif->ph;
+			return 1;
+		}
+	}
+	TAILQ_FOREACH(c, &wm.focusq, entry) {
+		if (c->frame == win) {
+			*pix = c->pix;
+			*pw = c->pw;
+			*ph = c->ph;
+			return 1;
+		}
+		TAILQ_FOREACH(col, &(c)->colq, entry) {
+			TAILQ_FOREACH(row, &col->rowq, entry) {
+				if (row->bar == win) {
+					*pix = row->pixbar;
+					*pw = row->pw;
+					*ph = config.titlewidth;
+					return 1;
+				}
+				if (row->bl == win) {
+					*pix = row->pixbl;
+					*pw = config.titlewidth;
+					*ph = config.titlewidth;
+					return 1;
+				}
+				if (row->br == win) {
+					*pix = row->pixbr;
+					*pw = config.titlewidth;
+					*ph = config.titlewidth;
+					return 1;
+				}
+				TAILQ_FOREACH(t, &row->tabq, entry) {
+					tab = (struct Tab *)t;
+					if (tab->frame == win) {
+						*pix = tab->pix;
+						*pw = tab->pw;
+						*ph = tab->ph;
+						return 1;
+					}
+					if (tab->title == win) {
+						*pix = tab->pixtitle;
+						*pw = tab->ptw;
+						*ph = config.titlewidth;
+						return 1;
+					}
+					TAILQ_FOREACH(d, &tab->dialq, entry) {
+						dial = (struct Dialog *)d;
+						if (dial->frame == win) {
+							*pix = dial->pix;
+							*pw = dial->pw;
+							*ph = dial->ph;
+							return 1;
+						}
+					}
+					TAILQ_FOREACH(m, &tab->menuq, entry) {
+						menu = (struct Menu *)m;
+						if (menu->frame == win) {
+							*pix = menu->pix;
+							*pw = menu->pw;
+							*ph = menu->ph;
+							return 1;
+						}
+						if (menu->titlebar == win) {
+							*pix = menu->pixtitlebar;
+							*pw = menu->tw;
+							*ph = menu->th;
+							return 1;
+						}
+						if (menu->button == win) {
+							*pix = menu->pixbutton;
+							*pw = config.titlewidth;
+							*ph = config.titlewidth;
+							return 1;
+						}
+					}
+				}
+			}
+		}
+	}
+	return 0;
+}
+
 /* get monitor given coordinates */
 static struct Monitor *
 getmon(int x, int y)
@@ -1136,8 +1249,31 @@ getmon(int x, int y)
 	return NULL;
 }
 
+/* get text property from window; return `Success` on success */
+static int
+gettextprop(Window win, Atom atom, char *buf, size_t size)
+{
+	XTextProperty tprop;
+	int count;
+	char **list = NULL;
+
+	if (buf == NULL || size == 0)
+		return BadLength;
+	buf[0] = '\0';
+	if (!XGetTextProperty(dpy, win, &tprop, atom) || tprop.nitems == 0)
+		return BadAlloc;
+	if (XmbTextPropertyToTextList(dpy, &tprop, &list, &count) != Success ||
+	    count < 1 || list == NULL || *list == NULL)
+		return BadAlloc;
+	strncpy(buf, *list, size - 1);
+	buf[size - 1] = '\0';
+	XFreeStringList(list);
+	XFree(tprop.value);
+	return Success;
+}
+
 /* get window name */
-char *
+static char *
 getwinname(Window win)
 {
 	XTextProperty tprop;
@@ -1153,8 +1289,8 @@ getwinname(Window win)
 		name = estrndup((char *)p, NAMEMAXLEN);
 		XFree(p);
 	} else if (XGetWMName(dpy, win, &tprop) &&
-		   XmbTextPropertyToTextList(dpy, &tprop, &list, &di) == Success &&
-		   di > 0 && list && *list) {
+	           XmbTextPropertyToTextList(dpy, &tprop, &list, &di) == Success &&
+	           di > 0 && list && *list) {
 		name = estrndup(*list, NAMEMAXLEN);
 		XFreeStringList(list);
 		XFree(tprop.value);
@@ -1207,12 +1343,9 @@ getdialogfor(Window win)
 	struct Object *obj;
 	Window tmpwin;
 
-	if (XGetTransientForHint(dpy, win, &tmpwin)) {
-		obj = getmanaged(tmpwin);
-		if (obj->type == TYPE_NORMAL) {
+	if (XGetTransientForHint(dpy, win, &tmpwin))
+		if ((obj = getmanaged(tmpwin)) != NULL && obj->type == TYPE_NORMAL)
 			return (struct Tab *)obj;
-		}
-	}
 	return NULL;
 }
 
@@ -1246,11 +1379,10 @@ getleaderof(Window leader)
 static void
 getwintype(Window win, struct Wintype *wintype)
 {
-	static char *class_cat[2] = {
-		"class",
-		"name",
-	};
-	char *class_value[2];
+	/* rules for identifying windows */
+	enum { CLASS = 0, INSTANCE = 1, ROLE = 2 };
+	char *rule[] = { "_", "_", "_" };
+
 	struct MwmHints *mwmhints;
 	XClassHint classh;
 	XWMHints *wmhints;
@@ -1259,44 +1391,69 @@ getwintype(Window win, struct Wintype *wintype)
 	size_t i;
 	long n;
 	int isdockapp, ismenu;
-	char *ds, *typestr;
+	char *ds;
 	char buf[NAMEMAXLEN];
+	char role[NAMEMAXLEN];
 
 	*wintype = (struct Wintype){
 		.parent = NULL,
 		.leader = None,
-		.type = TYPE_NORMAL,
+		.type = TYPE_UNKNOWN,
 		.dockpos = INT_MAX,
 	};
+	classh.res_class = NULL;
+	classh.res_name = NULL;
+	if (gettextprop(win, atoms[WM_WINDOW_ROLE], role, NAMEMAXLEN) == Success)
+		rule[ROLE] = role;
+	if (XGetClassHint(dpy, win, &classh)) {
+		rule[CLASS] = classh.res_class;
+		rule[INSTANCE] = classh.res_name;
+	}
 
-	if (xrm != NULL && xdb != NULL && XGetClassHint(dpy, win, &classh)) {
-		typestr = NULL;
-		class_value[0] = classh.res_class;
-		class_value[1] = classh.res_name;
-		for (i = 0; i < LEN(class_cat); i++) {
-			(void)snprintf(buf, NAMEMAXLEN, "shod.%s.%s.type", class_cat[i], class_value[i]);
-			if (XrmGetResource(xdb, buf, "*", &ds, &xval) == True)
-				typestr = xval.addr;
-			(void)snprintf(buf, NAMEMAXLEN, "shod.%s.%s.dockpos", class_cat[i], class_value[i]);
-			if (XrmGetResource(xdb, buf, "*", &ds, &xval) == True)
-				if ((n = strtol(xval.addr, NULL, 10)) >= 0 && n < INT_MAX)
-					wintype->dockpos = n;
-		}
-		if (typestr != NULL) {
-			if (strcasecmp(typestr, "DESKTOP") == 0) {
-				wintype->type = TYPE_DESKTOP;
-			} else if (strcasecmp(typestr, "DOCKAPP") == 0) {
-				wintype->type = TYPE_DOCKAPP;
-			} else if (strcasecmp(typestr, "PROMPT") == 0) {
-				wintype->type = TYPE_PROMPT;
-			}
-		}
-		XFree(classh.res_class);
-		XFree(classh.res_name);
-		if (wintype->type != TYPE_NORMAL) {
-			return;
+	/* get window type from default (hardcoded) rules */
+	for (i = 0; config.rules[i].class != NULL || config.rules[i].instance != NULL || config.rules[i].role != NULL; i++) {
+		if ((config.rules[i].class == NULL    || strcmp(config.rules[i].class, rule[CLASS]) == 0)
+		&&  (config.rules[i].instance == NULL || strcmp(config.rules[i].instance, rule[INSTANCE]) == 0)
+		&&  (config.rules[i].role == NULL     || strcmp(config.rules[i].role, rule[ROLE]) == 0)
+		&&  (config.rules[i].type != TYPE_MENU && config.rules[i].type != TYPE_DIALOG)) {
+			wintype->type = config.rules[i].type;
 		}
 	}
+
+	/* get window type (and other info) via X resources */
+	if (xrm != NULL && xdb != NULL) {
+		/* check for window type */
+		(void)snprintf(buf, NAMEMAXLEN, "shod.%s.%s.%s.type", rule[CLASS], rule[INSTANCE], rule[ROLE]);
+		if (XrmGetResource(xdb, buf, "*", &ds, &xval) == True && xval.addr != NULL) {
+			if (strcasecmp(xval.addr, "DESKTOP") == 0) {
+				wintype->type = TYPE_DESKTOP;
+			} else if (strcasecmp(xval.addr, "DOCKAPP") == 0) {
+				wintype->type = TYPE_DOCKAPP;
+			} else if (strcasecmp(xval.addr, "PROMPT") == 0) {
+				wintype->type = TYPE_PROMPT;
+			} else if (strcasecmp(xval.addr, "NORMAL") == 0) {
+				wintype->type = TYPE_NORMAL;
+			}
+		}
+
+		/* check for dockapp position */
+		(void)snprintf(buf, NAMEMAXLEN, "shod.%s.%s.%s.dockpos", rule[CLASS], rule[INSTANCE], rule[ROLE]);
+		if (XrmGetResource(xdb, buf, "*", &ds, &xval) == True) {
+			if ((n = strtol(xval.addr, NULL, 10)) >= 0 && n < INT_MAX) {
+				wintype->dockpos = n;
+			}
+		}
+	}
+
+	XFree(classh.res_class);
+	XFree(classh.res_name);
+
+	/* we already got the type of the window, return */
+	if (wintype->type != TYPE_UNKNOWN)
+		return;
+
+	/* try to guess window type */
+	wintype->type = TYPE_NORMAL;
 	prop = getatomprop(win, atoms[_NET_WM_WINDOW_TYPE]);
 	wmhints = XGetWMHints(dpy, win);
 	mwmhints = getmwmhints(win);
@@ -1305,8 +1462,7 @@ getwintype(Window win, struct Wintype *wintype)
 	wintype->leader = (wmhints != NULL && (wmhints->flags & WindowGroupHint)) ? wmhints->window_group : None;
 	wintype->parent = getdialogfor(win);
 	XFree(mwmhints);
-	if (wmhints != NULL)
-		XFree(wmhints);
+	XFree(wmhints);
 	if (isdockapp) {
 		wintype->type = TYPE_DOCKAPP;
 	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_DESKTOP]) {
@@ -1320,9 +1476,9 @@ getwintype(Window win, struct Wintype *wintype)
 	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_SPLASH]) {
 		wintype->type = TYPE_SPLASH;
 	} else if (ismenu ||
-	    prop == atoms[_NET_WM_WINDOW_TYPE_MENU] ||
-	    prop == atoms[_NET_WM_WINDOW_TYPE_UTILITY] ||
-	    prop == atoms[_NET_WM_WINDOW_TYPE_TOOLBAR]) {
+	           prop == atoms[_NET_WM_WINDOW_TYPE_MENU] ||
+	           prop == atoms[_NET_WM_WINDOW_TYPE_UTILITY] ||
+	           prop == atoms[_NET_WM_WINDOW_TYPE_TOOLBAR]) {
 		if (wintype->parent == NULL) {
 			wintype->parent = getleaderof(wintype->leader);
 		}
@@ -1405,8 +1561,8 @@ getnextfocused(struct Monitor *mon, int desk)
 {
 	struct Container *c;
 
-	TAILQ_FOREACH(c, &wm.focusq, entry)
-		if (c->mon == mon && (c->issticky || c->desk == desk))
+	TAILQ_FOREACH_REVERSE(c, &wm.focusq, ContainerQueue, entry)
+		if (!c->isminimized && c->mon == mon && (c->issticky || c->desk == desk))
 			return c;
 	return NULL;
 }
@@ -2842,6 +2998,8 @@ static void
 menumoveresize(struct Menu *menu)
 {
 	XMoveResizeWindow(dpy, menu->frame, menu->x, menu->y, menu->w, menu->h);
+	XMoveWindow(dpy, menu->button, menu->w - config.borderwidth - config.titlewidth, config.borderwidth);
+	XResizeWindow(dpy, menu->titlebar, max(1, menu->w - 2 * config.borderwidth - config.titlewidth), config.titlewidth);
 	XResizeWindow(dpy, menu->obj.win, menu->w - 2 * config.borderwidth, menu->h - 2 * config.borderwidth - config.titlewidth);
 }
 
@@ -3134,7 +3292,6 @@ containerminimize(struct Container *c, int minimize, int focus)
 	if (minimize != REMOVE && !c->isminimized) {
 		c->isminimized = 1;
 		containerhide(c, 1);
-		containerdelfocus(c);
 		if (focus) {
 			if ((tofocus = getnextfocused(c->mon, c->desk)) != NULL) {
 				tabfocus(tofocus->selcol->selrow->seltab, 0);
@@ -3855,7 +4012,9 @@ tabfocus(struct Tab *tab, int gotodesk)
 		shodgroupcontainer(c);
 		ewmhsetstate(c);
 	}
-	if (wm.prevfocused != NULL) {
+	if (wm.prevfocused != NULL && wm.prevfocused != wm.focused) {
+		TAILQ_REMOVE(&wm.focusq, wm.prevfocused, entry);
+		TAILQ_INSERT_TAIL(&wm.focusq, wm.prevfocused, entry);
 		if (tab != wm.prevfocused->selcol->selrow->seltab)
 			menuunmap(wm.prevfocused->selcol->selrow->seltab);
 		containerdecorate(wm.prevfocused, NULL, NULL, 1, 0);
@@ -4702,59 +4861,15 @@ menunew(Window win, int x, int y, int w, int h, int ignoreunmap)
 	return menu;
 }
 
-/* call the proper decorate function */
+/* copy pixmar into exposed window */
 static void
-decorate(Window win)
+copypixmap(Window win)
 {
-	struct Object *obj;
-	struct Container *c;
-	struct Row *row;
-	struct Notification *notif;
-	struct Dialog *dial;
-	struct Menu *menu;
-	struct Tab *tab;
-	int fullw, fullh;
+	Pixmap pix;
+	int pw, ph;
 
-	if (win == dock.win) {
-		XCopyArea(dpy, dock.pix, dock.win, gc, 0, 0, dock.w, dock.h, 0, 0);
-		return;
-	}
-	if ((obj = getmanaged(win)) == NULL)
-		return;
-	switch (obj->type) {
-	case TYPE_MENU:
-		menu = (struct Menu *)obj;
-		XCopyArea(dpy, menu->pix, menu->frame, gc, 0, 0, menu->pw, menu->ph, 0, 0);
-		XCopyArea(dpy, menu->pixbutton, menu->button, gc, 0, 0, config.titlewidth, config.titlewidth, 0, 0);
-		XCopyArea(dpy, menu->pixtitlebar, menu->titlebar, gc, 0, 0, menu->tw, menu->th, 0, 0);
-		break;
-	case TYPE_DIALOG:
-		dial = (struct Dialog *)obj;
-		fullw = dial->w + 2 * config.borderwidth;
-		fullh = dial->h + 2 * config.borderwidth;
-		XCopyArea(dpy, dial->pix, dial->frame, gc, 0, 0, fullw, fullh, 0, 0);
-		break;
-	case TYPE_NOTIFICATION:
-		notif = (struct Notification *)obj;
-		XCopyArea(dpy, notif->pix, notif->frame, gc, 0, 0, notif->w, notif->h, 0, 0);
-		break;
-	case TYPE_NORMAL:
-		tab = (struct Tab *)obj;
-		c = tab->row->col->c;
-		row = tab->row;
-		if (win == c->frame)
-			XCopyArea(dpy, c->pix, c->frame, gc, 0, 0, c->w, c->h, 0, 0);
-		else if (win == row->bar)
-			XCopyArea(dpy, row->pixbar, row->bar, gc, 0, 0, row->pw, config.titlewidth, 0, 0);
-		else if (win == row->bl)
-			XCopyArea(dpy, row->pixbl, row->bl, gc, 0, 0, config.titlewidth, config.titlewidth, 0, 0);
-		else if (win == row->br)
-			XCopyArea(dpy, row->pixbr, row->br, gc, 0, 0, config.titlewidth, config.titlewidth, 0, 0);
-		else if (win == tab->title)
-			XCopyArea(dpy, tab->pixtitle, tab->title, gc, 0, 0, tab->w, config.titlewidth, 0, 0);
-		else if (win == tab->frame)
-			XCopyArea(dpy, tab->pix, tab->frame, gc, 0, 0, tab->winw, tab->winh, 0, 0);
-		break;
+	if (getexposed(win, &pix, &pw, &ph)) {
+		XCopyArea(dpy, pix, win, gc, 0, 0, pw, ph, 0, 0);
 	}
 }
 
@@ -4825,7 +4940,7 @@ manageprompt(Window win, int w, int h)
 				if (ev.xexpose.window == prompt.frame) {
 					promptdecorate(&prompt, fw, fh);
 				} else {
-					decorate(ev.xexpose.window);
+					copypixmap(ev.xexpose.window);
 				}
 			}
 			break;
@@ -5100,7 +5215,7 @@ mouseretab(struct Tab *t, int xroot, int yroot, int x, int y)
 				if (ev.xexpose.window == t->title) {
 					XCopyArea(dpy, t->pixtitle, t->title, gc, 0, 0, t->w, config.titlewidth, 0, 0);
 				} else {
-					decorate(ev.xexpose.window);
+					copypixmap(ev.xexpose.window);
 				}
 			}
 			break;
@@ -5236,7 +5351,7 @@ mouseresize(int type, void *obj, int xroot, int yroot, enum Octant o)
 		switch (ev.type) {
 		case Expose:
 			if (ev.xexpose.count == 0)
-				decorate(ev.xexpose.window);
+				copypixmap(ev.xexpose.window);
 			break;
 		case ButtonRelease:
 			goto done;
@@ -5281,7 +5396,7 @@ mouseresize(int type, void *obj, int xroot, int yroot, enum Octant o)
 			if (ev.xmotion.time - lasttime > RESIZETIME) {
 				if (type == FLOAT_MENU) {
 					menumoveresize(menu);
-					menudecorate(menu, o != C);
+					menudecorate(menu, 0);
 				} else {
 					containercalccols(c, 0, 1);
 					containermoveresize(c);
@@ -5295,9 +5410,14 @@ mouseresize(int type, void *obj, int xroot, int yroot, enum Octant o)
 		}
 	}
 done:
-	containercalccols(c, 0, 1);
-	containermoveresize(c);
-	containerdecorate(c, NULL, NULL, 0, 0);
+	if (type == FLOAT_MENU) {
+		menumoveresize(menu);
+		menudecorate(menu, 0);
+	} else {
+		containercalccols(c, 0, 1);
+		containermoveresize(c);
+		containerdecorate(c, NULL, NULL, 0, 0);
+	}
 	XUngrabPointer(dpy, CurrentTime);
 }
 
@@ -5330,7 +5450,7 @@ mousemove(int type, void *p, int xroot, int yroot, enum Octant o)
 		switch (ev.type) {
 		case Expose:
 			if (ev.xexpose.count == 0)
-				decorate(ev.xexpose.window);
+				copypixmap(ev.xexpose.window);
 			break;
 		case ButtonRelease:
 			goto done;
@@ -5390,7 +5510,7 @@ mouseclose(int type, void *obj)
 		switch(ev.type) {
 		case Expose:
 			if (ev.xexpose.count == 0)
-				decorate(ev.xexpose.window);
+				copypixmap(ev.xexpose.window);
 			break;
 		case ButtonRelease:
 			if (ev.xbutton.window == button &&
@@ -5436,7 +5556,7 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 		switch (ev.type) {
 		case Expose:
 			if (ev.xexpose.count == 0)
-				decorate(ev.xexpose.window);
+				copypixmap(ev.xexpose.window);
 			break;
 		case ButtonRelease:
 			goto done;
@@ -5492,6 +5612,39 @@ done:
 	XUngrabPointer(dpy, CurrentTime);
 }
 
+/* perform container switching (aka alt-tab) */
+static void
+alttab(int forward)
+{
+	struct Container *prev, *tohead;
+
+	if (TAILQ_EMPTY(&wm.focusq))
+		return;
+	prev = TAILQ_FIRST(&wm.focusq);
+	if (forward) {
+		TAILQ_FOREACH(tohead, &wm.focusq, entry) {
+			if (tohead != prev &&
+			    !tohead->isminimized &&
+			    tohead->mon == prev->mon &&
+			    (tohead->issticky || tohead->desk == prev->desk)) {
+				break;
+			}
+		}
+	} else {
+		TAILQ_FOREACH_REVERSE(tohead, &wm.focusq, ContainerQueue, entry) {
+			if (tohead != prev &&
+			    !tohead->isminimized &&
+			    tohead->mon == prev->mon &&
+			    (tohead->issticky || tohead->desk == prev->desk)) {
+				break;
+			}
+		}
+	}
+	if (tohead == NULL || tohead == prev)
+		return;
+	tabfocus(tohead->selcol->selrow->seltab, 1);
+}
+
 /* stack rows in column with mouse */
 static void
 mousestack(struct Row *row)
@@ -5505,7 +5658,7 @@ mousestack(struct Row *row)
 		switch(ev.type) {
 		case Expose:
 			if (ev.xexpose.count == 0)
-				decorate(ev.xexpose.window);
+				copypixmap(ev.xexpose.window);
 			break;
 		case ButtonRelease:
 			if (row->col->nrows > 1 &&
@@ -5722,9 +5875,13 @@ xeventclientmessage(XEvent *e)
 		case _SHOD_FOCUS_RIGHT_CONTAINER:
 		case _SHOD_FOCUS_TOP_CONTAINER:
 		case _SHOD_FOCUS_BOTTOM_CONTAINER:
-		case _SHOD_FOCUS_PREVIOUS_CONTAINER:
-		case _SHOD_FOCUS_NEXT_CONTAINER:
 			// removed
+			break;
+		case _SHOD_FOCUS_PREVIOUS_CONTAINER:
+			alttab(1);
+			break;
+		case _SHOD_FOCUS_NEXT_CONTAINER:
+			alttab(0);
 			break;
 		case _SHOD_FOCUS_LEFT_WINDOW:
 			ACTIVATECOL(TAILQ_PREV(tab->row->col, ColumnQueue, entry))
@@ -5956,7 +6113,7 @@ xeventexpose(XEvent *e)
 
 	ev = &e->xexpose;
 	if (ev->count == 0) {
-		decorate(ev->window);
+		copypixmap(ev->window);
 	}
 }
 
