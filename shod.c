@@ -3053,10 +3053,7 @@ menuplace(struct Menu *menu)
 	struct Container *c;
 
 	c = menu->tab->row->col->c;
-	if (menu->x < c->mon->wx || menu->x + menu->w >= c->mon->wx + c->mon->ww)
-		menu->x = c->mon->wx;
-	if (menu->y < c->mon->wy || menu->y + menu->h >= c->mon->wy + c->mon->wh)
-		menu->y = c->mon->wy;
+	fitmonitor(c->mon, &menu->x, &menu->y, &menu->w, &menu->h, 0.5);
 	XMoveWindow(dpy, menu->frame, menu->x, menu->y);
 }
 
