@@ -7,6 +7,7 @@ struct Config config = {
 	 */
 
 	/* 0-or-1 flags */
+	.floatdialog    = 0,            /* set to 1 to use floating dialog windows */
 	.sloppyfocus    = 0,            /* set to 1 to use sloppy focus */
 	.honorconfig    = 0,            /* set to 1 to honor configure requests */
 
@@ -51,12 +52,12 @@ struct Config config = {
 
 	/* the following are hardcoded rules; use X Resources to set rules without recompiling */
 	.rules = (struct Rule []){
-		/* class        instance      role                    type */ 
+		/* class        instance      role                    type              state bitmask */ 
 
 		/* Although Firefox's PictureInPicture is technically a utility (sub)window, make it a normal one */
-		{ NULL,         NULL,         "PictureInPicture",     TYPE_NORMAL},
+		{ NULL,         NULL,         "PictureInPicture",     TYPE_NORMAL,      ABOVE },
 
 		/* Last rule must be all NULL! */
-		{ NULL,         NULL,         NULL,                   TYPE_NORMAL},
+		{ NULL,         NULL,         NULL,                   TYPE_NORMAL,      0 },
 	}
 };

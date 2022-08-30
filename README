@@ -20,6 +20,15 @@ no configuration, and works only via mouse with a given key modifier
 (Alt by default) and by responding to client messages sent by the shodc
 utility (shod's remote controller).
 
+
+!WARNING!
+shod now reads commands from stdin to be run at initialization.  If you
+do not want shod to run anything, open /dev/null on standard input when
+calling shod on your ~/.xinitrc (or related file), like this:
+
+	exec shod </dev/null
+
+
 shod was inspired by the following programs and window managers.  I'd
 like to thank their authors for their work that helped me developing
 shod.
@@ -35,6 +44,3 @@ me understanding how a X Window Manager works.
 
 Screenshots:
 • https://0x0.st/-3XI.png
-
-TODO:
-• Add support for dropdown (quake-like) windows.

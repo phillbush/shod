@@ -57,6 +57,17 @@ enum {
 	FLOAT_MENU,
 };
 
+/* container states */
+enum {
+	ABOVE           = 0x01,
+	BELOW           = 0x02,
+	FULLSCREEN      = 0x04,
+	MAXIMIZED       = 0x08,
+	MINIMIZED       = 0x10,
+	SHADED          = 0x20,
+	STICKY          = 0x40,
+};
+
 /* container state action */
 enum {
 	REMOVE = 0,
@@ -453,6 +464,7 @@ struct Wintype {
 	Window leader;                  /* window leader */
 	int type;                       /* window type */
 	int dockpos;                    /* position of the dockapp in the dock */
+	int state;                      /* bitmask of container states */
 };
 
 /* prompt structure, used only when calling promptisvalid() */
@@ -518,6 +530,7 @@ struct WM {
 /* configuration */
 struct Config {
 	unsigned int modifier;
+	int floatdialog;
 	int honorconfig;
 	int sloppyfocus;
 	int ndesktops;
@@ -540,6 +553,7 @@ struct Config {
 		const char *instance;
 		const char *role;
 		int type;
+		int state;
 	} *rules;
 
 	/* the values below are computed from the values above */
@@ -834,10 +848,13 @@ getoptions(int argc, char *argv[])
 		wmname++;
 	else
 		wmname = argv[0];
-	while ((c = getopt(argc, argv, "cm:s")) != -1) {
+	while ((c = getopt(argc, argv, "cdm:s")) != -1) {
 		switch (c) {
 		case 'c':
 			config.honorconfig = 1;
+			break;
+		case 'd':
+			config.floatdialog = 1;
 			break;
 		case 'm':
 			config.modifier = parsemodifier(optarg);
@@ -1314,6 +1331,48 @@ getatomprop(Window win, Atom prop)
 	return atom;
 }
 
+/* get bitmask of container state from given window */
+static int
+getwinstate(Window win)
+{
+	int state;
+	unsigned long i, nstates;
+	unsigned char *list;
+	unsigned long dl;   /* dummy variable */
+	int di;             /* dummy variable */
+	Atom da;            /* dummy variable */
+	Atom *as;
+
+	list = NULL;
+	if (XGetWindowProperty(dpy, win, atoms[_NET_WM_STATE], 0L, 1024, False, XA_ATOM, &da, &di, &nstates, &dl, &list) != Success || list == NULL) {
+		XFree(list);
+		return 0;
+	}
+	as = (Atom *)list;
+	state = 0;
+	for (i = 0; i < nstates; i++) {
+		if (as[i] == atoms[_NET_WM_STATE_STICKY]) {
+			state |= STICKY;
+		} else if (as[i] == atoms[_NET_WM_STATE_MAXIMIZED_VERT]) {
+			state |= MAXIMIZED;
+		} else if (as[i] == atoms[_NET_WM_STATE_MAXIMIZED_HORZ]) {
+			state |= MAXIMIZED;
+		} else if (as[i] == atoms[_NET_WM_STATE_HIDDEN]) {
+			state |= MINIMIZED;
+		} else if (as[i] == atoms[_NET_WM_STATE_SHADED]) {
+			state |= SHADED;
+		} else if (as[i] == atoms[_NET_WM_STATE_FULLSCREEN]) {
+			state |= FULLSCREEN;
+		} else if (as[i] == atoms[_NET_WM_STATE_ABOVE]) {
+			state |= ABOVE;
+		} else if (as[i] == atoms[_NET_WM_STATE_BELOW]) {
+			state |= BELOW;
+		}
+	}
+	XFree(list);
+	return state;
+}
+
 /* get motif window manager hints property from window */
 static struct MwmHints *
 getmwmhints(Window win)
@@ -1400,6 +1459,7 @@ getwintype(Window win, struct Wintype *wintype)
 		.leader = None,
 		.type = TYPE_UNKNOWN,
 		.dockpos = INT_MAX,
+		.state = 0,
 	};
 	classh.res_class = NULL;
 	classh.res_name = NULL;
@@ -1410,17 +1470,24 @@ getwintype(Window win, struct Wintype *wintype)
 		rule[INSTANCE] = classh.res_name;
 	}
 
-	/* get window type from default (hardcoded) rules */
+	/* get window state requested by application */
+	wintype->state = getwinstate(win);
+
+	/* get window type (and other info) from default (hardcoded) rules */
 	for (i = 0; config.rules[i].class != NULL || config.rules[i].instance != NULL || config.rules[i].role != NULL; i++) {
 		if ((config.rules[i].class == NULL    || strcmp(config.rules[i].class, rule[CLASS]) == 0)
 		&&  (config.rules[i].instance == NULL || strcmp(config.rules[i].instance, rule[INSTANCE]) == 0)
-		&&  (config.rules[i].role == NULL     || strcmp(config.rules[i].role, rule[ROLE]) == 0)
-		&&  (config.rules[i].type != TYPE_MENU && config.rules[i].type != TYPE_DIALOG)) {
-			wintype->type = config.rules[i].type;
+		&&  (config.rules[i].role == NULL     || strcmp(config.rules[i].role, rule[ROLE]) == 0)) {
+			if (config.rules[i].type != TYPE_MENU && config.rules[i].type != TYPE_DIALOG) {
+				wintype->type = config.rules[i].type;
+			}
+			if (config.rules[i].state >= 0) {
+				wintype->state = config.rules[i].state;
+			}
 		}
 	}
 
-	/* get window type (and other info) via X resources */
+	/* get window type (and other info) from X resources */
 	if (xrm != NULL && xdb != NULL) {
 		/* check for window type */
 		(void)snprintf(buf, NAMEMAXLEN, "shod.%s.%s.%s.type", rule[CLASS], rule[INSTANCE], rule[ROLE]);
@@ -1433,6 +1500,33 @@ getwintype(Window win, struct Wintype *wintype)
 				wintype->type = TYPE_PROMPT;
 			} else if (strcasecmp(xval.addr, "NORMAL") == 0) {
 				wintype->type = TYPE_NORMAL;
+			}
+		}
+
+		/* check for window state */
+		(void)snprintf(buf, NAMEMAXLEN, "shod.%s.%s.%s.state", rule[CLASS], rule[INSTANCE], rule[ROLE]);
+		if (XrmGetResource(xdb, buf, "*", &ds, &xval) == True && xval.addr != NULL) {
+			wintype->state = 0;
+			if (strcasestr(xval.addr, "above") != NULL) {
+				wintype->state |= ABOVE;
+			}
+			if (strcasestr(xval.addr, "below") != NULL) {
+				wintype->state |= BELOW;
+			}
+			if (strcasestr(xval.addr, "fullscreen") != NULL) {
+				wintype->state |= FULLSCREEN;
+			}
+			if (strcasestr(xval.addr, "maximized") != NULL) {
+				wintype->state |= MAXIMIZED;
+			}
+			if (strcasestr(xval.addr, "minimized") != NULL) {
+				wintype->state |= MINIMIZED;
+			}
+			if (strcasestr(xval.addr, "shaded") != NULL) {
+				wintype->state |= SHADED;
+			}
+			if (strcasestr(xval.addr, "sticky") != NULL) {
+				wintype->state |= STICKY;
 			}
 		}
 
@@ -1486,7 +1580,7 @@ getwintype(Window win, struct Wintype *wintype)
 			wintype->type = TYPE_MENU;
 		}
 	} else if (wintype->parent != NULL) {
-		wintype->type = TYPE_DIALOG;
+		wintype->type = config.floatdialog ? TYPE_MENU : TYPE_DIALOG;
 	} else {
 		wintype->type = TYPE_NORMAL;
 	}
@@ -2949,6 +3043,7 @@ menuaddraise(struct Tab *tab, struct Menu *menu)
 {
 	menudelraise(tab, menu);
 	TAILQ_INSERT_HEAD(&tab->menuq, (struct Object *)menu, entry);
+	XSetInputFocus(dpy, menu->obj.win, RevertToParent, CurrentTime);
 }
 
 /* place menu next to its container */
@@ -3229,7 +3324,15 @@ containerdelraise(struct Container *c)
 static void
 containerinsertraise(struct Container *c)
 {
-	TAILQ_INSERT_HEAD(&wm.centerq, c, raiseentry);
+	if (c->isfullscreen) {
+		TAILQ_INSERT_HEAD(&wm.fullq, c, raiseentry);
+	} else if (c->layer > 0) {
+		TAILQ_INSERT_HEAD(&wm.aboveq, c, raiseentry);
+	} else if (c->layer < 0) {
+		TAILQ_INSERT_HEAD(&wm.belowq, c, raiseentry);
+	} else {
+		TAILQ_INSERT_HEAD(&wm.centerq, c, raiseentry);
+	}
 }
 
 /* raise container */
@@ -3379,14 +3482,13 @@ containerstick(struct Container *c, int stick)
 {
 	if (stick != REMOVE && !c->issticky) {
 		c->issticky = 1;
+		ewmhsetwmdesktop(c);
 	} else if (stick != ADD && c->issticky) {
 		c->issticky = 0;
 		containersendtodesk(c, c->mon, c->mon->seldesk, 0, 0);
 	} else {
 		return;
 	}
-	ewmhsetstate(c);
-	ewmhsetwmdesktop(c);
 }
 
 /* raise container above others */
@@ -3417,7 +3519,7 @@ containerbelow(struct Container *c, int below)
 
 /* create new container */
 static struct Container *
-containernew(int x, int y, int w, int h)
+containernew(int x, int y, int w, int h, int state)
 {
 	struct Container *c;
 	int i;
@@ -3432,17 +3534,79 @@ containernew(int x, int y, int w, int h)
 		.nx = x, .ny = y, .nw = w, .nh = h,
 		.b = config.borderwidth,
 		.pix = None,
+		.isfullscreen = (state & FULLSCREEN),
+		.ismaximized = (state & MAXIMIZED),
+		.isminimized = (state & MINIMIZED),
+		.issticky = (state & STICKY),
+		.isshaded = (state & SHADED),
+		.layer = (state & ABOVE) ? +1 : (state & BELOW) ? -1 : 0,
 	};
 	TAILQ_INIT(&c->colq);
 	c->frame = XCreateWindow(dpy, root, c->x, c->y, c->w, c->h, 0, depth, CopyFromParent, visual, clientmask, &clientswa);
-	c->curswin[BORDER_N] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = theme.cursors[CURSOR_N]});
-	c->curswin[BORDER_S] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = theme.cursors[CURSOR_S]});
-	c->curswin[BORDER_W] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = theme.cursors[CURSOR_W]});
-	c->curswin[BORDER_E] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = theme.cursors[CURSOR_E]});
-	c->curswin[BORDER_NW] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = theme.cursors[CURSOR_NW]});
-	c->curswin[BORDER_NE] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = theme.cursors[CURSOR_NE]});
-	c->curswin[BORDER_SW] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = theme.cursors[CURSOR_SW]});
-	c->curswin[BORDER_SE] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, CopyFromParent, InputOnly, CopyFromParent, CWCursor, &(XSetWindowAttributes){.cursor = theme.cursors[CURSOR_SE]});
+	c->curswin[BORDER_N] = XCreateWindow(
+		dpy, c->frame, 0, 0, 1, 1, 0,
+		CopyFromParent, InputOnly, CopyFromParent,
+		CWCursor,
+		&(XSetWindowAttributes){
+			.cursor = theme.cursors[CURSOR_N],
+		}
+	);
+	c->curswin[BORDER_S] = XCreateWindow(
+		dpy, c->frame, 0, 0, 1, 1, 0,
+		CopyFromParent, InputOnly, CopyFromParent,
+		CWCursor,
+		&(XSetWindowAttributes){
+			.cursor = theme.cursors[CURSOR_S],
+		}
+	);
+	c->curswin[BORDER_W] = XCreateWindow(
+		dpy, c->frame, 0, 0, 1, 1, 0,
+		CopyFromParent, InputOnly, CopyFromParent,
+		CWCursor,
+		&(XSetWindowAttributes){
+			.cursor = theme.cursors[CURSOR_W],
+		}
+	);
+	c->curswin[BORDER_E] = XCreateWindow(
+		dpy, c->frame, 0, 0, 1, 1, 0,
+		CopyFromParent, InputOnly, CopyFromParent,
+		CWCursor,
+		&(XSetWindowAttributes){
+			.cursor = theme.cursors[CURSOR_E],
+		}
+	);
+	c->curswin[BORDER_NW] = XCreateWindow(
+		dpy, c->frame, 0, 0, 1, 1, 0,
+		CopyFromParent, InputOnly, CopyFromParent,
+		CWCursor,
+		&(XSetWindowAttributes){
+			.cursor = c->isshaded ? theme.cursors[CURSOR_W] : theme.cursors[CURSOR_NW],
+		}
+	);
+	c->curswin[BORDER_SW] = XCreateWindow(
+		dpy, c->frame, 0, 0, 1, 1, 0,
+		CopyFromParent, InputOnly, CopyFromParent,
+		CWCursor,
+		&(XSetWindowAttributes){
+			.cursor = c->isshaded ? theme.cursors[CURSOR_W] : theme.cursors[CURSOR_SW],
+		}
+	);
+	c->curswin[BORDER_NE] = XCreateWindow(
+		dpy, c->frame, 0, 0, 1, 1, 0,
+		CopyFromParent, InputOnly, CopyFromParent,
+		CWCursor,
+		&(XSetWindowAttributes){
+			.cursor = c->isshaded ? theme.cursors[CURSOR_E] : theme.cursors[CURSOR_NE],
+		}
+	);
+	c->curswin[BORDER_SE] = XCreateWindow(
+		dpy, c->frame, 0, 0, 1, 1, 0,
+		CopyFromParent, InputOnly, CopyFromParent,
+		CWCursor,
+		&(XSetWindowAttributes){
+			.cursor = c->isshaded ? theme.cursors[CURSOR_E] : theme.cursors[CURSOR_SE],
+		}
+	);
 	for (i = 0; i < BORDER_LAST; i++)
 		XMapWindow(dpy, c->curswin[i]);
 	containerinsertfocus(c);
@@ -5007,19 +5171,25 @@ managecontainer(struct Container *c, struct Tab *tab, struct Monitor *mon, int d
 	struct Column *col;
 	struct Row *row;
 
+	c->mon = mon;
+	c->desk = desk;
 	row = rownew();
 	col = colnew();
 	containeraddcol(c, col, NULL);
 	coladdrow(col, row, NULL);
 	rowaddtab(row, tab, NULL);
-	containersendtodesk(c, mon, desk, 1, userplaced);
-	containercalccols(c, 1, 1);
-	containermoveresize(c);
 	containerredecorate(c, NULL, NULL, 0);
 	XMapSubwindows(dpy, c->frame);
-	containerhide(c, 0);
-	tabfocus(tab, 0);
+	if (!c->isminimized) {
+		containerplace(c, mon, desk, userplaced);
+		containermoveresize(c);
+		containerhide(c, 0);
+		tabfocus(tab, 0);
+	} else {
+		containermoveresize(c);
+	}
 	/* no need to call shodgrouptab() and shodgroupcontainer(); tabfocus() already calls them */
+	ewmhsetwmdesktop(c);
 	ewmhsetclients();
 	ewmhsetclientsstacking();
 }
@@ -5094,7 +5264,7 @@ manage(Window win, int x, int y, int w, int h, int ignoreunmap)
 		userplaced = isuserplaced(win);
 		t = tabnew(win, wintype.leader, ignoreunmap);
 		winupdatetitle(t->obj.win, &t->name);
-		c = containernew(x, y, w, h);
+		c = containernew(x, y, w, h, wintype.state);
 		managecontainer(c, t, wm.selmon, wm.selmon->seldesk, userplaced);
 		break;
 	}
@@ -5236,7 +5406,7 @@ done:
 		mon = getmon(xroot - x, yroot - y);
 		if (mon == NULL)
 			mon = wm.selmon;
-		newc = containernew(xroot - x - config.titlewidth, yroot - y, t->winw, t->winh);
+		newc = containernew(xroot - x - config.titlewidth, yroot - y, t->winw, t->winh, 0);
 		managecontainer(newc, t, mon, mon->seldesk, 1);
 	}
 	recalc = 1;
@@ -5724,12 +5894,10 @@ xeventbuttonpress(XEvent *e)
 		goto done;
 	}
 
-	/* raise menu above others */
+	/* raise menu above others or focus tab */
 	if (menu != NULL)
 		menuaddraise(tab, menu);
-
-	/* focus client */
-	if ((wm.focused == NULL || tab != wm.focused->selcol->selrow->seltab) && ev->button == Button1)
+	else if ((wm.focused == NULL || tab != wm.focused->selcol->selrow->seltab) && ev->button == Button1)
 		tabfocus(tab, 1);
 
 	/* raise client */
