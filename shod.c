@@ -478,7 +478,7 @@ struct Prompt {
 struct Theme {
 	Cursor cursors[CURSOR_LAST];
 	XftFont *font;
-	XftColor fg[STYLE_LAST];
+	XftColor fg[STYLE_LAST][2];
 	unsigned long title[STYLE_LAST][COLOR_LAST];
 	unsigned long border[STYLE_LAST][COLOR_LAST];
 	unsigned long dock[COLOR_LAST];
@@ -1072,7 +1072,8 @@ inittheme(void)
 		for (j = 0; j < COLOR_LAST; j++) {
 			theme.border[i][j] = ealloccolor(config.bordercolors[i][j]);
 		}
-		eallocxftcolor(config.foreground[i], &theme.fg[i]);
+		eallocxftcolor(config.bordercolors[i][COLOR_LIGHT], &theme.fg[i][0]);
+		eallocxftcolor(config.foreground[i], &theme.fg[i][1]);
 	}
 	for (j = 0; j < COLOR_LAST; j++) {
 		theme.dock[j]  = ealloccolor(config.dockcolors[j]);
@@ -2521,7 +2522,7 @@ tabdecorate(struct Tab *t, int pressed)
 			XFillRectangle(dpy, t->pixtitle, gc, t->w - x + 2, i, x - 6, 1);
 		}
 
-		drawtext(t->pixtitle, &theme.fg[style], theme.font, x, y, t->name, len);
+		drawtext(t->pixtitle, &theme.fg[style][drawlines], theme.font, x, y, t->name, len);
 	}
 
 	/* draw frame background */
@@ -2985,7 +2986,7 @@ menudecorate(struct Menu *menu, int titlepressed)
 		XftTextExtentsUtf8(dpy, theme.font, menu->name, len, &box);
 		x = max(0, (menu->tw - box.width) / 2 + box.x);
 		y = (config.titlewidth - box.height) / 2 + box.y;
-		drawtext(menu->pixtitlebar, &theme.fg[FOCUSED], theme.font, x, y, menu->name, len);
+		drawtext(menu->pixtitlebar, &theme.fg[FOCUSED][1], theme.font, x, y, menu->name, len);
 	}
 	buttonrightdecorate(menu->button, menu->pixbutton, FOCUSED, 0);
 	XCopyArea(dpy, menu->pix, menu->frame, gc, 0, 0, menu->pw, menu->ph, 0, 0);
