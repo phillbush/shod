@@ -7,6 +7,7 @@
 .RB [ \-cds ]
 .RB [ \-m
 .IR modifier ]
+.RI [ file ]
 .PP
 .B shodc close
 .RI [ win_id ]
@@ -60,8 +61,19 @@ a controller called
 .IR shodc (1)
 to control shod).
 .PP
+If a file is given as argument,
 .B shod
-passes its standard input to the shell after initializing itself.
+passes this file to
+.IR sh (1)
+to run the commands in that file after
+.B shod
+has initialized itself.
+However, if the argument is a hyphen
+.RB ( - ),
+.B shod
+calls
+.IR sh (1)
+to run commands from the standard input instead.
 .PP
 The options are as follows:
 .TP

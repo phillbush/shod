@@ -14,20 +14,10 @@
                  │                       │
                  └───────────────────────┘
 
-shod is a multi-monitor floating reparenting X11 window manager that
-supports tiled and tabbed containers.  shod sets no keybindings, reads
-no configuration, and works only via mouse with a given key modifier
-(Alt by default) and by responding to client messages sent by the shodc
-utility (shod's remote controller).
-
-
-!WARNING!
-shod now reads commands from stdin to be run at initialization.  If you
-do not want shod to run anything, open /dev/null on standard input when
-calling shod on your ~/.xinitrc (or related file), like this:
-
-	exec shod </dev/null
-
+shod is a multi-monitor, floating, reparenting X11 window manager that
+supports tiled and tabbed containers.  shod works via mouse with a given
+key modifier (Alt by default) and by responding to client messages sent
+by the shodc utility (shod's remote controller).
 
 shod was inspired by the following programs and window managers.  I'd
 like to thank their authors for their work that helped me developing

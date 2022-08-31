@@ -590,7 +590,7 @@ volatile sig_atomic_t running = 1;
 static void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: shod [-cs] [-m modifier]\n");
+	(void)fprintf(stderr, "usage: shod [-cds] [-m modifier] [file]\n");
 	exit(1);
 }
 
@@ -654,10 +654,19 @@ efork(void)
 
 /* call execlp checking for error; exit on error */
 static void
-eexec(const char *cmd)
+execshell(char *filename)
 {
-	if (execlp(cmd, cmd, NULL) == -1) {
-		err(1, "%s", cmd);
+	char *argv[3];
+
+	if ((argv[0] = getenv(SHELL)) == NULL)
+		argv[0] = DEF_SHELL;
+	if (filename[0] == '-' && filename[1] == '\0')
+		argv[1] = NULL;         /* read commands from stdin */
+	else
+		argv[1] = filename;     /* read commands from file */
+	argv[2] = NULL;
+	if (execvp(argv[0], argv) == -1) {
+		err(1, "%s", argv[0]);
 	}
 }
 
@@ -839,7 +848,7 @@ getresources(void)
 }
 
 /* read command-line options */
-static void
+static char *
 getoptions(int argc, char *argv[])
 {
 	int c;
@@ -869,9 +878,9 @@ getoptions(int argc, char *argv[])
 	}
 	argc -= optind;
 	argv += optind;
-	if (argc != 0) {
+	if (argc > 1)
 		usage();
-	}
+	return *argv;
 }
 
 /* initialize visual and depth */
@@ -6384,16 +6393,15 @@ xeventunmapnotify(XEvent *e)
 
 /* run stdin on sh */
 static void
-autostart(void)
+autostart(char *filename)
 {
 	pid_t pid;
-	char *shell;
 
-	if ((shell = getenv(SHELL)) == NULL)
-		shell = DEF_SHELL;
+	if (filename == NULL)
+		return;
 	if ((pid = efork()) == 0) {
 		if (efork() == 0)
-			eexec(shell);
+			execshell(filename);
 		exit(0);
 	}
 	waitpid(pid, NULL, 0);
@@ -6460,6 +6468,7 @@ int
 main(int argc, char *argv[])
 {
 	XEvent ev;
+	char *filename;
 	void (*xevents[LASTEvent])(XEvent *) = {
 		[ButtonPress]      = xeventbuttonpress,
 		[ClientMessage]    = xeventclientmessage,
@@ -6490,7 +6499,7 @@ main(int argc, char *argv[])
 
 	/* get configuration */
 	getresources();
-	getoptions(argc, argv);
+	filename = getoptions(argc, argv);
 
 	/* check sloppy focus */
 	if (config.sloppyfocus)
@@ -6529,8 +6538,8 @@ main(int argc, char *argv[])
 	ewmhsetclientsstacking();
 	ewmhsetactivewindow(None);
 
-	/* run stdin on sh */
-	autostart();
+	/* run sh script */
+	autostart(filename);
 
 	/* scan windows */
 	scan();
