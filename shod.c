@@ -2949,7 +2949,7 @@ menudecorate(struct Menu *menu, int titlepressed)
 	if (menu->tw != tw || menu->th != th || menu->pixtitlebar == None) {
 		if (menu->pixtitlebar != None)
 			XFreePixmap(dpy, menu->pixtitlebar);
-		menu->pixtitlebar = XCreatePixmap(dpy, menu->titlebar, menu->w, menu->h, depth);
+		menu->pixtitlebar = XCreatePixmap(dpy, menu->titlebar, tw, th, depth);
 	}
 	menu->tw = tw;
 	menu->th = th;
@@ -3055,17 +3055,6 @@ menuaddraise(struct Tab *tab, struct Menu *menu)
 	XSetInputFocus(dpy, menu->obj.win, RevertToParent, CurrentTime);
 }
 
-/* place menu next to its container */
-static void
-menuplace(struct Menu *menu)
-{
-	struct Container *c;
-
-	c = menu->tab->row->col->c;
-	fitmonitor(c->mon, &menu->x, &menu->y, &menu->w, &menu->h, 0.5);
-	XMoveWindow(dpy, menu->frame, menu->x, menu->y);
-}
-
 /* delete menu; return whether menu was deleted */
 static int
 menudel(struct Object *obj, int ignoreunmap)
@@ -3102,6 +3091,35 @@ menumoveresize(struct Menu *menu)
 	XMoveWindow(dpy, menu->button, menu->w - config.borderwidth - config.titlewidth, config.borderwidth);
 	XResizeWindow(dpy, menu->titlebar, max(1, menu->w - 2 * config.borderwidth - config.titlewidth), config.titlewidth);
 	XResizeWindow(dpy, menu->obj.win, menu->w - 2 * config.borderwidth, menu->h - 2 * config.borderwidth - config.titlewidth);
+}
+
+/* place menu next to its container */
+static void
+menuplace(struct Menu *menu)
+{
+	struct Container *c;
+
+	c = menu->tab->row->col->c;
+	fitmonitor(c->mon, &menu->x, &menu->y, &menu->w, &menu->h, 1.0);
+	menumoveresize(menu);
+}
+
+/* configure menu window */
+static void
+menuconfigure(struct Menu *menu, unsigned int valuemask, XWindowChanges *wc)
+{
+	if (menu == NULL)
+		return;
+	if (valuemask & CWX)
+		menu->x = wc->x;
+	if (valuemask & CWY)
+		menu->y = wc->y;
+	if (valuemask & CWWidth)
+		menu->w = wc->width;
+	if (valuemask & CWHeight)
+		menu->h = wc->height;
+	menumoveresize(menu);
+	menudecorate(menu, 0);
 }
 
 /* remove container from the focus list */
@@ -5076,8 +5094,8 @@ managemenu(struct Tab *tab, struct Menu *menu)
 	menu->tab = tab;
 	TAILQ_INSERT_HEAD(&tab->menuq, (struct Object *)menu, entry);
 	icccmwmstate(menu->obj.win, NormalState);
-	menudecorate(menu, 0);
 	menuplace(menu);
+	menudecorate(menu, 0);
 	if (wm.focused != NULL && wm.focused->selcol->selrow->seltab == tab)
 		tabfocus(tab, 0);
 	ewmhsetclients();
@@ -6219,6 +6237,8 @@ xeventconfigurerequest(XEvent *e)
 		XConfigureWindow(dpy, ev->window, ev->value_mask, &wc);
 	} else if (obj->type == TYPE_DIALOG) {
 		dialogconfigure((struct Dialog *)obj, ev->value_mask, &wc);
+	} else if (obj->type == TYPE_MENU) {
+		menuconfigure((struct Menu *)obj, ev->value_mask, &wc);
 	} else if (obj->type == TYPE_NORMAL) {
 		if (config.honorconfig) {
 			containerconfigure(((struct Tab *)obj)->row->col->c, ev->value_mask, &wc);
