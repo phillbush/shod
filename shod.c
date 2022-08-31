@@ -1670,30 +1670,42 @@ getnextfocused(struct Monitor *mon, int desk)
 	return NULL;
 }
 
-/* get pointer position within a container */
+/* get frame handle (NW/N/NE/W/E/SW/S/SE) the pointer is on */
 static enum Octant
-getoctant(struct Container *c, int x, int y)
+getframehandle(int w, int h, int x, int y)
 {
-	if (c == NULL || c->isminimized)
-		return 0;
-	if ((y < c->b && x <= config.corner) || (x < c->b && y <= config.corner)) {
+	if ((y < config.borderwidth && x <= config.corner) || (x < config.borderwidth && y <= config.corner))
 		return NW;
-	} else if ((y < c->b && x >= c->w - config.corner) || (x > c->w - c->b && y <= config.corner)) {
-		return NE;
-	} else if ((y > c->h - c->b && x <= config.corner) || (x < c->b && y >= c->h - config.corner)) {
-		return SW;
-	} else if ((y > c->h - c->b && x >= c->w - config.corner) || (x > c->w - c->b && y >= c->h - config.corner)) {
+	else if ((y < config.borderwidth && x >= w - config.corner) || (x > w - config.borderwidth && y <= config.corner))
+	      return NE;
+	else if ((y > h - config.borderwidth && x <= config.corner) || (x < config.borderwidth && y >= h - config.corner))
+	      return SW;
+	else if ((y > h - config.borderwidth && x >= w - config.corner) || (x > w - config.borderwidth && y >= h - config.corner))
+	      return SE;
+	else if (y < config.borderwidth)
+	      return N;
+	else if (y >= h - config.borderwidth)
+	      return S;
+	else if (x < config.borderwidth)
+	      return W;
+	else if (x >= w - config.borderwidth)
+	      return E;
+	return C;
+}
+
+/* get quadrant (NW/NE/SW/SE) the pointer is on */
+static enum Octant
+getquadrant(int w, int h, int x, int y)
+{
+	if (x >= w / 2 && y >= h / 2)
 		return SE;
-	} else if (y < c->b) {
-		return N;
-	} else if (y >= c->h - c->b) {
-		return S;
-	} else if (x < c->b) {
-		return W;
-	} else if (x >= c->w - c->b) {
-		return E;
-	}
-	return 0;
+	if (x >= w / 2 && y <= h / 2)
+		return NE;
+	if (x <= w / 2 && y >= h / 2)
+		return SW;
+	if (x <= w / 2 && y <= h / 2)
+		return NW;
+	return C;
 }
 
 /* get row or column next to division the pointer is on */
@@ -5928,17 +5940,25 @@ xeventbuttonpress(XEvent *e)
 	if (ev->button == Button1)
 		containerraise(c, c->isfullscreen, c->layer);
 
+	/* get pointer position */
+	if (!XTranslateCoordinates(dpy, ev->window, c->frame, ev->x, ev->y, &x, &y, &dw))
+		goto done;
+
 	/* do action performed by mouse */
 	if (menu != NULL) {
 		if (ev->window == menu->titlebar && ev->button == Button1) {
 			mousemove(FLOAT_MENU, menu, ev->x_root, ev->y_root, 1);
 		} else if (ev->window == menu->button && ev->button == Button1) {
 			mouseclose(FLOAT_MENU, menu);
-		} else if (ev->window == menu->frame && ev->button == Button3) {
+		} else if ((ev->window == menu->frame && ev->button == Button3)
+		        || (ev->state == config.modifier && ev->button == Button1)) {
 			mousemove(FLOAT_MENU, menu, ev->x_root, ev->y_root, 0);
+		} else if (ev->state == config.modifier && ev->button == Button3) {
+			o = getquadrant(menu->w, menu->h, x, y);
+			mouseresize(FLOAT_MENU, menu, ev->x_root, ev->y_root, o);
 		}
-	} else if (XTranslateCoordinates(dpy, ev->window, c->frame, ev->x, ev->y, &x, &y, &dw)) {
-		o = getoctant(c, x, y);
+	} else {
+		o = getframehandle(c->w, c->h, x, y);
 		if (ev->window == tab->title && ev->button == Button3) {
 			mouseretab(tab, ev->x_root, ev->y_root, ev->x, ev->y);
 		} else if (ev->window == tab->row->bl && ev->button == Button1) {
@@ -5957,20 +5977,8 @@ xeventbuttonpress(XEvent *e)
 				mousemove(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, o);
 			} else if ((ev->state == config.modifier && ev->button == Button3) ||
 		           	   (o != C && ev->window == c->frame && ev->button == Button1)) {
-				if (o == C) {
-					if (x >= c->w / 2 && y >= c->h / 2) {
-						o = SE;
-					}
-					if (x >= c->w / 2 && y <= c->h / 2) {
-						o = NE;
-					}
-					if (x <= c->w / 2 && y >= c->h / 2) {
-						o = SW;
-					}
-					if (x <= c->w / 2 && y <= c->h / 2) {
-						o = NW;
-					}
-				}
+				if (o == C)
+					o = getquadrant(c->w, c->h, x, y);
 				mouseresize(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, o);
 			} else if (ev->window == tab->title && ev->button == Button1) {
 				tabdecorate(tab, 1);
