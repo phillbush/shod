@@ -1105,7 +1105,7 @@ initdock(void)
 		                     depth, InputOutput, visual, clientmask, &swa);
 }
 
-#define GETMANAGED(type, head, p, w)                            \
+#define GETMANAGED(head, p, w)                                  \
 	TAILQ_FOREACH(p, &(head), entry)                        \
 		if (p->win == w)                                \
 			return (p);                             \
@@ -1120,10 +1120,10 @@ getmanaged(Window win)
 	struct Row *row;
 	int i;
 
-	GETMANAGED(Dockapp, dock.dappq, p, win)
-	GETMANAGED(Bar, wm.barq, p, win)
-	GETMANAGED(Notification, wm.notifq, p, win)
-	GETMANAGED(Splash, wm.splashq, p, win)
+	GETMANAGED(dock.dappq, p, win)
+	GETMANAGED(wm.barq, p, win)
+	GETMANAGED(wm.notifq, p, win)
+	GETMANAGED(wm.splashq, p, win)
 	TAILQ_FOREACH(c, &wm.focusq, entry) {
 		if (c->frame == win)
 			return (struct Object *)c->selcol->selrow->seltab;
@@ -4681,11 +4681,11 @@ notifnew(Window win, int w, int h)
 	*notif = (struct Notification){
 		.w = w + 2 * config.borderwidth,
 		.h = h + 2 * config.borderwidth,
+		.pix = None,
+		.obj.type = TYPE_NOTIFICATION,
+		.obj.win = win,
 	};
-	((struct Object *)notif)->type = TYPE_NOTIFICATION;
 	TAILQ_INSERT_TAIL(&wm.notifq, (struct Object *)notif, entry);
-	notif->pix = None;
-	notif->obj.win = win;
 	notif->frame = XCreateWindow(
 		dpy, root, 0, 0, 1, 1, 0,
 		depth, CopyFromParent, visual,
@@ -5239,8 +5239,10 @@ managebar(Window win)
 	Window wins[2] = {wm.layerwins[LAYER_DOCK], win};
 
 	bar = emalloc(sizeof(*bar));
-	bar->obj.win = win;
-	bar->obj.type = TYPE_DOCK;
+	*bar = (struct Bar){
+		.obj.win = win,
+		.obj.type = TYPE_DOCK,
+	};
 	TAILQ_INSERT_HEAD(&wm.barq, (struct Object *)bar, entry);
 	XRestackWindows(dpy, wins, 2);
 	XMapWindow(dpy, win);
@@ -6469,8 +6471,6 @@ cleanwm(void)
 	struct Object *obj;
 	struct Container *c;
 
-	while ((mon = TAILQ_FIRST(&wm.monq)) != NULL)
-		mondel(mon);
 	while ((c = TAILQ_FIRST(&wm.focusq)) != NULL)
 		containerdel(c);
 	while ((obj = TAILQ_FIRST(&wm.notifq)) != NULL)
@@ -6481,6 +6481,8 @@ cleanwm(void)
 		(void)splashdel(obj, 0);
 	while ((obj = TAILQ_FIRST(&dock.dappq)) != NULL)
 		(void)dockappdel(obj, 0);
+	while ((mon = TAILQ_FIRST(&wm.monq)) != NULL)
+		mondel(mon);
 	if (dock.pix != None)
 		XFreePixmap(dpy, dock.pix);
 	XDestroyWindow(dpy, dock.win);
