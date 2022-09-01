@@ -5240,6 +5240,7 @@ managebar(Window win)
 
 	bar = emalloc(sizeof(*bar));
 	bar->obj.win = win;
+	bar->obj.type = TYPE_DOCK;
 	TAILQ_INSERT_HEAD(&wm.barq, (struct Object *)bar, entry);
 	XRestackWindows(dpy, wins, 2);
 	XMapWindow(dpy, win);
