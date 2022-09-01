@@ -23,6 +23,7 @@
 
 #define SHELL                   "SHELL"
 #define DEF_SHELL               "sh"
+#define DNDDIFF                 10      /* pixels from pointer to place dnd marker */
 #define DIV                     15      /* see containerplace() for details */
 #define IGNOREUNMAP             6       /* number of unmap notifies to ignore while scanning existing clients */
 #define NAMEMAXLEN              256     /* maximum length of window's name */
@@ -521,7 +522,9 @@ struct WM {
 	struct Monitor *selmon;                 /* pointer to selected monitor */
 	Window wmcheckwin;                      /* dummy window required by EWMH */
 	Window focuswin;                        /* dummy window to get focus when no other window has it */
+	Window retabwin;                        /* window to drag-and-drop when retabbing */
 	Window layerwins[LAYER_LAST];           /* dummy windows used to set stacking order */
+	Pixmap retabpix;
 	int nclients;                           /* total number of client windows */
 	int showingdesk;                        /* whether the desktop is being shown */
 	int minsize;                            /* minimum size of a container */
@@ -1171,6 +1174,12 @@ getexposed(Window win, Pixmap *pix, int *pw, int *ph)
 	struct Menu *menu;
 	struct Notification *notif;
 
+	if (wm.retabwin == win) {
+		*pix = wm.retabpix;
+		*pw = 2 * config.borderwidth + config.titlewidth;
+		*ph = 2 * config.borderwidth + config.titlewidth;
+		return 1;
+	}
 	if (dock.win == win) {
 		*pix = dock.pix;
 		*pw = dock.w;
@@ -3674,7 +3683,7 @@ dialogdel(struct Object *obj, int ignoreunmap)
 
 /* detach tab from row */
 static void
-tabdetach(struct Tab *tab, int x, int y, int w, int h)
+tabdetach(struct Tab *tab, int x, int y)
 {
 	struct Row *row;
 
@@ -3689,8 +3698,6 @@ tabdetach(struct Tab *tab, int x, int y, int w, int h)
 	tab->ignoreunmap = IGNOREUNMAP;
 	XReparentWindow(dpy, tab->title, root, x, y);
 	TAILQ_REMOVE(&row->tabq, (struct Object *)tab, entry);
-	tab->winw = w;
-	tab->winh = h;
 	tab->row = NULL;
 	rowcalctabs(row);
 }
@@ -3710,7 +3717,7 @@ tabdel(struct Tab *tab)
 		XDestroyWindow(dpy, menu->obj.win);
 		menudel((struct Object *)menu, 0);
 	}
-	tabdetach(tab, 0, 0, tab->winw, tab->winh);
+	tabdetach(tab, 0, 0);
 	if (tab->pixtitle != None)
 		XFreePixmap(dpy, tab->pixtitle);
 	if (tab->pix != None)
@@ -4235,24 +4242,29 @@ winupdatetitle(Window win, char **name)
 static int
 tryattach(struct ContainerQueue *queue, struct Tab *det, int xroot, int yroot)
 {
+	enum { CREATNOTHING = 0x0, CREATROW = 0x1, CREATCOL = 0x2 };
 	struct Container *c;
 	struct Column *col, *ncol;
 	struct Row *row, *nrow;
-	struct Tab *tab, *next;
+	struct Tab *tab;
 	struct Object *t;
-	int rowy, rowh;
+	int flag, rowy, rowh;
 
+	if (det == NULL)
+		return 0;
+	flag = 0;
+	nrow = NULL;
+	ncol = NULL;
 	for (c = TAILQ_FIRST(queue); c != NULL; c = TAILQ_NEXT(c, raiseentry)) {
 		if (c->ishidden || xroot < c->x || xroot >= c->x + c->w || yroot < c->y || yroot >= c->y + c->h)
 			continue;
+		tab = NULL;
 		TAILQ_FOREACH(col, &c->colq, entry) {
+			row = NULL;
 			if (xroot - c->x >= col->x - DROPPIXELS &&
 				   xroot - c->x < col->x + col->w + DROPPIXELS) {
 				if (yroot - c->y < c->b) {
-					nrow = rownew();
-					coladdrow(col, nrow, NULL);
-					rowaddtab(nrow, det, NULL);
-					colcalcrows(col, 1, 1);
+					flag = CREATROW;
 					goto done;
 				}
 				rowy = c->b;
@@ -4269,54 +4281,54 @@ tryattach(struct ContainerQueue *queue, struct Tab *det, int xroot, int yroot)
 					if (yroot - c->y >= rowy &&
 					    yroot - c->y < rowy + config.titlewidth) {
 						TAILQ_FOREACH(t, &row->tabq, entry) {
-							next = tab = (struct Tab *)t;
+							tab = (struct Tab *)t;
 							if (xroot - c->x + col->x < col->x + tab->x + tab->w / 2) {
-								rowaddtab(row, det, (struct Tab *)TAILQ_PREV(t, Queue, entry));
-								rowcalctabs(row);
+								tab = (struct Tab *)TAILQ_PREV(t, Queue, entry);
 								goto done;
 							}
 						}
-						if (next != NULL) {
-							rowaddtab(row, det, next);
-							rowcalctabs(row);
-							goto done;
-						}
+						goto done;
 					}
 					if (yroot - c->y >= rowy + rowh - DROPPIXELS &&
 					    yroot - c->y < rowy + rowh + config.divwidth) {
-						nrow = rownew();
-						coladdrow(col, nrow, row);
-						rowaddtab(nrow, det, NULL);
-						colcalcrows(col, 1, 1);
+						flag = CREATROW;
 						goto done;
 					}
 					rowy += rowh + config.divwidth;
 				}
 			}
+			row = NULL;
 			if (xroot - c->x >= col->x + col->w - DROPPIXELS &&
 			    xroot - c->x < col->x + col->w + config.divwidth + DROPPIXELS) {
-				nrow = rownew();
-				ncol = colnew();
-				containeraddcol(c, ncol, col);
-				coladdrow(ncol, nrow, NULL);
-				rowaddtab(nrow, det, NULL);
-				containercalccols(c, 1, 1);
+				flag = CREATCOL | CREATROW;
 				goto done;
 			}
 		}
 		if (xroot - c->x < c->b + DROPPIXELS) {
-			nrow = rownew();
-			ncol = colnew();
-			containeraddcol(c, ncol, NULL);
-			coladdrow(ncol, nrow, NULL);
-			rowaddtab(nrow, det, NULL);
-			containercalccols(c, 1, 1);
+			flag = CREATCOL | CREATROW;
 			goto done;
 		}
 		break;
 	}
 	return 0;
 done:
+	if (flag & CREATCOL) {
+		ncol = colnew();
+		containeraddcol(c, ncol, col);
+		col = ncol;
+	}
+	if (flag & CREATROW) {
+		nrow = rownew();
+		coladdrow(col, nrow, row);
+		row = nrow;
+	}
+	rowaddtab(row, det, tab);
+	if (ncol != NULL)
+		containercalccols(c, 1, 1);
+	else if (nrow != NULL)
+		colcalcrows(col, 1, 1);
+	else
+		rowcalctabs(row);
 	tabfocus(det, 0);
 	XMapSubwindows(dpy, c->frame);
 	/* no need to call shodgrouptab() and shodgroupcontainer(); tabfocus() already calls them */
@@ -4324,21 +4336,6 @@ done:
 	containermoveresize(c);
 	containerredecorate(c, NULL, NULL, 0);
 	return 1;
-}
-
-/* attach tab into row; return 1 if succeeded, zero otherwise */
-static int
-tabattach(struct Tab *t, int xroot, int yroot)
-{
-	if (tryattach(&wm.fullq, t, xroot, yroot))
-		return 1;
-	if (tryattach(&wm.aboveq, t, xroot, yroot))
-		return 1;
-	if (tryattach(&wm.centerq, t, xroot, yroot))
-		return 1;
-	if (tryattach(&wm.belowq, t, xroot, yroot))
-		return 1;
-	return 0;
 }
 
 /* create new dialog */
@@ -5392,57 +5389,30 @@ scan(void)
 	}
 }
 
-/* map and hide focus window */
+/* map and hide dummy windows */
 static void
-mapfocuswin(void)
+mapdummywins(void)
 {
 	XMoveWindow(dpy, wm.focuswin, -1, 0);
 	XMapWindow(dpy, wm.focuswin);
+	XMapWindow(dpy, wm.retabwin);
 }
 
-/* detach tab from window with mouse */
+/* attach tab into row; return 1 if succeeded, zero otherwise */
 static void
-mouseretab(struct Tab *t, int xroot, int yroot, int x, int y)
+tabattach(struct Row *row, struct Tab *t, int xroot, int yroot, int x, int y)
 {
 	struct Monitor *mon;
 	struct Container *c, *newc;
-	struct Column *col;
-	struct Row *row;
-	XEvent ev;
 	int recalc, redraw;
+	struct Column *col;
 
-	row = t->row;
 	col = row->col;
 	c = col->c;
-	tabdetach(t, xroot - x, yroot - y, c->nw - 2 * config.borderwidth, c->nh - 2 * config.borderwidth - config.titlewidth);
-	containermoveresize(c);
-	if (XGrabPointer(dpy, t->title, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, None, CurrentTime) != GrabSuccess)
-		goto done;
-	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
-		switch (ev.type) {
-		case Expose:
-			if (ev.xexpose.count == 0) {
-				if (ev.xexpose.window == t->title) {
-					XCopyArea(dpy, t->pixtitle, t->title, gc, 0, 0, t->w, config.titlewidth, 0, 0);
-				} else {
-					copypixmap(ev.xexpose.window);
-				}
-			}
-			break;
-		case MotionNotify:
-			XMoveWindow(dpy, t->title, ev.xmotion.x_root - x, ev.xmotion.y_root - y);
-			break;
-		case ButtonRelease:
-			xroot = ev.xbutton.x_root;
-			yroot = ev.xbutton.y_root;
-			XUnmapWindow(dpy, t->title);
-			goto done;
-			break;
-		}
-	}
-done:
-	XUngrabPointer(dpy, CurrentTime);
-	if (!tabattach(t, xroot, yroot)) {
+	if (!tryattach(&wm.fullq, t, xroot, yroot)
+	 && !tryattach(&wm.aboveq, t, xroot, yroot)
+	 && !tryattach(&wm.centerq, t, xroot, yroot)
+	 && !tryattach(&wm.belowq, t, xroot, yroot)) {
 		mon = getmon(xroot - x, yroot - y);
 		if (mon == NULL)
 			mon = wm.selmon;
@@ -5472,6 +5442,54 @@ done:
 			containerdecorate(c, NULL, NULL, 0, 0);
 		}
 	}
+}
+
+/* detach tab from window with mouse */
+static void
+mouseretab(struct Tab *t, int xroot, int yroot, int x, int y)
+{
+	struct Row *row;        /* row to be deleted, if emptied */
+	struct Container *c;
+	XEvent ev;
+
+	row = t->row;
+	c = row->col->c;
+	if (XGrabPointer(dpy, root, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, None, CurrentTime) != GrabSuccess)
+		goto done;
+	tabdetach(t, xroot - x, yroot - y);
+	containermoveresize(c);
+	XUnmapWindow(dpy, t->title);
+	XRaiseWindow(dpy, wm.retabwin);
+	XMoveWindow(
+		dpy, wm.retabwin,
+		ev.xmotion.x_root - DNDDIFF - (2 * config.borderwidth + config.titlewidth),
+		ev.xmotion.y_root - DNDDIFF - (2 * config.borderwidth + config.titlewidth)
+	);
+	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
+		switch (ev.type) {
+		case Expose:
+			if (ev.xexpose.count == 0)
+				copypixmap(ev.xexpose.window);
+			break;
+		case MotionNotify:
+			XMoveWindow(
+				dpy, wm.retabwin,
+				ev.xmotion.x_root - DNDDIFF - (2 * config.borderwidth + config.titlewidth),
+				ev.xmotion.y_root - DNDDIFF - (2 * config.borderwidth + config.titlewidth)
+			);
+			break;
+		case ButtonRelease:
+			goto done;
+		}
+	}
+done:
+	XMoveWindow(
+		dpy, wm.retabwin,
+		- (2 * config.borderwidth + config.titlewidth),
+		- (2 * config.borderwidth + config.titlewidth)
+	);
+	tabattach(row, t, ev.xbutton.x_root, ev.xbutton.y_root, x, y);
+	XUngrabPointer(dpy, CurrentTime);
 }
 
 /* resize container with mouse */
@@ -6497,6 +6515,60 @@ cleantheme(void)
 	XftFontClose(dpy, theme.font);
 }
 
+/* init retabbing drag-and-drop window */
+static void
+initdnd(void)
+{
+	XGCValues val;
+
+	wm.retabwin = XCreateWindow(
+		dpy, root,
+		- (2 * config.borderwidth + config.titlewidth),
+		- (2 * config.borderwidth + config.titlewidth),
+		2 * config.borderwidth + config.titlewidth,
+		2 * config.borderwidth + config.titlewidth,
+		0, depth, CopyFromParent, visual,
+		clientmask, &clientswa
+	);
+	wm.retabpix = XCreatePixmap(
+		dpy, wm.retabwin,
+		2 * config.borderwidth + config.titlewidth,
+		2 * config.borderwidth + config.titlewidth,
+		depth
+	);
+	val.foreground = theme.border[FOCUSED][COLOR_MID];
+	XChangeGC(dpy, gc, GCForeground, &val);
+	XFillRectangle(
+		dpy, wm.retabpix, gc,
+		0, 0,
+		2 * config.borderwidth + config.titlewidth,
+		2 * config.borderwidth + config.titlewidth
+	);
+	drawborders(
+		wm.retabpix,
+		2 * config.borderwidth + config.titlewidth,
+		2 * config.borderwidth + config.titlewidth,
+		theme.border[FOCUSED]
+	);
+	drawrectangle(
+		wm.retabpix,
+		config.borderwidth,
+		config.borderwidth,
+		config.titlewidth,
+		config.titlewidth,
+		theme.border[FOCUSED][COLOR_LIGHT],
+		theme.border[FOCUSED][COLOR_DARK]
+	);
+}
+
+/* clean drag-and-drop window */
+static void
+cleandnd(void)
+{
+	XFreePixmap(dpy, wm.retabpix);
+	XDestroyWindow(dpy, wm.retabwin);
+}
+
 /* shod window manager */
 int
 main(int argc, char *argv[])
@@ -6548,6 +6620,7 @@ main(int argc, char *argv[])
 	initroot();
 	inittheme();
 	initdock();
+	initdnd();
 
 	/* initialize queues */
 	TAILQ_INIT(&wm.monq);
@@ -6577,7 +6650,7 @@ main(int argc, char *argv[])
 
 	/* scan windows */
 	scan();
-	mapfocuswin();
+	mapdummywins();
 
 	/* run main event loop */
 	while (running && !XNextEvent(dpy, &ev))
@@ -6585,6 +6658,7 @@ main(int argc, char *argv[])
 			(*xevents[ev.type])(&ev);
 
 	/* clean up */
+	cleandnd();
 	cleandummywindows();
 	cleancursors();
 	cleantheme();
