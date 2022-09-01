@@ -5504,6 +5504,8 @@ mouseresize(int type, void *obj, int xroot, int yroot, enum Octant o)
 				o = W;
 			} else if (o & E) {
 				o = E;
+			} else {
+				return;
 			}
 		}
 		nx = &c->nx;
