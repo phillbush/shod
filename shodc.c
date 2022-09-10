@@ -1,11 +1,8 @@
 #include <err.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
-#include <X11/Xlib.h>
-#include <X11/Xatom.h>
-#include <X11/Xutil.h>
+
+#include "xutil.h"
 
 #define NAMEMAXLEN                      128
 #define DIRECT_ACTION                   2
@@ -49,42 +46,8 @@ enum Direction {
 	_SHOD_FOCUS_NEXT_WINDOW         = 12,
 };
 
-/* atoms for the list operation */
-enum {
-	UTF8STRING,
-	_NET_WM_NAME,
-	_NET_WM_VISIBLE_NAME,
-	_NET_WM_DESKTOP,
-	_NET_NUMBER_OF_DESKTOPS,
-	_NET_DESKTOP_NAMES,
-	_NET_CLOSE_WINDOW,
-	_NET_MOVERESIZE_WINDOW,
-	_NET_CURRENT_DESKTOP,
-	_NET_ACTIVE_WINDOW,
-	_NET_CLIENT_LIST,
-	_NET_CLIENT_LIST_STACKING,
-	_NET_WM_STATE,
-	_NET_WM_STATE_STICKY,
-	_NET_WM_STATE_MAXIMIZED_VERT,
-	_NET_WM_STATE_MAXIMIZED_HORZ,
-	_NET_WM_STATE_HIDDEN,
-	_NET_WM_STATE_SHADED,
-	_NET_WM_STATE_FULLSCREEN,
-	_NET_WM_STATE_ABOVE,
-	_NET_WM_STATE_BELOW,
-	_NET_WM_STATE_DEMANDS_ATTENTION,
-	_NET_WM_STATE_FOCUSED,
-	_SHOD_GROUP_TAB,
-	_SHOD_GROUP_CONTAINER,
-	ATOM_LAST
-};
-
 /* global variables */
-static Display *dpy;
-static int screen;
-static Window root;
 static Window active;
-static Atom atoms[ATOM_LAST];
 
 /* show usage and exit */
 static void
@@ -99,27 +62,6 @@ usage(void)
 	(void)fprintf(stderr, "       shodc sendto [-m MON_ID] DESK_ID [WIN_ID]\n");
 	(void)fprintf(stderr, "       shodc state [-ATR] [-abfMms] [WIN_ID]\n");
 	exit(1);
-}
-
-/* call calloc checking for errors */
-static void *
-ecalloc(size_t nmemb, size_t size)
-{
-	void *p;
-	if ((p = calloc(nmemb, size)) == NULL)
-		err(1, "calloc");
-	return p;
-}
-
-/* call strndup checking for error */
-static char *
-estrndup(const char *s, size_t maxlen)
-{
-	char *p;
-
-	if ((p = strndup(s, maxlen)) == NULL)
-		err(1, "strndup");
-	return p;
 }
 
 /* send client message to root window */
@@ -172,74 +114,14 @@ getwin(const char *s)
 	return (Window)strtol(s, NULL, 0);
 }
 
-/* get window property from root window */
-static unsigned long
-getwinprop(Window win, Atom prop, Window **wins)
-{
-	unsigned char *list;
-	unsigned long len;
-	unsigned long dl;   /* dummy variable */
-	int di;             /* dummy variable */
-	Atom da;            /* dummy variable */
-
-	list = NULL;
-	if (XGetWindowProperty(dpy, win, prop, 0L, 1024, False, XA_WINDOW,
-		               &da, &di, &len, &dl, &list) != Success || list == NULL) {
-		*wins = NULL;
-		return 0;
-	}
-	*wins = (Window *)list;
-	return len;
-}
-
 /* get array of windows */
 static unsigned long
 getwins(Window **wins, int sflag)
 {
 	if (sflag)
-		return getwinprop(root, atoms[_NET_CLIENT_LIST_STACKING], wins);
+		return getwinsprop(root, atoms[_NET_CLIENT_LIST_STACKING], wins);
 	else
-		return getwinprop(root, atoms[_NET_CLIENT_LIST], wins);
-}
-
-/* get atom property from given window */
-static unsigned long
-getatomprop(Window win, Atom prop, Atom **atoms)
-{
-	unsigned char *list;
-	unsigned long len;
-	unsigned long dl;   /* dummy variable */
-	int di;             /* dummy variable */
-	Atom da;            /* dummy variable */
-
-	list = NULL;
-	if (XGetWindowProperty(dpy, win, prop, 0L, 1024, False, XA_ATOM,
-		               &da, &di, &len, &dl, &list) != Success || list == NULL) {
-		*atoms = NULL;
-		return 0;
-	}
-	*atoms = (Atom *)list;
-	return len;
-}
-
-/* get cardinal property from given window */
-static unsigned long
-getcardprop(Window win, Atom prop)
-{
-	unsigned long ret;
-	unsigned char *u;
-	unsigned long dl;   /* dummy variable */
-	int di;             /* dummy variable */
-	Atom da;            /* dummy variable */
-
-	u = NULL;
-	if (XGetWindowProperty(dpy, win, prop, 0L, 1L, False, XA_CARDINAL,
-		               &da, &di, &dl, &dl, &u) != Success || u == NULL) {
-		return 0;
-	}
-	ret = *(unsigned long *)u;
-	XFree(u);
-	return ret;
+		return getwinsprop(root, atoms[_NET_CLIENT_LIST], wins);
 }
 
 /* get array of desktop names, return size of array */
@@ -254,7 +136,7 @@ getdesknames(char **desknames)
 
 
 	if (XGetWindowProperty(dpy, root, atoms[_NET_DESKTOP_NAMES], 0, ~0, False,
-	                       UTF8STRING, &da, &di, &len, &dl, &str) ==
+	                       UTF8_STRING, &da, &di, &len, &dl, &str) ==
 	                       Success && str) {
 		*desknames = (char *)str;
 	} else {
@@ -277,7 +159,7 @@ getwinname(Window win)
 	int di;
 	Atom da;
 
-	if (XGetWindowProperty(dpy, win, atoms[_NET_WM_NAME], 0L, 8L, False, UTF8STRING,
+	if (XGetWindowProperty(dpy, win, atoms[_NET_WM_NAME], 0L, 8L, False, UTF8_STRING,
 	                       &da, &di, &size, &dl, &p) == Success && p) {
 		name = estrndup((char *)p, NAMEMAXLEN);
 		XFree(p);
@@ -289,41 +171,6 @@ getwinname(Window win)
 		XFree(tprop.value);
 	}
 	return name;
-}
-
-/* intern atoms */
-static void
-initatoms(void)
-{
-	char *atomnames[ATOM_LAST] = {
-		[UTF8STRING]                      = "UTF8STRING",
-		[_NET_WM_NAME]                    = "_NET_WM_NAME",
-		[_NET_WM_VISIBLE_NAME]            = "_NET_WM_VISIBLE_NAME",
-		[_NET_WM_DESKTOP]                 = "_NET_WM_DESKTOP",
-		[_NET_NUMBER_OF_DESKTOPS]         = "_NET_NUMBER_OF_DESKTOPS",
-		[_NET_DESKTOP_NAMES]              = "_NET_DESKTOP_NAMES",
-		[_NET_CLOSE_WINDOW]               = "_NET_CLOSE_WINDOW",
-		[_NET_MOVERESIZE_WINDOW]          = "_NET_MOVERESIZE_WINDOW",
-		[_NET_CURRENT_DESKTOP]            = "_NET_CURRENT_DESKTOP",
-		[_NET_ACTIVE_WINDOW]              = "_NET_ACTIVE_WINDOW",
-		[_NET_CLIENT_LIST]                = "_NET_CLIENT_LIST",
-		[_NET_CLIENT_LIST_STACKING]       = "_NET_CLIENT_LIST_STACKING",
-		[_NET_WM_STATE]                   = "_NET_WM_STATE",
-		[_NET_WM_STATE_STICKY]            = "_NET_WM_STATE_STICKY",
-		[_NET_WM_STATE_MAXIMIZED_VERT]    = "_NET_WM_STATE_MAXIMIZED_VERT",
-		[_NET_WM_STATE_MAXIMIZED_HORZ]    = "_NET_WM_STATE_MAXIMIZED_HORZ",
-		[_NET_WM_STATE_HIDDEN]            = "_NET_WM_STATE_HIDDEN",
-		[_NET_WM_STATE_SHADED]            = "_NET_WM_STATE_SHADED",
-		[_NET_WM_STATE_FULLSCREEN]        = "_NET_WM_STATE_FULLSCREEN",
-		[_NET_WM_STATE_ABOVE]             = "_NET_WM_STATE_ABOVE",
-		[_NET_WM_STATE_BELOW]             = "_NET_WM_STATE_BELOW",
-		[_NET_WM_STATE_DEMANDS_ATTENTION] = "_NET_WM_STATE_DEMANDS_ATTENTION",
-		[_NET_WM_STATE_FOCUSED]           = "_NET_WM_STATE_FOCUSED",
-		[_SHOD_GROUP_TAB]                 = "_SHOD_GROUP_TAB",
-		[_SHOD_GROUP_CONTAINER]           = "_SHOD_GROUP_CONTAINER",
-	};
-
-	XInternAtoms(dpy, atomnames, ATOM_LAST, False, atoms);
 }
 
 /* close window */
@@ -497,19 +344,19 @@ longlist(Window win)
 			state[LIST_URGENCY] = 'u';
 		XFree(wmhints);
 	}
-	if (getwinprop(win, XA_WM_TRANSIENT_FOR, &list) > 0) {
+	if (getwinsprop(win, XA_WM_TRANSIENT_FOR, &list) > 0) {
 		if (*list != None) {
 			state[LIST_DIALOG] = 'd';
 		}
 		XFree(list);
 	}
-	if (getwinprop(win, atoms[_SHOD_GROUP_CONTAINER], &list) > 0) {
+	if (getwinsprop(win, atoms[_SHOD_GROUP_CONTAINER], &list) > 0) {
 		if (*list != None) {
 			container = *list;
 		}
 		XFree(list);
 	}
-	if (getwinprop(win, atoms[_SHOD_GROUP_TAB], &list) > 0) {
+	if (getwinsprop(win, atoms[_SHOD_GROUP_TAB], &list) > 0) {
 		if (*list != None) {
 			tab = *list;
 		}
@@ -517,7 +364,7 @@ longlist(Window win)
 	}
 	if (win == active)
 		state[LIST_ACTIVE] = 'a';
-	if ((natoms = getatomprop(win, atoms[_NET_WM_STATE], &as)) > 0) {
+	if ((natoms = getatomsprop(win, atoms[_NET_WM_STATE], &as)) > 0) {
 		for (i = 0; i < natoms; i++) {
 			if (as[i] == atoms[_NET_WM_STATE_STICKY]) {
 				state[LIST_STICKY] = 'y';
@@ -591,7 +438,7 @@ listdesks(int argc, char *argv[])
 	nameslen = getdesknames(&desknames);
 	wdesk = ecalloc(ndesks, sizeof *wdesk);
 	urgdesks = ecalloc(ndesks, sizeof *urgdesks);
-	nwins = getwinprop(root, atoms[_NET_CLIENT_LIST], &wins);
+	nwins = getwinsprop(root, atoms[_NET_CLIENT_LIST], &wins);
 	for (i = 0; i < nwins; i++) {
 		desk = getcardprop(wins[i], atoms[_NET_WM_DESKTOP]);
 		hints = XGetWMHints(dpy, wins[i]);
@@ -756,11 +603,7 @@ main(int argc, char *argv[])
 	if (argc < 2)
 		usage();
 
-	if ((dpy = XOpenDisplay(NULL)) == NULL)
-		errx(1, "could not open display");
-	screen = DefaultScreen(dpy);
-	root = RootWindow(dpy, screen);
-
+	xinit();
 	initatoms();
 	active = getactivewin();
 	if (strcmp(argv[1], "close") == 0)

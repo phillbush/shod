@@ -1,3 +1,5 @@
+#include "shod.h"
+
 struct Config config = {
 	/*
 	 * except for the foreground, colors fields are strings
@@ -21,23 +23,15 @@ struct Config config = {
 	.dockwidth      = 64,           /* width of the dock (or its height, if it is horizontal) */
 	.dockspace      = 64,           /* size of each dockapp (64 for windowmaker dockapps) */
 	.dockgravity    = "E",          /* placement of the dock */
-	.dockcolors     = {"#121212", "#2E3436", "#000000"},
+	.dockcolors     = {"#121212", "#2E3436"},
 
 	/* notification configuration */
 	.notifgap       = 3,            /* gap, in pixels, between notifications */
 	.notifgravity   = "NE",         /* placement of notifications */
-	.notifcolors    = {"#3465A4", "#729FCF", "#204A87"},
-
-	/* prompt configuration */
-	.promptcolors   = {"#3465A4", "#729FCF", "#204A87"},
 
 	/* title bar */
 	.titlewidth = 17,
-	.foreground = {
-		[FOCUSED]   = "#FFFFFF",
-		[UNFOCUSED] = "#FFFFFF",
-		[URGENT]    = "#FFFFFF",
-	},
+	.foreground = "#FFFFFF",
 
 	/* border */
 	.borderwidth = 6,
