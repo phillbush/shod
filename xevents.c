@@ -219,32 +219,31 @@ getwinstate(Window win)
 	Atom *as;
 
 	list = NULL;
-	if (XGetWindowProperty(dpy, win, atoms[_NET_WM_STATE], 0L, 1024, False, XA_ATOM, &da, &di, &nstates, &dl, &list) != Success || list == NULL) {
-		XFree(list);
-		return 0;
-	}
-	as = (Atom *)list;
 	state = 0;
-	for (i = 0; i < nstates; i++) {
-		if (as[i] == atoms[_NET_WM_STATE_STICKY]) {
-			state |= STICKY;
-		} else if (as[i] == atoms[_NET_WM_STATE_MAXIMIZED_VERT]) {
-			state |= MAXIMIZED;
-		} else if (as[i] == atoms[_NET_WM_STATE_MAXIMIZED_HORZ]) {
-			state |= MAXIMIZED;
-		} else if (as[i] == atoms[_NET_WM_STATE_HIDDEN]) {
-			state |= MINIMIZED;
-		} else if (as[i] == atoms[_NET_WM_STATE_SHADED]) {
-			state |= SHADED;
-		} else if (as[i] == atoms[_NET_WM_STATE_FULLSCREEN]) {
-			state |= FULLSCREEN;
-		} else if (as[i] == atoms[_NET_WM_STATE_ABOVE]) {
-			state |= ABOVE;
-		} else if (as[i] == atoms[_NET_WM_STATE_BELOW]) {
-			state |= BELOW;
+	if (XGetWindowProperty(dpy, win, atoms[_NET_WM_STATE], 0L, 1024, False, XA_ATOM, &da, &di, &nstates, &dl, &list) == Success && list != NULL) {
+		as = (Atom *)list;
+		for (i = 0; i < nstates; i++) {
+			if (as[i] == atoms[_NET_WM_STATE_STICKY]) {
+				state |= STICKY;
+			} else if (as[i] == atoms[_NET_WM_STATE_MAXIMIZED_VERT]) {
+				state |= MAXIMIZED;
+			} else if (as[i] == atoms[_NET_WM_STATE_MAXIMIZED_HORZ]) {
+				state |= MAXIMIZED;
+			} else if (as[i] == atoms[_NET_WM_STATE_HIDDEN]) {
+				state |= MINIMIZED;
+			} else if (as[i] == atoms[_NET_WM_STATE_SHADED]) {
+				state |= SHADED;
+			} else if (as[i] == atoms[_NET_WM_STATE_FULLSCREEN]) {
+				state |= FULLSCREEN;
+			} else if (as[i] == atoms[_NET_WM_STATE_ABOVE]) {
+				state |= ABOVE;
+			} else if (as[i] == atoms[_NET_WM_STATE_BELOW]) {
+				state |= BELOW;
+			}
 		}
 	}
-	state |= isuserplaced(win);
+	if (isuserplaced(win))
+		state |= USERPLACED;
 	XFree(list);
 	return state;
 }
