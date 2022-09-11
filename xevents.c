@@ -617,10 +617,12 @@ alttab(XEvent *e)
 				containerbacktoplace(c, raised);
 				c = containerraisetemp(c, isshiftstate(ev.xkey.state));
 				raised = 1;
+			} else if (!isvalidstate(ev.xkey.state)) {
+				goto done;
 			}
 			break;
 		case KeyRelease:
-			if (ev.xkey.keycode == config.altkeycode)
+			if (ev.xkey.keycode == config.altkeycode || !isvalidstate(ev.xkey.state))
 				goto done;
 			break;
 		}
