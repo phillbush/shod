@@ -307,7 +307,8 @@ colcalcrows(struct Column *col, int recalcfact, int recursive)
 	TAILQ_FOREACH(row, &col->rowq, entry) {
 		if (recalc)
 			row->h = max(config.titlewidth, ((i + 1) * h / col->nrows) - (i * h / col->nrows));
-		row->fact = (double)(row->h - config.titlewidth) / (double)(content);
+		if (recalc || recalcfact)
+			row->fact = (double)(row->h - config.titlewidth) / (double)(content);
 		row->y = y;
 		y += row->h + config.divwidth;
 		if (recursive)
@@ -1211,7 +1212,8 @@ containercalccols(struct Container *c, int recalcfact, int recursive)
 			c->h = max(c->h, col->nrows * config.titlewidth);
 		if (recalc)
 			col->w = max(1, ((i + 1) * w / c->ncols) - (i * w / c->ncols));
-		col->fact = (double)col->w/(double)c->w;
+		if (recalc || recalcfact)
+			col->fact = (double)col->w/(double)c->w;
 		col->x = x;
 		x += col->w + config.divwidth;
 		if (recursive)
