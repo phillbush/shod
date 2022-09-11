@@ -1,720 +1,708 @@
-.TH SHOD 1
-.SH NAME
-.B shod, shodc
-\- mouse-focused window manager
-.SH SYNOPSIS
-.B shod
-.RB [ \-cds ]
-.RB [ \-m
-.IR modifier ]
-.RI [ file ]
-.PP
-.B shodc close
-.RI [ win_id ]
-.br
-.B shodc desks
-.br
-.B shodc focus
-.RB [ \-clrtbpnLRTBPN ]
-.RI [ win_id ]
-.br
-.B shodc geom
-.RB [ \-r ]
-.RB [ \-x
-.IR N ]
-.RB [ \-y
-.IR N ]
-.RB [ \-w
-.IR N ]
-.RB [ \-h
-.IR N ]
-.RI [ win_id ]
-.br
-.B shodc goto
-.RB [ \-m
-.IR mon_id ]
-.I desk_id
-.br
-.B shodc list
-.RB [ \-ls ]
-.RI [ win_id ]
-.br
-.B shodc sendto
-.RB [ \-m
-.IR mon_id ]
-.I desk_id
-.RI [ win_id ]
-.br
-.B shodc state
-.RB [ \-ATR ]
-.RB [ \-abfMmsy ]
-.RI [ win_id ]
-.SH DESCRIPTION
-.B shod
+.Dd September 10, 2022
+.Dt SHOD 1
+.Os
+.Sh NAME
+.Nm shod ,
+.Nm shodc
+.Nd mouse-focused window manager
+.Sh SYNOPSIS
+.Nm shod
+.Op Fl cds
+.Op Fl m Ar modifier
+.Op Ar file
+.Pp
+.Nm shodc
+.Cm close
+.Op Ar win_id
+.Nm shodc
+.Cm desk
+.Nm shodc
+.Cm focus
+.Op Fl clrtbpnLRTBPN
+.Op Ar win_id
+.Nm shodc
+.Cm geom
+.Op Fl r
+.Op Fl x Ar N
+.Op Fl y Ar N
+.Op Fl w Ar N
+.Op Fl h Ar N
+.Op Ar win_id
+.Nm shodc
+.Cm goto
+.Op Fl m Ar mon_id
+.Ar desk_id
+.Nm shodc
+.Cm list
+.Op Fl ls
+.Op Ar win_id
+.Nm shodc
+.Cm sendto
+.Op Fl m Ar mon_id
+.Ar desk_id
+.Op Ar win_id
+.Nm shodc
+.Cm state
+.Op Fl ATR
+.Op Fl abfMmsy
+.Op Ar win_id
+.Sh DESCRIPTION
+.Nm shod
 is a multi\-monitor floating reparenting X11 window manager which supports tiled and tabbed containers.
-.B shod
-sets no keybindings, reads no configuration,
-and works only via mouse with a given key modifier (Alt by default)
+.Nm
+works only via mouse with a given key modifier (Alt by default)
 and by responding to client messages
-(it is needed
-a controller called
-.IR shodc (1)
-to control shod).
-.PP
+(it is needed a controller called
+.Nm shodc
+to control
+.Nm shod Ns ).
+.Pp
 If a file is given as argument,
-.B shod
+.Nm
 passes this file to
-.IR sh (1)
+.Xr sh 1
 to run the commands in that file after
-.B shod
+.Nm
 has initialized itself.
-However, if the argument is a hyphen
-.RB ( - ),
-.B shod
+However, if the argument is an hyphen
+.Pq "\-" ,
+.Nm
 calls
-.IR sh (1)
-to run commands from the standard input instead.
-.PP
+.Xr sh 1
+to run commands read from the standard input instead.
+.Pp
 The options are as follows:
-.TP
-.B \-c
+.Bl -tag -width Ds
+.It Fl c
 Honor configure requests.
 By default,
-.B shod
+.Nm
 ignore requests to configure a window size or position after the window is mapped.
-A client may request the window manager to reconfigure (ie', resize or replace) its own window.
+A client may request the window mager to configure (ie', resize or reposition) its own window.
 For example,
-.IR xterm (1)
+.Xr xterm 1
 sends a configure request for the window manager to expand or shrink its window
 when the user changes its font size.
-Clients requesting to change its size may be annoying,
-so configure requests are ignored by defaul;
+Clients requesting to change its own size may be annoying,
+so configure requests are ignored by default;
 but they can be honored by invoking
-.B shod
+.Nm
 with the
-.B \-c
+.Fl c
 command-line option.
-.TP
-.B \-d
+.It Fl d
 Make dialogs float.
-By default, dialog windows are mapped inside the client window;
-with this option, make dialogs be floating windows instead.
+By default, dialog windows are mapped inside the client window.
+With this option, dialogs are floating windows instead.
 (Technically, this option makes dialog windows behave the same as menu windows).
-.TP
-\fB\-m\fP \fImodifier\fP
-Which modifier, from
-.B Mod1
+.It Fl m Ar modifier
+Specifies which modifier, from
+.Ar Mod1
 to
-.B Mod5
+.Ar Mod5
 is used to move and resize windows with the mouse pointer.
 By default,
-.B shod
+.Nm
 uses
-.B Mod1
+.Ar Mod1
 (Alt) as modifier.
-.TP
-.B \-s
+.It Fl s
 Use sloppy focus rather than click-to-focus.
-.PP
-.B shodc
+.El
+.Pp
+.Nm shodc
 is the remote controller for
-.BR shod .
+.Nm shod .
 Its first argument must be an operation to be performed.
 The following arguments are the options for the operation
 (each operation accepts a different set of options).
 The last arguments are the operation's arguments, such as a window ID or a desktop ID.
-.PP
+.Pp
 Known operations for
-.B shodc
+.Nm shodc
 are listed below.
-.SS Close Window
+.Ss Close window
 The
-.B close
+.Cm close
 operation closes a window whose ID is provided as argument.
 If no argument is provided, close the active window.
-.SS List desktops
+.Ss List desktops
 The
-.B desks
+.Cm desks
 operation lists the desktops, one per line.
-.PP
+.Pp
 If the line begins with an asterisk, the desktop is the focused one;
-If the line begins with a hyphen, the desktop has an urgent window in it.
+If the line begins with an hyphen, the desktop has an urgent window in it.
 The number is the number of windows in the desktop.
-.SS Focus Window
+.Ss Focus window
 The
-.B focus
+.Cm focus
 operation focus a window whose ID is provided as argument.
-If a option is provided, focus a window relative to the window provided as argument.
-.PP
-The options are as follows:
-.TP
-.B \-c
+If an option is provided, focus a window relative to the window provided as argument.
+.Pp the options are as follows:
+.Bl -tag -width Ds
+.It Fl c
 Cycle focus. This option only makes sense when using
-.BR \-n ,
-.BR \-p ,
-.BR \-N ,
+.Fl n ,
+.Fl p ,
+.Fl N ,
 or
-.BR \-P .
-.TP
-.B \-l
+.Fl P .
+.It Fl l
 Focus window in the closest container to the left of the container of the window provided as argument
 (or the active window, if no argument is provided).
-.TP
-.B \-r
+.It Fl r
 Focus window in the closest container to the right of the container of the window provided as argument
 (or the active window, if no argument is provided).
-.TP
-.B \-t
+.It Fl t
 Focus window in the closest container on the top of the container of the window provided as argument
 (or the active window, if no argument is provided).
-.TP
-.B \-b
+.It Fl b
 Focus window in the closest container on the bottom of the container of the window provided as argument
 (or the active window, if no argument is provided).
-.TP
-.B \-p
+.It Fl p
 Focus window in the previous container in the focus list
 in relation to the container of the window provided as argument
 (or the active window, if no argument is provided).
-.TP
-.B \-n
+.It Fl n
 Focus window in the next container in the focus list
 in relation to the container of the window provided as argument
 (or the active window, if no argument is provided).
-.TP
-.B \-L
+.It Fl L
 Focus window in the column to the left of the window provided as argument
 (or the active window, if no argument is provided).
-.TP
-.B \-R
+.It Fl R
 Focus window in the column to the right of the window provided as argument
 (or the active window, if no argument is provided).
-.TP
-.B \-T
+.It Fl T
 Focus window in the row above (on the top of) the window provided as argument
 (or the active window, if no argument is provided).
-.TP
-.B \-B
+.It Fl B
 Focus window in the row below (on the bottom of) the window provided as argument
 (or the active window, if no argument is provided).
-.TP
-.B \-P
+.It Fl P
 Focus window in the tab previous to the window provided as argument
 (or the active window, if no argument is provided).
-.TP
-.B \-N
+.It Fl N
 Focus window in the tab next to the window provided as argument
 (or the active window, if no argument is provided).
-.SS Set Geometry
+.El
+.Ss Set geometry
 The
-.B geom
+.Cm geom
 operation sets the geometry (position and size) of the container of the window whose ID is provided as argument.
 If no argument is provided, sets the geometry of the container of the active window.
 If no position (set by the options
-.B \-x
+.Fl x
 and
-.BR \-y )
+.Fl y )
 is provided, move window to position 0,0 (top left corner).
-.PP
+.Pp
 The options are as follows:
-.TP
-.B \-r
+.Bl -tag -width Ds
+.It Fl r
 Relative.
 All position and size values are relative to the container's current position and size.
-.TP
-.B \-x \fIN\fP
+.It Fl x Ar N
 Set the position on the X axis to N.
-.TP
-.B \-y \fIN\fP
+.It Fl y Ar N
 Set the position on the Y axis to N.
-.TP
-.B \-w \fIN\fP
-Set the width of the contianer to N.
-.TP
-.B \-h \fIN\fP
-Set the height of the contianer to N.
-.SS Go To Desktop
+.It Fl w Ar N
+Set the width of the container to N.
+.It Fl h Ar N
+Set the height of the container to N.
+.El
+.Ss Go to desktop
 The
-.B goto
+.Cm goto
 operation goes to the desktop ID provided as argument.
 Different of other window managers, shod counts desktop from 1;
 So the first desktop is the desktop 1, not the desktop 0.
-.PP
+.Pp
 The options are as follows:
-.TP
-.B \-M \fImonitor\fP
+.Bl -tag -width Ds
+.It Fl M Ar monitor
 Goes to a desktop on the provided monitor rather than on the currently focused monitor.
 Monitors are counted from 1, not from 0.
-.SS List windows
+.El
+.Ss List windows
 The
-.B list
-operation
-lists windows, one entry per line.
+.Cm list
+operation lists windows, one entry per line.
 If a window ID is provided as argument, list only this window.
-.PP
-The option are as follows:
-.TP
-.B \-l
+.Pp
+The options are as follows:
+.Bl -tag -width Ds
+.It Fl l
 Long list format.
 More information on this format below.
-.TP
-.B \-s
+.It Fl s
 Sort by stacking order.
-.PP
+.El
+.Pp
 If the
-.B \-l
-option is given, the following information (delimited by tabs) is displayed for each window:
-window state,
-window desktop,
-window geometry (size and position),
-ID of the container window is on,
-ID of the row window is on,
-ID of the window,
-name of the window.
-.PP
-The state consists of a sequence of eight characters,
+.Fl l
+option is given, the following information (delimited by tabs)
+is displayed for each window, in the following order:
+.Bl -enum -compact
+.It
+Window state.
+.It
+Window desktop.
+.It
+Window geometry (size and position).
+.It
+ID of the container the window is on.
+.It
+ID of the row the window is on.
+.It
+ID of the window.
+.It
+Name of the window.
+.El
+.Pp
+The window state consists of a sequence of eight characters,
 each one meaning a state for the container.
-If a character is \- the state is not set or does not apply to the window.
-.IP \(bu 2
-The first character is
-.B d
-to indicate that the window is a dialog.
-.IP \(bu 2
-The second character is
-.B y
-to indicate that the window's container is sticky.
-.IP \(bu 2
-The third character is
-.B M
-to indicate that the window's container is maximized.
-.IP \(bu 2
-The fourth character is
-.B m
-to indicate that the window's container is minimized.
-.IP \(bu 2
-The fifth character is
-.B f
-to indicate that the window's container is fullscreen.
-.IP \(bu 2
-The sixth character is
-.B s
-to indicate that the window's container is shaded.
-.IP \(bu 2
-The seventh character is
-.B a
-to indicate that the window's container is above others,
-or
-.B b
-to indicate that the window's container is below others.
-.IP \(bu 2
-The eighth character is
-.B u
-to indicate that the window has the urgency hint set,
-.B a
-to indicate that the window demands attention,
-or
-.B U
-to indicate that the window is both urgent and demands attention.
-.IP \(bu 2
-The ninth and last character is
-.B a
-to indicate that the window is active,
-.B f
-to indicate that the window is focused,
-or
-.B A
-to indicate that the window is both active and focused.
-.SS Send To Desktop
+If a character is an hyphen
+.Pq \-
+the state is not set or does not apply to the window.
+The state characters, in the order they appear, are the following:
+.Bl -enum -compact
+.It
+An
+.Dq Sy y
+indicates that the window's container is sticky.
+.It
+An
+.Dq Sy M
+indicates that the window's container is maximized.
+.It
+An
+.Dq Sy m
+indicates that the window's container is minimized.
+.It
+An
+.Dq Sy f
+indicates that the window's container is fullscreen.
+.It
+An
+.Dq Sy s
+indicates that the window's container is shaded.
+.It
+An
+.Dq Sy a
+indicates that the window's container is above others.
+An
+.Dq Sy b
+indicates that the window's container is below others.
+.It Sy u/a/U
+An
+.Dq Sy u
+indicates that the window has the urgency hint set.
+An
+.Dq Sy a
+indicates that the window demands attention.
+An
+.Dq Sy U
+indicates that the window is both urgent and demands attention.
+.It
+An
+.Dq Sy a
+indicates that the window is active.
+An
+.Dq Sy f
+indicates that the window is focused.
+An
+.Dq Sy F
+indicates that the window is both active and focused.
+.El
+.Ss Send to desktop
 The
-.B sendto
+.Cm sendto
 operation sends to the desktop ID provided as first argument
-the container of the window whose ID provided as second argument.
+the container of the window whose ID is provided as second argument.
 If no window ID is provided, sends the container of the active window to that desktop.
 Different of other window managers, shod counts desktop from 1;
-So the first desktop is the desktop 1, not the desktop 0.
-.PP
+so the first desktop is the desktop 1, not the desktop 0.
+.Pp
 The options are as follows:
-.TP
-.B \-M \fImonitor\fP
+.Bl -tag -width Ds
+.It Fl M Ar monitor
 Sends to a desktop on the provided monitor rather than on the currently focused monitor.
 Monitors are counted from 1, not from 0.
-.SS Set Container State
+.El
+.Ss Set container state
 The
-.B state
-operation
-sets the state of the container of the window whose ID is provided as argument.
+.Cm state
+operation sets the state of the container of the window whose ID is provided as argument.
 If no argument is provided, sets the state of the container of the active window.
-.PP
+.Pp
 The options are as follows:
-.TP
-.B \-a
-Set state above.
+.Bl -tag -width Ds
+.It Fl a
+Above.
 Raise container above others.
-.TP
-.B \-b
-Set state below.
+.It Fl b
+Below.
 Lower container below others.
-.TP
-.B \-f
-Set state fullscreen.
+.It Fl f
+Fullscreen.
 Make container fullscreen.
-.TP
-.B \-M
-Set state maximized.
-Maximize container
-.TP
-.B \-m
-Set state minimized.
+.It Fl M
+Maximized.
+Maximize container.
+.It Fl m
+Minimized.
 Minimize container.
-.TP
-.B \-s
-Set state shaded.
+.It Fl s
+Shaded.
 The container is resized to fit its titlebars.
-.TP
-.B \-y
-Set state sticky.
+.It Fl y
+Sticky.
 Stick container to the monitor.
-.TP
-.B \-A
-Add (set) state.
+.It Fl A
+Add state.
 Force state to be set.
-.TP
-.B \-T
+.It Fl T
 Toggle state.
 Set state if it is unset, or unset it if it is set.
-.TP
-.B \-R
-Remove (unset) state.
+This is the default.
+.It Fl R
+Remove state.
 Force state to be unset.
-.SH DESKTOP
-.PP
-.B shod
+.El
+.Sh USAGE
+.Nm shod
 maintains one virtual monitor for each physical monitor found by
-.IR Xinerama (1).
+.Xr Xinerama 3 .
 One of the monitors is the focused one, where new windows go to when they are created.
-Each monitor contains a different set of virtual desktops (or "desktop", for short).
+Each monitor contains a different set of virtual desktops (or "desktop" for short).
 One of the desktops of a monitor is the focused desktop for that monitor.
-.PP
-Each monitor has an area called container area, within containers are spawned and can be maximized.
+.Pp
+Each monitor has an area called
+.Dq "container area" ,
+within containers are spawned and can be maximized.
 The size and position of a monitor's container area can be changed by bars and the dock.
-.PP
+.Pp
 Most client windows are displayed in containers;
 but some windows are special and are displayed in different ways.
-.SS Containers
+.Ss Containers
 Containers are floating windows.
-A container contains sub\-windows (called tiles) organized in columns, rows, and tabs;
-each tile represents a client and can have dialog windows associated with it.
+A container contains sub-windows (called tiles) organized in columns, rows, and tabs;
+each tile represents a client and can have dialog windows and menu windows associated with it.
 A new container is created in the focused desktop of the focused monitor;
-this new container is placed in a empty area of the screen.
-.PP
-.B Container Structure.
-A container has borders (four edge handles and four corner handles) around it; borders are always visible, except when the container is fullscreen.
-Borders are used to move and resize containers; more information on that below.
+this new container is placed in an empty area of the screen.
+.Pp
+A container has borders
+(four edge handles and four corner handles) around it;
+borders are always visible, except when the container is fullscreen.
+Borders are used to move and resize containers (more information on that below).
 A container has divisors between its columns, and between the rows within each column.
-Divisors are used to resize the tiles by dragging them with the first mouse button.
-A container has title bars above each row; title bars contains tabs, the left (stack) button and the right (close) button.
+Divisos are used to resize the tiles by dragging them with the first mouse button.
+A container has title bars above each row.
+Title bars contains tabs, the left (stack) button, and the right (close) button.
 More information on those below.
-.PP
-.B Focus.
+.Pp
 Keyboard input goes to the focused client of the focused container.
 A container can be focused by clicking on it with the 1st mouse button;
 the click is passed to the application, which can process it in a particular way.
-The focused container is decorated with a visually distinct decoration (blue in the default theme);
-while other containers have either the common decoration (gray in the default theme),
-or have the urgent decoration (red in the default theme).
-.PP
-.B Stacking Order.
+The focused container is decorated with a visually distinct decoration
+(blue in the default theme);
+while other containers have either the common decoration
+(gray in the default theme),
+or have the urgent decoration
+(red in the default theme).
+.Pp
 Containers are stacked one above the other in the virtual Z axis.
-The position of the container in this Z axis can be changed by a operation called raising.
+The position of the container in this Z axis can be changed by an operation called
+.Dq raising .
 A container can be raised by clicking on it with the 1st mouse button.
-The list of containers in this Z axis, from the one in the bottom to the topmost,
-is called the stacking order.
-The stacking order is organized in four layers:
-the bottom layer (for containers below others);
-the middle layer (for normal containers);
-the upper layer (for containers above others); and
-the fullscreen layer (for fullscreen containers, independent of also being below or above others).
-When a container in is raised, it moves to the top of its layer.
-.PP
-.B Container States.
+The list of containers in this Z axis, from the one in the bottom to the topmost, is called the
+.Dq "stacking order" .
+The stacking order is organized in four layers.
+When a container is raised, it move to the top of its layers.
+The layers are the following (from bottomost to topmost):
+.Bl -enum -compact
+.It
+The bottom layer (for containers below others).
+.It
+The middle layer (for normal containers).
+.It
+The upper layer (for containers above others).
+.It
+The fullscreen layer (for fullscreen containers).
+.El
+.Pp
 Each container can have one or more of the following states:
-maximized (the container occupies the entire container area);
-fullscreen (the container occupies the entire monitor and its borders are hidden);
-minimized (the container is not shown on the monitor);
-shaded (the container is resized to show only the title bars, the clients are hidden);
-sticky (the container is stickied to the monitor and appears on the screen no matter which desktop is selected); and
-above/below (the container is raised above or lowered below other containers).
-.PP
-.B Container Movement.
+.Bl -tag -width Ds
+.It Maximized
+The container occupies the entire container area.
+.It Fullscreen
+The container occupies the entire monitor and its borders are hidden.
+.It Minimized
+The container is not shown on the monitor.
+.It Shaded
+The container is resized to show only the title bars.
+.It Sticky
+The container is stickied to the monitor,
+and appears on the screen no matter which desktop is selected.
+.It Above/Below
+Those two states are mutually exclusive.
+The container is raised above or lowered below other containers.
+.El
+.Pp
 A non-fullscreen, non-maximized container can be moved by the following methods:
-by dragging the container border with the mouse button 3;
-by dragging a title bar with the mouse button 1; or
-by pressing the modifier key and dragging any part of the container with the mouse button 1.
-.PP
-.B Container Resizing.
-A non-fullscreen, non-maximized container can be resized by the following methods:
-by dragging the container border with the mouse button 1; or
-by pressing the modifier key and dragging any part of the container with the mouse button 3.
-.PP
-.B The Title\-Bar.
-Each title\-bar has tabs, which display the title of its client.
-Dragging a tab with the mouse button 1 moves the entire container.
-Dragging a tab with the mouse button 3 dettaches the tab from the container.
-A detached tab, while being dragged,
-can be reattached in other container (or the same container) by dropping it on the title bar or on a divisor,
+.Bl -bullet -compact
+.It
+By dragging the container border with the third mouse button.
+.It
+By dragging a title bar with the first mouse button. Or
+.It
+By pressing the modifier key and dragging any part of the container with the first mouse button.
+.El
+.Pp
+Each title-bar has tabs, which displayes the title of its client.
+Dragging a tab with the first mouse button moves the entire container.
+Dragging a tab with the third mouse button detaches the tab from the container.
+A detached tab, while being dragged, can be reattached into another container
+(or the same container) by dropping it on the title bar, border or divisor;
 or can be made into a new container by dropping it elsewhere.
-.PP
-.B The Left Title\-Bar Button.
+.Pp
 Each title bar has a left button.
-Clicking on the left title\-bar button with the first mouse button restacks the column
-by maximizing its row (and minimizing the other rows in the same column) or undoes this state.
-Dragging the left title\-bar button with the third mouse button moves the row through the columns.
-.PP
-.B The Right Title\-Bar Button.
+Clicking on the left title-bar button with the first mouse button restackes the column
+by maximizing its rows (and minimizing the other rows in the same column),
+or undoes this state.
+.Pp
 Each title bar has a right button.
-Clicking on the right title-bar button with the first mouse button closes the focused client or its top dialog.
-.SS Dialogs
-Windows that are transient for another managed windows (called its leader) are mapped in the center of the leader.
-.PP
-Dialogs are small windows that communicates informate to the user and can prompt for a response.
-.PP
-.B shod
+Clicking on the right title-bar button with the first mouse button
+closes the focused client or its top dialog.
+.Ss Dialog
+Windows that are transient for another managed windows (called its leader)
+are mapped in the center of the leader.
+.Pp
+Dialogs are small windows that communicates information to the user
+or prompts for a response.
+.Pp
+.Nm shod
 only changes the position and size of a dialog window when the size of its leader changes.
-.SS Splash Screens
+.Ss Splash screens
 Windows of type
-.B _NET_WM_WINDOW_TYPE_SPLASH
+.Ic _NET_WM_WINDOW_TYPE_SPLASH
 (called splash screens)
 are mapped above all other windows and are stacked on the order they are spawned.
 Splash screens cannot be manipulated.
 Splash screens have no decoration around them.
-.PP
+.Pp
 Splash screens are transient windows that appear temporarily while an application is loading.
-.PP
-.B shod
-centers the splash screens on the monitor.
-.SS Menus
-Windows of type
-.BR _NET_WM_WINDOW_TYPE_MENU ,
-.BR _NET_WM_WINDOW_TYPE_UTILITY ,
-.BR _NET_WM_WINDOW_TYPE_TOOLBAR ,
+.Pp
+.Nm shod
+centers the splash screen on the monitor.
+.Ss Menus
+windows of type
+.Ic _NET_WM_WINDOW_TYPE_MENU ,
+.Ic _NET_WM_WINDOW_TYPE_UTILITY ,
+.Ic _NET_WM_WINDOW_TYPE_TOOLBAR ,
 or
-.B MWM_TEAROFF_WINDOW
+.Ic MWM_TEAROFF_WINDOW
 (called menu windows)
-are windows that cannot be tiled or tabbed into a container and are tied to a leader window.
-They are floating windows that always appear on top of their leader and are not listed on the list of clients.
-.PP
-Menu windows, often called torn off windows, are pinnable menus, utility windows and toolbar windows,
-ie' toolbars and menus "torn off" from the main application.
-.PP
-The user can change the position of a menu window in the same way of changing the position of a container.
-.SS Prompt
+are windows that cannot be tiled or tabbed into a container
+and are tied to a leader window.
+They are floating windows that always apeear on top of their leader
+and are not listed on the list of clients.
+.Pp
+Menu windows, often called
+.Dq "torn off windows" ,
+are pinnable menus, utility windows, and toolbar windows
+(ie', toolbar and menus "torn off" from the main application).
+.Pp
+The user can change the position of a menu window in the same way of
+changing the position of a container.
+.Ss Prompt
 A window of type
-.B _NET_WM_WINDOW_TYPE_PROMPT
+.Ic _NET_WM_WINDOW_TYPE_PROMPT
 (called prompt window)
 is mapped on the top of the focused monitor.
-This window will stay focused and mapped until be closed or a mouse
-button is pressed outside that window.  This is an EWMH extension,
-only used by
-.IR xprompt (1).
-.PP
-.B shod
+This window will stay focused and mapped until be closed,
+or a mouse button is pressed outside that window.
+This is an EWMH extention, only used by
+.Xr xprompt 1 .
+.Pp
+.Nm shod
 does not change the size of the prompt window.
 However, shod changes its position.
-.SS Desktop windows
+.Ss Desktop windows
 Windows of type
-.B _NET_WM_WINDOW_TYPE_DESKTOP
+.Ic _NET_WM_WINDOW_TYPE_DESKTOP
 (called desktop windows)
-are mapped bellow all other windows and are stacked on the order they are spawned.
+are mapped below all other windows and are stacked on the order they are spawned.
 Desktop windows cannot be manipulated.
 Desktop windows have no decoration around them.
-.PP
+.Pp
 Desktop windows indicates a desktop feature.
 That includes windows such as
-.IR conky (1)
+.Xr conky 1
 and windows that manage desktop icons.
-.PP
-.B shod
+.Pp
+.Nm shod
 does not change the size nor the position of desktop windows.
-.SS Notifications
+.Ss Notifications
 Windows of type
-.B _NET_WM_WINDOW_TYPE_NOTIFICATION
+.Ic _NET_WM_WINDOW_TYPE_NOTIFICATION
 (called notifications)
 are popped up on the top right corner, one above another.
 Notification windows cannot be manipulated.
 Notification windows have a decoration around them;
 this decoration is the same as the borders of the active container
 (or, for urgent notifications, the same as the borders of an urgent container).
-.PP
-An example of a notification window would be a bubble appearing with informative text such as
-"Your laptop is running out of power" etc.
-.PP
-The screen corner where notification windows pop up can be changed with the
-.B \-N
-command-line option.
-.PP
-.B shod
+.Pp
+An example of a notification window would be a bubble appearing with
+informative text such as
+.Dq "Your laptop is running out of power"
+etc.
+.Pp
+.Nm shod
 can change the size and the position of notification windows.
-.SS Bars
+.Ss Bars
 Windows of type
-.B _NET_WM_WINDOW_TYPE_DOCK
-(called, panels, bars, or external docks (to distinguish them from shod's internal dock))
+.Ic _NET_WM_WINDOW_TYPE_DOCK
+(called panels, bars, or external docks (to distinguish them from
+.Nm shod .Ns "'s"
+internal dock))
 are mapped on a side of a monitor.
-Dock windows cannot be manipulated, have no decoration and do not receive input focus.
-.PP
-A bar window can change the size of a region of the monitor called container area.
+Dock windows cannot be manipulated,
+have no decoration and do not receive input focus.
+.Pp
+A bar window can change the size of a region of the monitor called
+.Dq "container area" .
 The container area is the region of the monitor that a maximized container occupies.
 The container area is also the region of the monitor inside which containers are spawned.
-.PP
-Example of bar are a taskbar (that shows which programs are currently running),
-and a statusbar (that shows information about the system, such as memory usage and system time).
-.PP
-.B shod
+.Pp
+Examples of bar are a taskbar that shows which programs are currently running,
+or a status bar that shows information about the system.
+.Pp
+.Nm shod
 does not change the size nor the position of bar windows.
-.SS Dockapps
-Windows that initiates in the WithdrawnState (called dockapps) are mapped inside the dock.
+.Pp
+.Ss Dockapps
+Windows that initiate in the
+.Ic WithdrawnState
+(called dockapps)
+are mapped inside the dock.
 The dock is a panel or bar that appears on the edge of the first monitor.
 Inside the dock, dockapps are organized by order of map request.
-.PP
+.Pp
 Dockapps, or docked applications are windows which appear to reside
 inside an icon or a dock rather than a container.
-.SH RESOURCES
-.B shod
+.Sh RESOURCES
+.Nm shod
 understands the following X resources.
-Some of them (the resources that set colors) occur in triplets,
-and all of them must be set for a consistent theme.
-.TP
-.B shod.borderWidth
+.Bl -tag -width Ds
+.It Ic "shod.borderWidth"
 The width of the borders and divisions.
-.TP
-.B shod.activeBackground, shod.activeTopShadowColor, shod.activeBottomShadowColor
-The body color, light shadow color, and dark shadow color for the 3D
-effect of the borders and title bars of active windows.
-.TP
-.B shod.dockBackground, shod.dockTopShadowColor, shod.dockBottomShadowColor
-The body color, light shadow color, and dark shadow color for the 3D
-effect of the dock.
-.TP
-.B shod.dockGravity
+.It Ic "shod.activeBackground" Ns , Ic "shod.activeTopShadowColor" Ns , and Ic "shod.activeBottomShadowColor"
+The body color, light shadow color, and dark shadow color for the 3D effect
+of the borders and title bars of active windows.
+.It Ic "shod.dockBackground" Ns , and Ic "shod.dockBorder"
+The background color and border color for the dock.
+.It Ic "shod.dockGravity"
 The placement of the dock described with up to two uppercase letters.
-The first letter ("E", "N", "W" or "S") defines in which edge of the screen
-(East, North, West or South) to allign the dock.
-The optional second letter (also "E", "N", "W" or "S")
-defines in which corner of that edge of the screen to allign the dock;
-if no second letter is supplied, the dock is centered on that edge.
-For example, for a value of "NE", a horizontal dock will be placed in the north edge of the screen,
-alligned to the northeast corner.
-For a value of "EN", a vertical dock will be placed in the east edge of the screen,
-alligned to the northeast corner.
-For a value of "E" (the default), a vertical dock wil be placed in the east edge of the screen,
-alligned to its center.
-.TP
-.B shod.dockWidth
-The width (for vertical docks) or height (for horizontal dock) of the dock in pixels.
+The first letter
+.Ns ( Cm "E" Ns , Cm "N" Ns , Cm "W" Ns " or" Cm "S" Ns )
+defines in which edge of the screen (East, North, West or South) to allign the dock.
+The optional second letter
+.Ns (also Cm "E" Ns , Cm "N" Ns , Cm "W" Ns " or" Cm "S" Ns )
+defines in which corner of that edge of the screen to allign the dock.
+If no second letter is supplied, the dock is centered on that edge.
+For example, for a value of
+.Cm NE ,
+a horizontal dock will be placed in the north edge of the screen, alligned to the northeast corner.
+.It Ic "shod.dockWidth"
+The width (for vertical docks) or height (for horizontal docks)
+of the dock in pixels.
 Defaults to 64 (the size of most dockapps).
-.TP
-.B shod.inactiveBackground, shod.inactiveTopShadowColor, shod.inactiveBottomShadowColor
-The body color, light shadow color, and dark shadow color for the 3D
-effect of the borders and title bars of inactive windows.
-.TP
-.B shod.numOfDesktops
+.It Ic "shod.inactiveBackground" Ns , Ic "shod.inactiveTopShadowColor" Ns , and Ic "shod.inactiveBottomShadowColor"
+The body color, light shadow color, and dark shadow color for the 3D effect
+of the borders and title bars of inactive windows.
+.It Ic "shod.numOfDesktops"
 The number of desktops for each monitor.
 The default is 10 desktops for each monitor.
-.TP
-.B shod.notifBackground, shod.notifTopShadowColor, shod.notifBottomShadowColor
-The body color, light shadow color, and dark shadow color for the 3D
-effect of the notification borders.
-.TP
-.B shod.notifGap
+.It Ic "shod.notifGap"
 The gap in pixels between notifications.
-.TP
-.B shod.notifGravity
+.It Ic "shod.notifGravity"
 The placement of the dock in uppercase abbreviated points of the compass.
-For example, a value of "N" will place notifications centered on the north edge of the screen.
-A value of "E" will place notifications centered on the east edge of the screen.
-A value of "NE" (the default) will place notifications on the northeast corner of the screen.
-.TP
-.B shod.promptBackground, shod.promptTopShadowColor, shod.promptBottomShadowColor
-The body color, light shadow color, and dark shadow color for the 3D
-effect of the prompt borders.
-.TP
-.B shod.shadowThickness
+For example, a value of
+.Cm NE
+will place notifications on the northeast edge of the screen.
+.It Ic "shod.shadowThickness"
 Thickness of the 3D shadow effect.
 Must be less than the border width.
-.TP
-.B shod.snapProximity
-The proximity of edges of a container in pixels for the snap attraction to occur when moving the container.
+.It Ic "shod.snapProximity"
+The proximity of edges of a container in pixels
+for the snap attraction to occur when moving the container.
 If set to zero, no snap attraction occurs.
 The default is 8 pixels.
-.TP
-.B shod.faceName
+.It Ic "shod.faceName"
 The font of the text in the title bar.
-.TP
-.B shod.foreground
+.It Ic "shod.foreground"
 The color of the text in the title bar.
-.TP
-.B shod.titleWidth
+.It Ic "shod.titleWidth"
 The width of the title bar.
-.TP
-.B shod.urgentBackground, shod.urgentTopShadowColor, shod.urgentBottomShadowColor
-The body color, light shadow color, and dark shadow color for the 3D
-effect of the borders and title bars of urgent windows.
-.SS Window-dependent resources
+.It Ic "shod.urgentBackground" Ns , Ic "shod.urgentTopShadowColor" Ns , and Ic "shod.urgentBottomShadowColor"
+The body color, light shadow color, and dark shadow color for the 3D effect
+of the borders and title bars of urgent windows.
+.El
+.Ss Window-dependent resources
 The resources below are named based on the class, name instance, and role of a window.
 Therefore, those resources are client-specific.
 Replace
-.I CLASS
+.Ar CLASS
 with the class of the window,
-.I NAME
-with the name of the instance of the window, and
-.I ROLE
+.Ar NAME
+with the name of the instance of the window, and 
+.AR ROLE
 with the role of the window.
-.TP
-\fBshod.\fICLASS\fB.\fINAME\fB.\fIROLE\fB.type\fP
+.Bl -tag -width Ds
+.It Ic shod.CLASS.NAME.ROLE.type
 Define the type of a window matching the given class, name and role.
-Possible types are
-.B NORMAL
+Possible values are
+.Cm NORMAL
 (for normal windows),
-.B DESKTOP
+.Cm DESKTOP
 (for desktop windows),
-.B DOCKAPP
-(for docked applications),
-or
-.B PROMPT
+.Cm DOCKAPP
+(for docked applications), or
+.Cm PROMPT
 (for prompt windows).
-.TP
-\fBshod.\fICLASS\fB.\fINAME\fB.\fIROLE\fB.state\fP
+.It Ic shod.CLASS.NAME.ROLE.state
 Define the initial state of a window matching the given class, name and role.
 Its value should be a comma-separated list of states.
 Possible states are
-.IR above ,
-.IR below ,
-.IR fullscreen ,
-.IR maximized ,
-.IR minimized ,
-.IR shaded ", and"
-.IR sticky .
-.TP
-\fBshod.\fICLASS\fB.\fINAME\fB.\fIROLE\fB.dockpos\fP
+.Cm above ,
+.Cm below ,
+.Cm fullscreen ,
+.Cm maximized ,
+.Cm minimized ,
+.Cm shaded ,
+and
+.Cm sticky .
+.It Ic shod.CLASS.NAME.ROLE.dockpos
 Define the position in the dock of a docked application matching the given class, name and role.
 Its value should be a number, starting from position 0.
-.SH ENVIRONMENT
+.El
+.Sh ENVIRONMENT
 The following environment variables affect the execution of
-.B shod
-.TP
-.B DISPLAY
+.Nm shod .
+.Bl -tag -width Ds
+.It Ev DISPLAY
 The display to start
-.B shod
+.Nm shod
 on.
-.TP
-.B SHELL
+.It Ev SHELL
 The shell to run with
-.IR exec (3).
-.SH SEE ALSO
-.IR X (1),
-.IR xprompt (1),
-.IR xnotify (1)
-.SH BUGS
-.IR XSizeHints (3)
+.Xr exec 3 .
+.El
+.Sh BUGS
+.Xr XSizeHints 3
 are ignored.
 Size hints make no sense in a tiled and tabbed window manager.
 They only make sense when the size of a single container depends only on a single window,
@@ -723,9 +711,9 @@ When the size of a container depends on the size of other windows (as in the til
 or when a set of windows must have the same size (as in a tabbed situation),
 it makes no sense to constrain the size of a container based on the size hints of a single window,
 because the relation from windows to containers is no more one-to-one.
-.PP
+.Pp
 Shaped client\-windows do not have shaped containers.
 They are mapped inside a rectangular container.
-.PP
+.Pp
 The focus buttons and raise buttons settings, that were presented in earlier versions of shod, are removed in recent versions.
 It is also not possible anymore to have a focus-follow-pointer focus behavior.

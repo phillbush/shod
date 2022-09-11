@@ -17,7 +17,6 @@ enum {
 
 /* long list char positions */
 enum {
-	LIST_DIALOG,
 	LIST_STICKY,
 	LIST_MAXIMIZED,
 	LIST_MINIMIZED,
@@ -331,7 +330,7 @@ longlist(Window win)
 	unsigned int w, h, b, du;
 	int desk;
 	unsigned long i, natoms, l;
-	char state[] = "---------";
+	char state[] = "--------";
 	char *name;
 	XWMHints *wmhints = NULL;
 	Window *list = NULL;
@@ -343,12 +342,6 @@ longlist(Window win)
 		if (wmhints->flags & XUrgencyHint)
 			state[LIST_URGENCY] = 'u';
 		XFree(wmhints);
-	}
-	if (getwinsprop(win, XA_WM_TRANSIENT_FOR, &list) > 0) {
-		if (*list != None) {
-			state[LIST_DIALOG] = 'd';
-		}
-		XFree(list);
 	}
 	if (getwinsprop(win, atoms[_SHOD_GROUP_CONTAINER], &list) > 0) {
 		if (*list != None) {
