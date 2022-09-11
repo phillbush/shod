@@ -29,7 +29,7 @@ struct Dock dock;
 static void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: shod [-cds] [-m modifier] [file]\n");
+	(void)fprintf(stderr, "usage: shod [-cdst] [-m modifier] [file]\n");
 	exit(1);
 }
 
@@ -95,25 +95,6 @@ siginthandler(int signo)
 {
 	(void)signo;
 	running = 0;
-}
-
-/* parse modifier string */
-static unsigned int
-parsemodifier(const char *s)
-{
-	if (strcasecmp(s, "Mod1") == 0)
-		return Mod1Mask;
-	else if (strcasecmp(s, "Mod2") == 0)
-		return Mod2Mask;
-	else if (strcasecmp(s, "Mod3") == 0)
-		return Mod3Mask;
-	else if (strcasecmp(s, "Mod4") == 0)
-		return Mod4Mask;
-	else if (strcasecmp(s, "Mod5") == 0)
-		return Mod5Mask;
-	else
-		errx(1, "improper modifier string %s", s);
-	return 0;
 }
 
 /* read xrdb for configuration options */
@@ -194,7 +175,7 @@ getoptions(int argc, char *argv[])
 {
 	int c;
 
-	while ((c = getopt(argc, argv, "cdm:s")) != -1) {
+	while ((c = getopt(argc, argv, "cdm:st")) != -1) {
 		switch (c) {
 		case 'c':
 			config.honorconfig = 1;
@@ -203,10 +184,14 @@ getoptions(int argc, char *argv[])
 			config.floatdialog = 1;
 			break;
 		case 'm':
-			config.modifier = parsemodifier(optarg);
+			if ((config.altkeysym = XStringToKeysym(optarg)) == NoSymbol)
+				errx(1, "supplied key does not match any key symbol: %s", optarg);
 			break;
 		case 's':
 			config.sloppyfocus = 1;
+			break;
+		case 't':
+			config.disablealttab = 1;
 			break;
 		default:
 			usage();
@@ -310,7 +295,8 @@ initdummywindows(void)
 		2 * config.borderwidth + config.titlewidth,
 		2 * config.borderwidth + config.titlewidth,
 		0, depth, CopyFromParent, visual,
-		clientmask, &clientswa
+		clientmask | KeyPressMask,
+		&clientswa
 	);
 	wm.wmcheckpix = XCreatePixmap(
 		dpy, wm.wmcheckwin,
@@ -464,6 +450,9 @@ main(int argc, char *argv[])
 	scan();
 	mapdummywins();
 
+	/* set modifier key and grab alt key */
+	setmod();
+
 	/* run main event loop */
 	while (running && !XNextEvent(dpy, &ev))
 		if (xevents[ev.type])
@@ -482,6 +471,7 @@ main(int argc, char *argv[])
 
 	/* close connection to server */
 	XUngrabPointer(dpy, CurrentTime);
+	XUngrabKeyboard(dpy, CurrentTime);
 	XCloseDisplay(dpy);
 
 	return 0;

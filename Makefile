@@ -10,9 +10,8 @@ X11LIB ?= /usr/X11R6/lib
 XCPPFLAGS = -I${LOCALINC} -I${X11INC} -I/usr/include/freetype2 -I${X11INC}/freetype2
 XLDFLAGS  = -L${LOCALLIB} -L${X11LIB} -lfontconfig -lXft -lX11 -lXinerama -lXrender
 
-SHOD_OBJS   = shod.o config.o \
-              xapp.o xbar.o xdock.o xsplash.o xnotif.o xprompt.o \
-              xhints.o xmon.o xdraw.o xevents.o
+SHOD_OBJS   = shod.o config.o xhints.o xmon.o xdraw.o xevents.o \
+              xcontainer.o xbar.o xdock.o xsplash.o xnotif.o xprompt.o
 SHODC_OBJS  = shodc.o
 SHARED_OBJS = xutil.o
 PROGS = shod shodc

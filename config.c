@@ -12,9 +12,13 @@ struct Config config = {
 	.floatdialog    = 0,            /* set to 1 to use floating dialog windows */
 	.sloppyfocus    = 0,            /* set to 1 to use sloppy focus */
 	.honorconfig    = 0,            /* set to 1 to honor configure requests */
+	.disablealttab  = 0,            /* set to 1 to disable alt-tab */
 
 	/* general configuration */
-	.modifier       = Mod1Mask,     /* Modifier button */
+	.altkeysym      = XK_Alt_L,
+	.tabkeysym      = XK_Tab,
+	.modifier       = Mod1Mask,
+	.shift          = ShiftMask,
 	.snap           = 8,            /* proximity of container edges to perform snap attraction */
 	.font = "monospace:pixelsize=11", /* font for titles in titlebars */
 	.ndesktops      = 10,           /* number of desktops per monitor */

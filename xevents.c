@@ -1,6 +1,11 @@
+#include <err.h>
+
 #include "shod.h"
 
+#include <X11/XKBlib.h>
+
 #define MOUSEEVENTMASK          (ButtonReleaseMask | PointerMotionMask | ExposureMask)
+#define ALTTABMASK              (KeyPressMask | KeyReleaseMask | ExposureMask)
 
 /* moveresize action */
 enum {
@@ -130,7 +135,7 @@ isuserplaced(Window win)
 }
 
 /* get pointer to managed object given a window */
-struct Object *
+static struct Object *
 getmanaged(Window win)
 {
 	struct Object *p, *tab, *dial, *menu;
@@ -175,6 +180,20 @@ getmanaged(Window win)
 		}
 	}
 	return NULL;
+}
+
+/* check whether given state matches modifier */
+static int
+isvalidstate(unsigned int state)
+{
+	return config.modifier != 0 && (state & config.modifier) == config.modifier;
+}
+
+/* check whether given state matches shift */
+static int
+isshiftstate(unsigned int state)
+{
+	return config.shift != 0 && (state & config.shift) == config.shift;
 }
 
 /* get tab given window is a dialog for */
@@ -576,35 +595,42 @@ manage(Window win, XRectangle rect, int ignoreunmap)
 
 /* perform container switching (aka alt-tab) */
 static void
-alttab(int forward)
+alttab(XEvent *e)
 {
-	struct Container *prev, *tohead;
+	struct Container *c;
+	XEvent ev;
+	int raised;
 
-	if (TAILQ_EMPTY(&wm.focusq))
+	if ((c = TAILQ_FIRST(&wm.focusq)) == NULL)
 		return;
-	prev = TAILQ_FIRST(&wm.focusq);
-	if (forward) {
-		TAILQ_FOREACH(tohead, &wm.focusq, entry) {
-			if (tohead != prev &&
-			    !tohead->isminimized &&
-			    tohead->mon == prev->mon &&
-			    (tohead->issticky || tohead->desk == prev->desk)) {
-				break;
+	ev = *e;
+	raised = 0;
+	XGrabKeyboard(dpy, root, True, GrabModeAsync, GrabModeAsync, CurrentTime);
+	do {
+		switch (ev.type) {
+		case Expose:
+			if (ev.xexpose.count == 0)
+				copypixmap(ev.xexpose.window);
+			break;
+		case KeyPress:
+			if (ev.xkey.keycode == config.tabkeycode && isvalidstate(ev.xkey.state)) {
+				containerbacktoplace(c, raised);
+				c = containerraisetemp(c, isshiftstate(ev.xkey.state));
+				raised = 1;
 			}
+			break;
+		case KeyRelease:
+			if (ev.xkey.keycode == config.altkeycode)
+				goto done;
+			break;
 		}
-	} else {
-		TAILQ_FOREACH_REVERSE(tohead, &wm.focusq, ContainerQueue, entry) {
-			if (tohead != prev &&
-			    !tohead->isminimized &&
-			    tohead->mon == prev->mon &&
-			    (tohead->issticky || tohead->desk == prev->desk)) {
-				break;
-			}
-		}
-	}
-	if (tohead == NULL || tohead == prev)
+	} while (!XMaskEvent(dpy, ALTTABMASK, &ev));
+done:
+	XUngrabKeyboard(dpy, CurrentTime);
+	if (c == NULL)
 		return;
-	tabfocus(tohead->selcol->selrow->seltab, 1);
+	containerbacktoplace(c, raised);
+	tabfocus(c->selcol->selrow->seltab, 0);
 }
 
 /* detach tab from window with mouse */
@@ -1138,9 +1164,9 @@ xeventbuttonpress(XEvent *e)
 		} else if (ev->window == menu->button && ev->button == Button1) {
 			mouseclose(FLOAT_MENU, menu);
 		} else if ((ev->window == menu->frame && ev->button == Button3)
-		        || (ev->state == config.modifier && ev->button == Button1)) {
+		        || (isvalidstate(ev->state) && ev->button == Button1)) {
 			mousemove(FLOAT_MENU, menu, ev->x_root, ev->y_root, 0);
-		} else if (ev->state == config.modifier && ev->button == Button3) {
+		} else if (isvalidstate(ev->state) && ev->button == Button3) {
 			o = getquadrant(menu->w, menu->h, x, y);
 			mouseresize(FLOAT_MENU, menu, ev->x_root, ev->y_root, o);
 		}
@@ -1158,11 +1184,11 @@ xeventbuttonpress(XEvent *e)
 				mouseretile(c, cdiv, rdiv, ev->x_root, ev->y_root);
 			}
 		} else if (!c->isfullscreen && !c->isminimized && !c->ismaximized) {
-			if (ev->state == config.modifier && ev->button == Button1) {
+			if (isvalidstate(ev->state) && ev->button == Button1) {
 				mousemove(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, 0);
 			} else if (ev->window == c->frame && ev->button == Button3) {
 				mousemove(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, o);
-			} else if ((ev->state == config.modifier && ev->button == Button3) ||
+			} else if ((isvalidstate(ev->state) && ev->button == Button3) ||
 		           	   (o != C && ev->window == c->frame && ev->button == Button1)) {
 				if (o == C)
 					o = getquadrant(c->w, c->h, x, y);
@@ -1240,10 +1266,10 @@ xeventclientmessage(XEvent *e)
 			// removed
 			break;
 		case _SHOD_FOCUS_PREVIOUS_CONTAINER:
-			alttab(1);
+			// removed
 			break;
 		case _SHOD_FOCUS_NEXT_CONTAINER:
-			alttab(0);
+			// removed
 			break;
 		case _SHOD_FOCUS_LEFT_WINDOW:
 			ACTIVATECOL(TAILQ_PREV(tab->row->col, ColumnQueue, entry))
@@ -1487,6 +1513,21 @@ focus:
 	tabfocus(wm.focused->selcol->selrow->seltab, 1);
 }
 
+/* key press event on focuswin */
+static void
+xeventkeypress(XEvent *e)
+{
+	XKeyPressedEvent *ev;
+
+	ev = &e->xkey;
+	if (!config.disablealttab && ev->keycode == config.tabkeycode) {
+		alttab(e);
+	}
+	if (ev->window == wm.wmcheckwin) {
+		XSendEvent(dpy, root, False, KeyPressMask, e);
+	}
+}
+
 /* manage window */
 static void
 xeventmaprequest(XEvent *e)
@@ -1509,6 +1550,14 @@ xeventmaprequest(XEvent *e)
 		},
 		0
 	);
+}
+
+/* forget about client */
+static void
+xeventmappingnotify(XEvent *e)
+{
+	(void)e;
+	setmod();
 }
 
 /* update client properties */
@@ -1611,6 +1660,32 @@ scan(void)
 	}
 }
 
+/* set modifier and Alt key code from given key sym */
+void
+setmod(void)
+{
+	config.altkeycode = 0;
+	config.modifier = 0;
+	if ((config.altkeycode = XKeysymToKeycode(dpy, config.altkeysym)) == 0) {
+		warnx("could not get keycode from keysym");
+		return;
+	}
+	if ((config.tabkeycode = XKeysymToKeycode(dpy, config.tabkeysym)) == 0) {
+		warnx("could not get keycode from keysym");
+		return;
+	}
+	if ((config.modifier = XkbKeysymToModifiers(dpy, config.altkeysym)) == 0) {
+		warnx("could not get modifier from keysym");
+		return;
+	}
+	if (config.disablealttab)
+		return;
+	XUngrabKey(dpy, config.tabkeycode, config.modifier, root);
+	XUngrabKey(dpy, config.tabkeycode, config.modifier | config.shift, root);
+	XGrabKey(dpy, config.tabkeycode, config.modifier, root, False, GrabModeAsync, GrabModeAsync);
+	XGrabKey(dpy, config.tabkeycode, config.modifier | config.shift, root, False, GrabModeAsync, GrabModeAsync);
+}
+
 void (*xevents[LASTEvent])(XEvent *) = {
 	[ButtonPress]      = xeventbuttonpress,
 	[ClientMessage]    = xeventclientmessage,
@@ -1620,7 +1695,9 @@ void (*xevents[LASTEvent])(XEvent *) = {
 	[EnterNotify]      = xevententernotify,
 	[Expose]           = xeventexpose,
 	[FocusIn]          = xeventfocusin,
+	[KeyPress]         = xeventkeypress,
 	[MapRequest]       = xeventmaprequest,
+	[MappingNotify]    = xeventmappingnotify,
 	[PropertyNotify]   = xeventpropertynotify,
 	[UnmapNotify]      = xeventunmapnotify
 };

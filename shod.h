@@ -581,7 +581,10 @@ struct Dock {
 struct Config {
 	/* default configuration, set at `config.c` */
 
-	unsigned int modifier;                  /* modifier (default: Alt) */
+	KeySym altkeysym;                       /* key to trigger alt-tab */
+	KeySym tabkeysym;                       /* key to cycle alt-tab */
+
+	int disablealttab;                      /* whether -t is passed */
 	int floatdialog;                        /* whether -d is passed */
 	int honorconfig;                        /* whether -c is passed */
 	int sloppyfocus;                        /* whether -s is passed */
@@ -616,6 +619,10 @@ struct Config {
 	} *rules;
 
 	/* the values below are computed from the values above */
+	KeyCode altkeycode;                     /* keycode of the altkeysym */
+	KeyCode tabkeycode;                     /* keycode of the tabkeysym */
+	unsigned int modifier;                  /* modifier of the altkeycode */
+	unsigned int shift;                     /* shift modifier */
 	int corner;                             /* = .borderwidth + .titlewidth */
 	int divwidth;                           /* = .borderwidth */
 };
@@ -624,6 +631,8 @@ typedef void Managefunc(struct Tab *, struct Monitor *, int, Window, Window, XRe
 typedef int Unmanagefunc(struct Object *obj, int ignoreunmap);
 
 /* container routines */
+struct Container *containerraisetemp(struct Container *prevc, int backward);
+void containerbacktoplace(struct Container *c, int restack);
 void containerdel(struct Container *c);
 void containermoveresize(struct Container *c);
 void containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, int recursive, enum Octant o);
@@ -718,6 +727,7 @@ Unmanagefunc unmanagenotif;
 Unmanagefunc unmanagemenu;
 Unmanagefunc unmanagetab;
 Unmanagefunc unmanagebar;
+void setmod(void);
 void scan(void);
 
 /* function tables */

@@ -2,14 +2,21 @@
 
 #define DIV                     15      /* see containerplace() for details */
 
+/* check whether container is sticky or is on given desktop */
+static int
+containerisvisible(struct Container *c, int desk)
+{
+	return c->issticky || c->desk == desk;
+}
+
 /* get next focused container after old on given monitor and desktop */
 static struct Container *
 getnextfocused(struct Monitor *mon, int desk)
 {
 	struct Container *c;
 
-	TAILQ_FOREACH_REVERSE(c, &wm.focusq, ContainerQueue, entry)
-		if (!c->isminimized && c->mon == mon && (c->issticky || c->desk == desk))
+	TAILQ_FOREACH(c, &wm.focusq, entry)
+		if (!c->isminimized && c->mon == mon && containerisvisible(c, desk))
 			return c;
 	return NULL;
 }
@@ -32,7 +39,7 @@ snaptoedge(int *x, int *y, int w, int h)
 		*x = wm.selmon->wx + wm.selmon->ww - w;
 	TAILQ_FOREACH(c, &wm.focusq, entry) {
 		if (!c->isminimized && c->mon == wm.selmon &&
-		    (c->issticky || c->desk == wm.selmon->seldesk)) {
+		    containerisvisible(c, wm.selmon->seldesk)) {
 			if (*x + w >= c->x && *x <= c->x + c->w) {
 				if (abs(*y + h - c->y) < config.snap) {
 					*y = c->y - h;
@@ -626,7 +633,7 @@ getfullscreen(struct Monitor *mon, int desk)
 	struct Container *c;
 
 	TAILQ_FOREACH(c, &wm.fullq, raiseentry)
-		if (!c->isminimized && c->mon == mon && (c->issticky || c->desk == desk))
+		if (!c->isminimized && c->mon == mon && containerisvisible(c, desk))
 			return c;
 	return NULL;
 }
@@ -737,9 +744,9 @@ containeraddcol(struct Container *c, struct Column *col, struct Column *prev)
 	}
 }
 
-/* send container to desktop, raise it and optionally place it */
+/* send container to desktop and raise it */
 static void
-containersendtodesk(struct Container *c, struct Monitor *mon, unsigned long desk, int place, int userplaced)
+containersendtodesk(struct Container *c, struct Monitor *mon, unsigned long desk)
 {
 	void containerstick(struct Container *c, int stick);
 
@@ -749,12 +756,10 @@ containersendtodesk(struct Container *c, struct Monitor *mon, unsigned long desk
 		containerstick(c, ADD);
 	} else if ((int)desk < config.ndesktops) {
 		c->desk = (int)desk;
+		if (c->mon != mon)
+			containerplace(c, mon, desk, 1);
 		c->mon = mon;
-		if (c->issticky) {
-			c->issticky = 0;
-		}
-		if (place)
-			containerplace(c, mon, desk, userplaced);
+		c->issticky = 0;
 		if ((int)desk != mon->seldesk)  /* container was sent to invisible desktop */
 			containerhide(c, 1);
 		containerraise(c, c->isfullscreen, c->layer);
@@ -814,7 +819,7 @@ containerminimize(struct Container *c, int minimize, int focus)
 		}
 	} else if (minimize != ADD && c->isminimized) {
 		c->isminimized = 0;
-		containersendtodesk(c, wm.selmon, wm.selmon->seldesk, 1, 0);
+		containersendtodesk(c, wm.selmon, wm.selmon->seldesk);
 		containermoveresize(c);
 		containerhide(c, 0);
 		tabfocus(c->selcol->selrow->seltab, 0);
@@ -859,7 +864,7 @@ containerstick(struct Container *c, int stick)
 		ewmhsetwmdesktop(c);
 	} else if (stick != ADD && c->issticky) {
 		c->issticky = 0;
-		containersendtodesk(c, c->mon, c->mon->seldesk, 0, 0);
+		containersendtodesk(c, c->mon, c->mon->seldesk);
 	} else {
 		return;
 	}
@@ -1234,7 +1239,7 @@ containersendtodeskandfocus(struct Container *c, struct Monitor *mon, unsigned l
 	if (c == NULL)
 		return;
 	prevdesk = c->desk;
-	containersendtodesk(c, mon, desk, 0, 0);
+	containersendtodesk(c, mon, desk);
 	c = getnextfocused(mon, prevdesk);
 	if (c != NULL) {
 		tabfocus(c->selcol->selrow->seltab, 0);
@@ -1266,7 +1271,7 @@ containerincrmove(struct Container *c, int x, int y)
 	if (!c->issticky) {
 		monto = getmon(c->nx + c->nw / 2, c->ny + c->nh / 2);
 		if (monto != NULL && monto != c->mon) {
-			containersendtodesk(c, monto, monto->seldesk, 0, 0);
+			containersendtodesk(c, monto, monto->seldesk);
 			if (wm.focused == c) {
 				deskfocus(monto, monto->seldesk, 0);
 			}
@@ -1594,6 +1599,85 @@ containerdelrow(struct Row *row)
 	}
 }
 
+/* temporarily raise prev/next container and return it; also unhide it if hidden */
+struct Container *
+containerraisetemp(struct Container *prevc, int backward)
+{
+	struct Container *newc;
+	Window wins[2];
+
+	if (prevc == NULL)
+		return NULL;
+	if (backward) {
+		for (newc = prevc; newc != NULL; newc = TAILQ_PREV(newc, ContainerQueue, entry)) {
+			if (newc != prevc &&
+			    newc->mon == prevc->mon &&
+			    containerisvisible(newc, prevc->desk)) {
+				break;
+			}
+		}
+		if (newc == NULL) {
+			TAILQ_FOREACH_REVERSE(newc, &wm.focusq, ContainerQueue, entry) {
+				if (newc != prevc &&
+				    newc->mon == prevc->mon &&
+				    containerisvisible(newc, prevc->desk)) {
+					break;
+				}
+			}
+		}
+	} else {
+		for (newc = prevc; newc != NULL; newc = TAILQ_NEXT(newc, entry)) {
+			if (newc != prevc &&
+			    newc->mon == prevc->mon &&
+			    containerisvisible(newc, prevc->desk)) {
+				break;
+			}
+		}
+		if (newc == NULL) {
+			TAILQ_FOREACH(newc, &wm.focusq, entry) {
+				if (newc != prevc &&
+				    newc->mon == prevc->mon &&
+				    containerisvisible(newc, prevc->desk)) {
+					break;
+				}
+			}
+		}
+	}
+	if (newc == NULL)
+		newc = prevc;
+	if (newc->ishidden)
+		XMapWindow(dpy, newc->frame);
+	/* we save the Z-axis position of the container with wm.wmcheckwin */
+	wins[0] = newc->frame;
+	wins[1] = wm.wmcheckwin;
+	XRestackWindows(dpy, wins, 2);
+	XRaiseWindow(dpy, newc->frame);
+	wm.focused = newc;
+	containerdecorate(newc, NULL, NULL, 1, 0);
+	ewmhsetactivewindow(newc->selcol->selrow->seltab->obj.win);
+	return newc;
+}
+
+/* revert container to its previous position after temporarily raised */
+void
+containerbacktoplace(struct Container *c, int restack)
+{
+	Window wins[2];
+
+	if (c == NULL)
+		return;
+	wm.focused = NULL;
+	containerdecorate(c, NULL, NULL, 1, 0);
+	if (restack) {
+		wins[0] = wm.wmcheckwin;
+		wins[1] = c->frame;
+		XRestackWindows(dpy, wins, 2);
+	}
+	if (c->ishidden)
+		XUnmapWindow(dpy, c->frame);
+	XFlush(dpy);
+}
+
 /* detach tab from row */
 void
 tabdetach(struct Tab *tab, int x, int y)
@@ -1662,8 +1746,6 @@ tabfocus(struct Tab *tab, int gotodesk)
 		ewmhsetstate(c);
 	}
 	if (wm.prevfocused != NULL && wm.prevfocused != wm.focused) {
-		TAILQ_REMOVE(&wm.focusq, wm.prevfocused, entry);
-		TAILQ_INSERT_TAIL(&wm.focusq, wm.prevfocused, entry);
 		if (tab != wm.prevfocused->selcol->selrow->seltab)
 			menuunmap(wm.prevfocused->selcol->selrow->seltab);
 		containerdecorate(wm.prevfocused, NULL, NULL, 1, 0);

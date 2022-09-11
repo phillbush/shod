@@ -7,8 +7,8 @@
 .Nd mouse-focused window manager
 .Sh SYNOPSIS
 .Nm shod
-.Op Fl cds
-.Op Fl m Ar modifier
+.Op Fl cdst
+.Op Fl m Ar keysym
 .Op Ar file
 .Pp
 .Nm shodc
@@ -95,19 +95,27 @@ Make dialogs float.
 By default, dialog windows are mapped inside the client window.
 With this option, dialogs are floating windows instead.
 (Technically, this option makes dialog windows behave the same as menu windows).
-.It Fl m Ar modifier
-Specifies which modifier, from
-.Ar Mod1
-to
-.Ar Mod5
-is used to move and resize windows with the mouse pointer.
+.It Fl m Ar keysym
+Specifies the key symbol that is used for the container cycling,
+and that provides the modifier to move and resize windows with the mouse pointer.
 By default,
 .Nm
 uses
-.Ar Mod1
-(Alt) as modifier.
+.Cm Alt_L
+(Left Alt) as modifier.
+See the
+.Pa keysymdef.h
+header file for a list of key symbols
+(it is usually at
+.Pa /usr/X11R6/include/X11/keysymdef.h
+or
+.Pa /usr/include/X11/keysymdef.h
+on most systems).
 .It Fl s
 Use sloppy focus rather than click-to-focus.
+.It Fl t
+Disable container cycling (aka
+.Dq "alt-tab" No ).
 .El
 .Pp
 .Nm shodc
@@ -476,6 +484,27 @@ or undoes this state.
 Each title bar has a right button.
 Clicking on the right title-bar button with the first mouse button
 closes the focused client or its top dialog.
+.Pp
+Containers can be cycled using the key provided by the
+.Fl m
+option
+.No ( Cm Alt_L
+by default) followed by the
+.Cm Tab
+key.
+The
+.Cm Tab
+key can be further modified by
+.Cm Shift
+to cycle in the oposite direction.
+This mechanism is usually called
+.Dq "alt-tab"
+because of the key combination that usually triggers it.
+This mechanism can be turned off by invoking
+.Nm shod
+with the
+.Fl t
+command-line option.
 .Ss Dialog
 Windows that are transient for another managed windows (called its leader)
 are mapped in the center of the leader.
