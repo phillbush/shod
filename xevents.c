@@ -6,6 +6,7 @@
 
 #define MOUSEEVENTMASK          (ButtonReleaseMask | PointerMotionMask | ExposureMask)
 #define ALTTABMASK              (KeyPressMask | KeyReleaseMask | ExposureMask)
+#define DOUBLECLICK     250     /* time in miliseconds of a double click */
 
 /* moveresize action */
 enum {
@@ -1102,6 +1103,8 @@ done:
 static void
 xeventbuttonpress(XEvent *e)
 {
+	static struct Container *lastc = NULL;
+	static Time lasttime = 0;
 	struct Object *obj;
 	struct Monitor *mon;
 	struct Container *c;
@@ -1173,6 +1176,23 @@ xeventbuttonpress(XEvent *e)
 			mouseresize(FLOAT_MENU, menu, ev->x_root, ev->y_root, o);
 		}
 	} else {
+		if (ev->window == tab->title && ev->button == Button1) {
+			if (lastc == c && ev->time - lasttime < DOUBLECLICK) {
+				containersetstate(
+					tab,
+					(Atom []){
+						atoms[_NET_WM_STATE_MAXIMIZED_VERT],
+						atoms[_NET_WM_STATE_MAXIMIZED_HORZ],
+					},
+					TOGGLE
+				);
+				lasttime = 0;
+				lastc = NULL;
+				goto done;
+			}
+			lastc = c;
+			lasttime = ev->time;
+		}
 		o = getframehandle(c->w, c->h, x, y);
 		if (ev->window == tab->title && ev->button == Button3) {
 			mouseretab(tab, ev->x_root, ev->y_root, ev->x, ev->y);
