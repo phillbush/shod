@@ -606,7 +606,10 @@ alttab(XEvent *e)
 		return;
 	ev = *e;
 	raised = 0;
-	XGrabKeyboard(dpy, root, True, GrabModeAsync, GrabModeAsync, CurrentTime);
+	if (XGrabKeyboard(dpy, root, True, GrabModeAsync, GrabModeAsync, CurrentTime) != GrabSuccess)
+		goto done;
+	if (XGrabPointer(dpy, root, False, 0, GrabModeAsync, GrabModeAsync, None, None, CurrentTime) != GrabSuccess)
+		goto done;
 	do {
 		switch (ev.type) {
 		case Expose:
@@ -630,10 +633,13 @@ alttab(XEvent *e)
 	} while (!XMaskEvent(dpy, ALTTABMASK, &ev));
 done:
 	XUngrabKeyboard(dpy, CurrentTime);
+	XUngrabPointer(dpy, CurrentTime);
 	if (c == NULL)
 		return;
-	containerbacktoplace(c, raised);
-	tabfocus(c->selcol->selrow->seltab, 0);
+	if (raised) {
+		containerbacktoplace(c, raised);
+		tabfocus(c->selcol->selrow->seltab, 0);
+	}
 }
 
 /* detach tab from window with mouse */
