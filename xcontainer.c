@@ -1925,8 +1925,10 @@ menudecorate(struct Menu *menu, int titlepressed)
 	menu->tw = tw;
 	menu->th = th;
 
-	drawbackground(menu->pix, 0, 0, menu->tw, menu->th, FOCUSED);
+	drawbackground(menu->pix, 0, 0, menu->w, menu->h, FOCUSED);
 	drawborders(menu->pix, menu->w, menu->h, FOCUSED);
+
+	drawbackground(menu->pixtitlebar, 0, 0, menu->tw, menu->th, FOCUSED);
 	drawshadow(menu->pixtitlebar, 0, 0, menu->tw, config.titlewidth, FOCUSED, titlepressed);
 	/* write menu title */
 	if (menu->name != NULL)
