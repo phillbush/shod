@@ -85,8 +85,9 @@ xerror(Display *dpy, XErrorEvent *e)
 	    (e->request_code == 139 && e->error_code == 143))
 		return 0;
 
-	errx(1, "Fatal request. Request code=%d, error code=%d", e->request_code, e->error_code);
+	fprintf(stderr, "shod: ");
 	return xerrorxlib(dpy, e);
+	exit(1);        /* unreached */
 }
 
 /* stop running */
