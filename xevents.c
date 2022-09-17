@@ -339,6 +339,7 @@ getwintype(Window win, Window *leader, struct Tab **tab, int *state)
 	/* rules for identifying windows */
 	enum { CLASS = 0, INSTANCE = 1, ROLE = 2 };
 	char *rule[] = { "_", "_", "_" };
+	char *endp;
 
 	struct MwmHints *mwmhints;
 	XClassHint classh;
@@ -427,8 +428,12 @@ getwintype(Window win, Window *leader, struct Tab **tab, int *state)
 		/* check for dockapp position */
 		(void)snprintf(buf, NAMEMAXLEN, "shod.%s.%s.%s.dockpos", rule[CLASS], rule[INSTANCE], rule[ROLE]);
 		if (XrmGetResource(xdb, buf, "*", &ds, &xval) == True) {
-			if ((n = strtol(xval.addr, NULL, 10)) >= 0 && n < INT_MAX) {
-				*state = n;
+			if ((n = strtol(xval.addr, &endp, 10)) >= 0 && n < INT_MAX) {
+				if (*endp == '*') {
+					*state = -n;
+				} else {
+					*state = n;
+				}
 			}
 		}
 	}

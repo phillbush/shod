@@ -2,8 +2,6 @@
 
 #include "shod.h"
 
-#define DOCK_BORDER_THICKNESS 1
-
 static GC gc;
 static struct Theme {
 	XftFont *font;
@@ -483,15 +481,37 @@ drawdock(Pixmap pix, int w, int h)
 
 	if (pix == None || w <= 0 || h <= 0)
 		return;
-	recs = ecalloc(DOCK_BORDER_THICKNESS * 3, sizeof(*recs));
+	recs = ecalloc(DOCKBORDER * 3, sizeof(*recs));
 
 	val.foreground = theme.dock[COLOR_DEF];
 	XChangeGC(dpy, gc, GCForeground, &val);
 	XFillRectangle(dpy, pix, gc, 0, 0, w, h);
 
+	val.foreground = theme.dock[COLOR_ALT];
+	XChangeGC(dpy, gc, GCForeground, &val);
+
+	if (config.dockgravity[0] != '\0' && (config.dockgravity[1] == 'F' || config.dockgravity[1] == 'f')) {
+		switch (config.dockgravity[0]) {
+		case 'N':
+			XFillRectangle(dpy, pix, gc, 0, h - DOCKBORDER, w, 1);
+			break;
+		case 'S':
+			XFillRectangle(dpy, pix, gc, 0, 0, w, 1);
+			break;
+		case 'W':
+			XFillRectangle(dpy, pix, gc, w - DOCKBORDER, 0, 1, h);
+			break;
+		default:
+		case 'E':
+			XFillRectangle(dpy, pix, gc, 0, 0, 1, h);
+			break;
+		}
+		return;
+	}
+
 	switch (config.dockgravity[0]) {
 	case 'N':
-		for(i = 0; i < DOCK_BORDER_THICKNESS; i++) {
+		for(i = 0; i < DOCKBORDER; i++) {
 			recs[i * 3 + 0] = (XRectangle){
 				.x = i,
 				.y = 0,
@@ -513,7 +533,7 @@ drawdock(Pixmap pix, int w, int h)
 		}
 		break;
 	case 'W':
-		for(i = 0; i < DOCK_BORDER_THICKNESS; i++) {
+		for(i = 0; i < DOCKBORDER; i++) {
 			recs[i * 3 + 0] = (XRectangle){
 				.x = 0,
 				.y = i,
@@ -522,28 +542,6 @@ drawdock(Pixmap pix, int w, int h)
 			};
 			recs[i * 3 + 1] = (XRectangle){
 				.x = w - 1 - i,
-				.y = 0,
-				.width = 1,
-				.height = h
-			};
-			recs[i * 3 + 2] = (XRectangle){
-				.x = 0,
-				.y = h - 1 - i,
-				.width = w,
-				.height = 1
-			};
-		}
-		break;
-	case 'E':
-		for(i = 0; i < DOCK_BORDER_THICKNESS; i++) {
-			recs[i * 3 + 0] = (XRectangle){
-				.x = 0,
-				.y = i,
-				.width = w,
-				.height = 1
-			};
-			recs[i * 3 + 1] = (XRectangle){
-				.x = i,
 				.y = 0,
 				.width = 1,
 				.height = h
@@ -557,7 +555,7 @@ drawdock(Pixmap pix, int w, int h)
 		}
 		break;
 	case 'S':
-		for(i = 0; i < DOCK_BORDER_THICKNESS; i++) {
+		for(i = 0; i < DOCKBORDER; i++) {
 			recs[i * 3 + 0] = (XRectangle){
 				.x = i,
 				.y = 0,
@@ -578,10 +576,31 @@ drawdock(Pixmap pix, int w, int h)
 			};
 		}
 		break;
+	default:
+	case 'E':
+		for(i = 0; i < DOCKBORDER; i++) {
+			recs[i * 3 + 0] = (XRectangle){
+				.x = 0,
+				.y = i,
+				.width = w,
+				.height = 1
+			};
+			recs[i * 3 + 1] = (XRectangle){
+				.x = i,
+				.y = 0,
+				.width = 1,
+				.height = h
+			};
+			recs[i * 3 + 2] = (XRectangle){
+				.x = 0,
+				.y = h - 1 - i,
+				.width = w,
+				.height = 1
+			};
+		}
+		break;
 	}
-	val.foreground = theme.dock[COLOR_ALT];
-	XChangeGC(dpy, gc, GCForeground, &val);
-	XFillRectangles(dpy, pix, gc, recs, DOCK_BORDER_THICKNESS * 3);
+	XFillRectangles(dpy, pix, gc, recs, DOCKBORDER * 3);
 	free(recs);
 }
 

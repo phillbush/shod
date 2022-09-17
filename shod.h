@@ -495,6 +495,8 @@ struct Dockapp {
 	int x, y, w, h;                 /* dockapp position and size */
 	int ignoreunmap;                /* number of unmap requests to ignore */
 	int dockpos;                    /* position of the dockapp in the dock */
+	int extend;                     /* whether to maximize dockapp size to fit dock */
+	int slotsize;                   /* size of the slot the dockapp is in */
 };
 
 struct Splash {

@@ -638,14 +638,21 @@ The background color and border color for the dock.
 The placement of the dock described with up to two uppercase letters.
 The first letter
 .Ns ( Cm "E" Ns , Cm "N" Ns , Cm "W" Ns " or" Cm "S" Ns )
-defines in which edge of the screen (East, North, West or South) to allign the dock.
+defines in which edge of the monitor (East, North, West or South) to allign the dock.
 The optional second letter
-.Ns (also Cm "E" Ns , Cm "N" Ns , Cm "W" Ns " or" Cm "S" Ns )
-defines in which corner of that edge of the screen to allign the dock.
+.Ns ( Cm "E" Ns , Cm "N" Ns , Cm "W" Ns , Cm "S" Ns , Cm "C" Ns " or" Cm "F" Ns )
+defines in which corner of that edge of the monitor to allign the dock; an
+.Cm "C"
+means that the dock should centered on that edge; an
+.Cm "F"
+means that the dock should stretched to fill that edge.
 If no second letter is supplied, the dock is centered on that edge.
 For example, for a value of
 .Cm NE ,
-a horizontal dock will be placed in the north edge of the screen, alligned to the northeast corner.
+a horizontal dock will be placed in the north edge of the monitor, alligned to the northeast corner.
+And for a value of
+.Cm EF ,
+a vertical dock will be placed in the east edge of the monitor, stretched to the full hight of the monitor.
 .It Ic "shod.dockWidth"
 The width (for vertical docks) or height (for horizontal docks)
 of the dock in pixels.
@@ -717,7 +724,10 @@ and
 .Cm sticky .
 .It Ic shod.CLASS.NAME.ROLE.dockpos
 Define the position in the dock of a docked application matching the given class, name and role.
-Its value should be a number, starting from position 0.
+Its value should be a number, starting from position 1.
+If the value is followed by an asterisk
+.Pq "*" ,
+the docked application will be stretched to fill the dock.
 .El
 .Sh ENVIRONMENT
 The following environment variables affect the execution of
