@@ -2,13 +2,6 @@
 
 #define DIV                     15      /* see containerplace() for details */
 
-/* check whether container is sticky or is on given desktop */
-static int
-containerisvisible(struct Container *c, int desk)
-{
-	return c->issticky || c->desk == desk;
-}
-
 /* get next focused container after old on given monitor and desktop */
 static struct Container *
 getnextfocused(struct Monitor *mon, int desk)
@@ -16,7 +9,7 @@ getnextfocused(struct Monitor *mon, int desk)
 	struct Container *c;
 
 	TAILQ_FOREACH(c, &wm.focusq, entry)
-		if (!c->isminimized && c->mon == mon && containerisvisible(c, desk))
+		if (containerisvisible(c, mon, desk))
 			return c;
 	return NULL;
 }
@@ -38,8 +31,7 @@ snaptoedge(int *x, int *y, int w, int h)
 	if (abs(*x + w - wm.selmon->wx - wm.selmon->ww) < config.snap)
 		*x = wm.selmon->wx + wm.selmon->ww - w;
 	TAILQ_FOREACH(c, &wm.focusq, entry) {
-		if (!c->isminimized && c->mon == wm.selmon &&
-		    containerisvisible(c, wm.selmon->seldesk)) {
+		if (containerisvisible(c, wm.selmon, wm.selmon->seldesk)) {
 			if (*x + w >= c->x && *x <= c->x + c->w) {
 				if (abs(*y + h - c->y) < config.snap) {
 					*y = c->y - h;
@@ -604,20 +596,19 @@ menuraise(struct Tab *tab)
 	struct Container *c;
 	struct Object *p;
 	struct Menu *menu;
-	Window wins[2], layer;
+	Window wins[2];
 
 	c = tab->row->col->c;
 	if (c == NULL || c->isminimized)
 		return;
 	if (c->isfullscreen)
-		layer = wm.layerwins[LAYER_FULLSCREEN];
-	else if (c->layer > 0)
-		layer = wm.layerwins[LAYER_ABOVE];
-	else if (c->layer < 0)
-		layer = wm.layerwins[LAYER_BELOW];
+		wins[0] = wm.layers[LAYER_FULLSCREEN].frame;
+	else if (c->abovebelow > 0)
+		wins[0] = wm.layers[LAYER_ABOVE].frame;
+	else if (c->abovebelow < 0)
+		wins[0] = wm.layers[LAYER_BELOW].frame;
 	else
-		layer = wm.layerwins[LAYER_NORMAL];
-	wins[0] = layer;
+		wins[0] = wm.layers[LAYER_NORMAL].frame;
 	TAILQ_FOREACH(p, &tab->menuq, entry) {
 		menu = (struct Menu *)p;
 		wins[1] = menu->frame;
@@ -632,8 +623,8 @@ getfullscreen(struct Monitor *mon, int desk)
 {
 	struct Container *c;
 
-	TAILQ_FOREACH(c, &wm.fullq, raiseentry)
-		if (!c->isminimized && c->mon == mon && containerisvisible(c, desk))
+	for (c = &wm.layers[LAYER_FULLSCREEN]; !ISDUMMY(c); c = TAILQ_NEXT(c, raiseentry))
+		if (containerisvisible(c, mon, desk))
 			return c;
 	return NULL;
 }
@@ -649,15 +640,16 @@ containerinsertfocus(struct Container *c)
 static void
 containerinsertraise(struct Container *c)
 {
-	if (c->isfullscreen) {
-		TAILQ_INSERT_HEAD(&wm.fullq, c, raiseentry);
-	} else if (c->layer > 0) {
-		TAILQ_INSERT_HEAD(&wm.aboveq, c, raiseentry);
-	} else if (c->layer < 0) {
-		TAILQ_INSERT_HEAD(&wm.belowq, c, raiseentry);
-	} else {
-		TAILQ_INSERT_HEAD(&wm.centerq, c, raiseentry);
-	}
+	int layer;
+
+	layer = LAYER_NORMAL;
+	if (c->isfullscreen)
+		layer = LAYER_FULLSCREEN;
+	else if (c->abovebelow > 0)
+		layer = LAYER_ABOVE;
+	else if (c->abovebelow < 0)
+		layer = LAYER_BELOW;
+	TAILQ_INSERT_AFTER(&wm.stackq, &wm.layers[layer], c, raiseentry);
 }
 
 /* remove container from the focus list */
@@ -681,23 +673,7 @@ containeraddfocus(struct Container *c)
 static void
 containerdelraise(struct Container *c)
 {
-	if (c->isfullscreen) {
-		if (!TAILQ_EMPTY(&wm.fullq)) {
-			TAILQ_REMOVE(&wm.fullq, c, raiseentry);
-		}
-	} else if (c->layer > 0) {
-		if (!TAILQ_EMPTY(&wm.aboveq)) {
-			TAILQ_REMOVE(&wm.aboveq, c, raiseentry);
-		}
-	} else if (c->layer < 0) {
-		if (!TAILQ_EMPTY(&wm.belowq)) {
-			TAILQ_REMOVE(&wm.belowq, c, raiseentry);
-		}
-	} else {
-		if (!TAILQ_EMPTY(&wm.centerq)) {
-			TAILQ_REMOVE(&wm.centerq, c, raiseentry);
-		}
-	}
+	TAILQ_REMOVE(&wm.stackq, c, raiseentry);
 }
 
 /* hide container */
@@ -762,7 +738,7 @@ containersendtodesk(struct Container *c, struct Monitor *mon, unsigned long desk
 		c->issticky = 0;
 		if ((int)desk != mon->seldesk)  /* container was sent to invisible desktop */
 			containerhide(c, 1);
-		containerraise(c, c->isfullscreen, c->layer);
+		containerraise(c, c->isfullscreen, c->abovebelow);
 	} else {
 		return;
 	}
@@ -775,13 +751,13 @@ static void
 containerfullscreen(struct Container *c, int fullscreen)
 {
 	if (fullscreen != REMOVE && !c->isfullscreen)
-		containerraise(c, 1, c->layer);
+		containerraise(c, 1, c->abovebelow);
 	else if (fullscreen != ADD && c->isfullscreen)
-		containerraise(c, 0, c->layer);
+		containerraise(c, 0, c->abovebelow);
 	else
 		return;
 	containercalccols(c, 0, 1);
-	containermoveresize(c);
+	containermoveresize(c, 1);
 	containerredecorate(c, NULL, NULL, 0);
 	ewmhsetstate(c);
 }
@@ -797,7 +773,7 @@ containermaximize(struct Container *c, int maximize)
 	else
 		return;
 	containercalccols(c, 0, 1);
-	containermoveresize(c);
+	containermoveresize(c, 1);
 	containerredecorate(c, NULL, NULL, 0);
 }
 
@@ -820,7 +796,7 @@ containerminimize(struct Container *c, int minimize, int focus)
 	} else if (minimize != ADD && c->isminimized) {
 		c->isminimized = 0;
 		containersendtodesk(c, wm.selmon, wm.selmon->seldesk);
-		containermoveresize(c);
+		containermoveresize(c, 1);
 		containerhide(c, 0);
 		tabfocus(c->selcol->selrow->seltab, 0);
 	} else {
@@ -848,7 +824,7 @@ containershade(struct Container *c, int shade)
 		return;
 	}
 	containercalccols(c, 0, 1);
-	containermoveresize(c);
+	containermoveresize(c, 1);
 	containerredecorate(c, NULL, NULL, 0);
 	if (c == wm.focused) {
 		tabfocus(c->selcol->selrow->seltab, 0);
@@ -874,9 +850,9 @@ containerstick(struct Container *c, int stick)
 static void
 containerabove(struct Container *c, int above)
 {
-	if (above != REMOVE && c->layer != 1)
+	if (above != REMOVE && c->abovebelow != 1)
 		containerraise(c, c->isfullscreen, 1);
-	else if (above != ADD && c->layer != 0)
+	else if (above != ADD && c->abovebelow != 0)
 		containerraise(c, c->isfullscreen, 0);
 	else
 		return;
@@ -886,9 +862,9 @@ containerabove(struct Container *c, int above)
 static void
 containerbelow(struct Container *c, int below)
 {
-	if (below != REMOVE && c->layer != -1)
+	if (below != REMOVE && c->abovebelow != -1)
 		containerraise(c, c->isfullscreen, -1);
-	else if (below != ADD && c->layer != 0)
+	else if (below != ADD && c->abovebelow != 0)
 		containerraise(c, c->isfullscreen, 0);
 	else
 		return;
@@ -916,10 +892,12 @@ containernew(int x, int y, int w, int h, int state)
 		.isminimized = (state & MINIMIZED),
 		.issticky = (state & STICKY),
 		.isshaded = (state & SHADED),
-		.layer = (state & ABOVE) ? +1 : (state & BELOW) ? -1 : 0,
+		.ishidden = 0,
+		.isobscured = 0,
+		.abovebelow = (state & ABOVE) ? +1 : (state & BELOW) ? -1 : 0,
 	};
 	TAILQ_INIT(&c->colq);
-	c->frame = XCreateWindow(dpy, root, c->x, c->y, c->w, c->h, 0, depth, CopyFromParent, visual, clientmask, &clientswa);
+	c->frame = XCreateWindow(dpy, root, c->x, c->y, c->w, c->h, 0, depth, InputOutput, visual, clientmask, &clientswa);
 	c->curswin[BORDER_N] = XCreateWindow(
 		dpy, c->frame, 0, 0, 1, 1, 0,
 		CopyFromParent, InputOnly, CopyFromParent,
@@ -1015,7 +993,7 @@ containerdel(struct Container *c)
 
 /* commit container size and position */
 void
-containermoveresize(struct Container *c)
+containermoveresize(struct Container *c, int checkstack)
 {
 	struct Object *t, *d;
 	struct Column *col;
@@ -1080,6 +1058,9 @@ containermoveresize(struct Container *c)
 				tabmoveresize(tab);
 			}
 		}
+	}
+	if (!config.disablehidden && checkstack) {
+		ewmhsetclientsstacking();
 	}
 }
 
@@ -1281,29 +1262,26 @@ containerincrmove(struct Container *c, int x, int y)
 
 /* raise container */
 void
-containerraise(struct Container *c, int isfullscreen, int layer)
+containerraise(struct Container *c, int isfullscreen, int abovebelow)
 {
 	Window wins[2];
+	int layer;
 
 	if (c == NULL || c->isminimized)
 		return;
 	containerdelraise(c);
 	wins[1] = c->frame;
-	if (isfullscreen) {
-		TAILQ_INSERT_HEAD(&wm.fullq, c, raiseentry);
-		wins[0] = wm.layerwins[LAYER_FULLSCREEN];
-	} else if (layer > 0) {
-		TAILQ_INSERT_HEAD(&wm.aboveq, c, raiseentry);
-		wins[0] = wm.layerwins[LAYER_ABOVE];
-	} else if (layer < 0) {
-		TAILQ_INSERT_HEAD(&wm.belowq, c, raiseentry);
-		wins[0] = wm.layerwins[LAYER_BELOW];
-	} else {
-		TAILQ_INSERT_HEAD(&wm.centerq, c, raiseentry);
-		wins[0] = wm.layerwins[LAYER_NORMAL];
-	}
+	layer = LAYER_NORMAL;
+	if (isfullscreen)
+		layer = LAYER_FULLSCREEN;
+	else if (abovebelow > 0)
+		layer = LAYER_ABOVE;
+	else if (abovebelow < 0)
+		layer = LAYER_BELOW;
+	TAILQ_INSERT_AFTER(&wm.stackq, &wm.layers[layer], c, raiseentry);
+	wins[0] = wm.layers[layer].frame;
 	c->isfullscreen = isfullscreen;
-	c->layer = layer;
+	c->abovebelow = abovebelow;
 	XRestackWindows(dpy, wins, 2);
 	menuraise(c->selcol->selrow->seltab);
 	ewmhsetclientsstacking();
@@ -1324,7 +1302,7 @@ containerconfigure(struct Container *c, unsigned int valuemask, XWindowChanges *
 	if ((valuemask & CWHeight) && wc->height >= wm.minsize)
 		c->nh = wc->height;
 	containercalccols(c, 0, 1);
-	containermoveresize(c);
+	containermoveresize(c, 1);
 	containerredecorate(c, NULL, NULL, 0);
 }
 
@@ -1469,6 +1447,13 @@ containerplace(struct Container *c, struct Monitor *mon, int desk, int userplace
 	containercalccols(c, 0, 1);
 }
 
+/* check whether container is sticky or is on given desktop */
+int
+containerisvisible(struct Container *c, struct Monitor *mon, int desk)
+{
+	return !c->isminimized && c->mon == mon && (c->issticky || c->desk == desk);
+}
+
 /* check if container can be shaded */
 int
 containerisshaded(struct Container *c)
@@ -1559,7 +1544,7 @@ found:
 	XMapSubwindows(dpy, c->frame);
 	/* no need to call shodgrouptab() and shodgroupcontainer(); tabfocus() already calls them */
 	ewmhsetclientsstacking();
-	containermoveresize(c);
+	containermoveresize(c, 0);
 	containerredecorate(c, NULL, NULL, 0);
 	return 1;
 }
@@ -1590,7 +1575,7 @@ containerdelrow(struct Row *row)
 	}
 	if (recalc) {
 		containercalccols(c, 1, 1);
-		containermoveresize(c);
+		containermoveresize(c, 0);
 		shodgrouptab(c);
 		shodgroupcontainer(c);
 		if (redraw) {
@@ -1612,7 +1597,7 @@ containerraisetemp(struct Container *prevc, int backward)
 		for (newc = prevc; newc != NULL; newc = TAILQ_PREV(newc, ContainerQueue, entry)) {
 			if (newc != prevc &&
 			    newc->mon == prevc->mon &&
-			    containerisvisible(newc, prevc->desk)) {
+			    containerisvisible(newc, prevc->mon, prevc->desk)) {
 				break;
 			}
 		}
@@ -1620,7 +1605,7 @@ containerraisetemp(struct Container *prevc, int backward)
 			TAILQ_FOREACH_REVERSE(newc, &wm.focusq, ContainerQueue, entry) {
 				if (newc != prevc &&
 				    newc->mon == prevc->mon &&
-				    containerisvisible(newc, prevc->desk)) {
+				    containerisvisible(newc, prevc->mon, prevc->desk)) {
 					break;
 				}
 			}
@@ -1629,7 +1614,7 @@ containerraisetemp(struct Container *prevc, int backward)
 		for (newc = prevc; newc != NULL; newc = TAILQ_NEXT(newc, entry)) {
 			if (newc != prevc &&
 			    newc->mon == prevc->mon &&
-			    containerisvisible(newc, prevc->desk)) {
+			    containerisvisible(newc, prevc->mon, prevc->desk)) {
 				break;
 			}
 		}
@@ -1637,7 +1622,7 @@ containerraisetemp(struct Container *prevc, int backward)
 			TAILQ_FOREACH(newc, &wm.focusq, entry) {
 				if (newc != prevc &&
 				    newc->mon == prevc->mon &&
-				    containerisvisible(newc, prevc->desk)) {
+				    containerisvisible(newc, prevc->mon, prevc->desk)) {
 					break;
 				}
 			}
@@ -1740,7 +1725,7 @@ tabfocus(struct Tab *tab, int gotodesk)
 		containeraddfocus(c);
 		containerdecorate(c, NULL, NULL, 1, 0);
 		containerminimize(c, 0, 0);
-		containerraise(c, c->isfullscreen, c->layer);
+		containerraise(c, c->isfullscreen, c->abovebelow);
 		shodgrouptab(c);
 		shodgroupcontainer(c);
 		ewmhsetstate(c);
@@ -1834,7 +1819,7 @@ rowstack(struct Column *col, struct Row *row)
 		}
 	}
 	colcalcrows(col, 0, 1);
-	containermoveresize(col->c);
+	containermoveresize(col->c, 0);
 }
 
 /* configure dialog window */
@@ -2033,11 +2018,11 @@ managetab(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window lea
 	XMapSubwindows(dpy, c->frame);
 	if (!c->isminimized) {
 		containerplace(c, mon, desk, (state & USERPLACED));
-		containermoveresize(c);
+		containermoveresize(c, 0);
 		containerhide(c, 0);
 		tabfocus(tab, 0);
 	} else {
-		containermoveresize(c);
+		containermoveresize(c, 0);
 	}
 	/* no need to call shodgrouptab() and shodgroupcontainer(); tabfocus() already calls them */
 	ewmhsetwmdesktop(c);
@@ -2131,7 +2116,7 @@ unmanagetab(struct Object *obj, int ignoreunmap)
 	}
 	if (moveresize) {
 		containercalccols(c, 1, 1);
-		containermoveresize(c);
+		containermoveresize(c, 0);
 		containerredecorate(c, NULL, NULL, 0);
 		shodgrouptab(c);
 		shodgroupcontainer(c);

@@ -1,38 +1,5 @@
 #include "shod.h"
 
-#define LOOPSTACKING(array, list, index) {                                              \
-	struct Container *c;                                                            \
-	struct Column *col;                                                             \
-	struct Row *row;                                                                \
-	struct Object *p;                                                               \
-	struct Tab *t;                                                                  \
-                                                                                        \
-	TAILQ_FOREACH(c, &(list), raiseentry) {                                         \
-		TAILQ_FOREACH(col, &c->colq, entry) {                                   \
-			if (col->selrow->seltab != NULL)                                \
-				(array)[--(index)] = col->selrow->seltab->obj.win;      \
-			TAILQ_FOREACH(p, &col->selrow->tabq, entry) {                   \
-				t = (struct Tab *)p;                                    \
-				if (t != col->selrow->seltab) {                         \
-					(array)[--(index)] = t->obj.win;                \
-				}                                                       \
-			}                                                               \
-			TAILQ_FOREACH(row, &col->rowq, entry) {                         \
-				if (row == col->selrow)                                 \
-					continue;                                       \
-				if (row->seltab != NULL)                                \
-					(array)[--(index)] = row->seltab->obj.win;      \
-				TAILQ_FOREACH(p, &row->tabq, entry) {                   \
-					t = (struct Tab *)p;                            \
-					if (t != row->seltab) {                         \
-						(array)[--(index)] = t->obj.win;        \
-					}                                               \
-				}                                                       \
-			}                                                               \
-		}                                                                       \
-	}                                                                               \
-}
-
 /* get window name */
 static char *
 getwinname(Window win)
@@ -57,6 +24,32 @@ getwinname(Window win)
 		XFree(tprop.value);
 	}
 	return name;
+}
+
+/* check if given geometry is obscured by containers above it */
+static int
+isobscured(struct Container *c, struct Monitor *mon, int desk, int x, int y, int w, int h)
+{
+	if (config.disablehidden || w <= 0 || h <= 0 || c == NULL)
+		return 0;
+	while ((c = TAILQ_PREV(c, ContainerQueue, raiseentry)) != NULL) {
+		if (ISDUMMY(c) || !containerisvisible(c, mon, desk))
+			continue;
+		if (y < c->y)
+			if (!isobscured(c, mon, desk, x, y, w, c->y - y))
+				return 0;
+		if (x < c->x)
+			if (!isobscured(c, mon, desk, x, y, c->x - x, y))
+				return 0;
+		if (y + h > c->y + c->h)
+			if (!isobscured(c, mon, desk, x, c->y + c->h, w, h))
+				return 0;
+		if (x + w > c->x + c->w)
+			if (!isobscured(c, mon, desk, c->x + c->w, y, w, h))
+				return 0;
+		return 1;
+	}
+	return 0;
 }
 
 /* set desktop for a given window */
@@ -125,7 +118,12 @@ void
 ewmhsetclientsstacking(void)
 {
 	Window *wins = NULL;
-	int i = 0;
+	struct Container *c;
+	struct Column *col;
+	struct Row *row;
+	struct Object *p;
+	struct Tab *t;
+	int prevobscured, i;
 
 	if (wm.nclients < 1) {
 		XChangeProperty(dpy, root, atoms[_NET_CLIENT_LIST_STACKING], XA_WINDOW, 32, PropModeReplace, NULL, 0);
@@ -133,10 +131,38 @@ ewmhsetclientsstacking(void)
 	}
 	wins = ecalloc(wm.nclients, sizeof *wins);
 	i = wm.nclients;
-	LOOPSTACKING(wins, wm.fullq, i)
-	LOOPSTACKING(wins, wm.aboveq, i)
-	LOOPSTACKING(wins, wm.centerq, i)
-	LOOPSTACKING(wins, wm.belowq, i)
+	TAILQ_FOREACH(c, &wm.stackq, raiseentry) {
+		if (ISDUMMY(c))
+			continue;
+		prevobscured = c->isobscured;
+		if (!config.disablehidden)
+			c->isobscured = isobscured(c, c->mon, c->desk, c->x, c->y, c->w, c->h);
+		TAILQ_FOREACH(col, &c->colq, entry) {
+			if (col->selrow->seltab != NULL)
+				wins[--i] = col->selrow->seltab->obj.win;
+			TAILQ_FOREACH(p, &col->selrow->tabq, entry) {
+				t = (struct Tab *)p;
+				if (t != col->selrow->seltab) {
+					wins[--i] = t->obj.win;
+				}
+			}
+			TAILQ_FOREACH(row, &col->rowq, entry) {
+				if (row == col->selrow)
+					continue;
+				if (row->seltab != NULL)
+					wins[--i] = row->seltab->obj.win;
+				TAILQ_FOREACH(p, &row->tabq, entry) {
+					t = (struct Tab *)p;
+					if (t != row->seltab) {
+						wins[--i] = t->obj.win;
+					}
+				}
+			}
+		}
+		if (prevobscured != c->isobscured) {
+			ewmhsetstate(c);
+		}
+	}
 	XChangeProperty(dpy, root, atoms[_NET_CLIENT_LIST_STACKING], XA_WINDOW, 32, PropModeReplace, (unsigned char *)wins+i, wm.nclients-i);
 	free(wins);
 }
@@ -190,15 +216,15 @@ ewmhsetstate(struct Container *c)
 		data[n++] = atoms[_NET_WM_STATE_STICKY];
 	if (c->isshaded)
 		data[n++] = atoms[_NET_WM_STATE_SHADED];
-	if (c->isminimized)
+	if (c->isminimized || c->isobscured)
 		data[n++] = atoms[_NET_WM_STATE_HIDDEN];
 	if (c->ismaximized) {
 		data[n++] = atoms[_NET_WM_STATE_MAXIMIZED_VERT];
 		data[n++] = atoms[_NET_WM_STATE_MAXIMIZED_HORZ];
 	}
-	if (c->layer > 0)
+	if (c->abovebelow > 0)
 		data[n++] = atoms[_NET_WM_STATE_ABOVE];
-	else if (c->layer < 0)
+	else if (c->abovebelow < 0)
 		data[n++] = atoms[_NET_WM_STATE_BELOW];
 	TAB_FOREACH_BEGIN(c, t){
 		XChangeProperty(dpy, t->win, atoms[_NET_WM_STATE], XA_ATOM, 32, PropModeReplace, (unsigned char *)data, n);

@@ -589,9 +589,7 @@ manage(Window win, XRectangle rect, int ignoreunmap)
 	type = getwintype(win, &leader, &tab, &state);
 	if (type == TYPE_DESKTOP) {
 		/* we do not handle desktop windows */
-		Window wins[2] = {wm.layerwins[LAYER_DESKTOP], win};
-
-		XRestackWindows(dpy, wins, 2);
+		XLowerWindow(dpy, win);
 		XMapWindow(dpy, win);
 		return;
 	}
@@ -663,7 +661,7 @@ mouseretab(struct Tab *tab, int xroot, int yroot, int x, int y)
 	if (XGrabPointer(dpy, root, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, None, CurrentTime) != GrabSuccess)
 		goto done;
 	tabdetach(tab, xroot - x, yroot - y);
-	containermoveresize(c);
+	containermoveresize(c, 0);
 	XUnmapWindow(dpy, tab->title);
 	XMoveWindow(
 		dpy, wm.wmcheckwin,
@@ -859,7 +857,7 @@ mouseresize(int type, void *obj, int xroot, int yroot, enum Octant o)
 					menudecorate(menu, 0);
 				} else {
 					containercalccols(c, 0, 1);
-					containermoveresize(c);
+					containermoveresize(c, 0);
 					containerredecorate(c, NULL, NULL, o);
 				}
 				lasttime = ev.xmotion.time;
@@ -875,7 +873,7 @@ done:
 		menudecorate(menu, 0);
 	} else {
 		containercalccols(c, 0, 1);
-		containermoveresize(c);
+		containermoveresize(c, 1);
 		containerdecorate(c, NULL, NULL, 0, 0);
 	}
 	XUngrabPointer(dpy, CurrentTime);
@@ -935,7 +933,7 @@ done:
 		menumoveresize(menu);
 		menudecorate(menu, 0);
 	} else {
-		containermoveresize(c);
+		containermoveresize(c, 1);
 		containerdecorate(c, NULL, NULL, 0, 0);
 	}
 	XUngrabPointer(dpy, CurrentTime);
@@ -1066,7 +1064,7 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 			}
 			if (update) {
 				containercalccols(c, 1, 1);
-				containermoveresize(c);
+				containermoveresize(c, 0);
 				containerdecorate(c, cdiv, rdiv, 0, 0);
 				lasttime = ev.xmotion.time;
 				update = 0;
@@ -1078,7 +1076,7 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 	}
 done:
 	containercalccols(c, 1, 1);
-	containermoveresize(c);
+	containermoveresize(c, 0);
 	tabfocus(c->selcol->selrow->seltab, 0);
 	XUngrabPointer(dpy, CurrentTime);
 }
@@ -1167,7 +1165,7 @@ xeventbuttonpress(XEvent *e)
 
 	/* raise client */
 	if (ev->button == Button1)
-		containerraise(c, c->isfullscreen, c->layer);
+		containerraise(c, c->isfullscreen, c->abovebelow);
 
 	/* get pointer position */
 	if (!XTranslateCoordinates(dpy, ev->window, c->frame, ev->x, ev->y, &x, &y, &dw))
@@ -1454,7 +1452,7 @@ xeventconfigurerequest(XEvent *e)
 		if (config.honorconfig) {
 			containerconfigure(((struct Tab *)obj)->row->col->c, ev->value_mask, &wc);
 		} else {
-			containermoveresize(((struct Tab *)obj)->row->col->c);
+			containermoveresize(((struct Tab *)obj)->row->col->c, 1);
 		}
 	}
 }
@@ -1732,5 +1730,5 @@ void (*xevents[LASTEvent])(XEvent *) = {
 	[MapRequest]       = xeventmaprequest,
 	[MappingNotify]    = xeventmappingnotify,
 	[PropertyNotify]   = xeventpropertynotify,
-	[UnmapNotify]      = xeventunmapnotify
+	[UnmapNotify]      = xeventunmapnotify,
 };

@@ -13,6 +13,7 @@
 #define DOCKBORDER              2
 #define LEN(x)                  (sizeof(x) / sizeof((x)[0]))
 #define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
+#define ISDUMMY(c)              ((c)->ncols == 0)
 
 #define TITLEWIDTH(c)   (((c)->isfullscreen && (c)->ncols == 1 && TAILQ_FIRST(&(c)->colq)->nrows == 1) ? 0 : config.titlewidth)
 
@@ -94,12 +95,9 @@ enum {
 
 enum {
 	/* window layer array indices */
-	LAYER_DESKTOP,
 	LAYER_BELOW,
 	LAYER_NORMAL,
 	LAYER_ABOVE,
-	LAYER_DOCK,
-	LAYER_SPLASH,
 	LAYER_FULLSCREEN,
 	LAYER_LAST
 };
@@ -305,6 +303,9 @@ struct Container {
 	 * A row contains a list of tabs.
 	 * A tab contains an application window and a list of menus and
 	 * a list of dialogs.
+	 *
+	 * A container with no column is a dummy container, used as
+	 * placeholders on the Z-axis list.
 	 */
 	struct ColumnQueue colq;                /* list of columns in container */
 	struct Column *selcol;                  /* pointer to selected container */
@@ -362,9 +363,10 @@ struct Container {
 	 */
 	int ismaximized, issticky;              /* window states */
 	int isminimized, isshaded;              /* window states */
+	int isobscured;                         /* whether container is obscured */
 	int isfullscreen;                       /* whether container is fullscreen */
 	int ishidden;                           /* whether container is hidden */
-	int layer;                              /* stacking order */
+	int abovebelow;                         /* stacking order */
 };
 
 TAILQ_HEAD(MonitorQueue, Monitor);
@@ -525,14 +527,20 @@ struct WM {
 	int nclients;                           /* total number of container windows */
 
 	/*
-	 * Containers are listed by the focusq queue.  However, a
-	 * container can also be listed under another list according to
-	 * its layer on the Z-axis.
+	 * Containers are listed by the focusq queue; they are also
+	 * listed under the stackq list, ordered by its position on
+	 * the Z-axis.
+	 *
+	 * Since there are 4 layers on the Z-axis and we often need
+	 * to move a container to the top of its layer, we have four
+	 * "dummy" containers used as placeholder as the top of each
+	 * layer on the stackq list.
+	 *
+	 * There is also a dummy window to place the dock.
 	 */
-	struct ContainerQueue fullq;            /* queue of containers ordered from topmost to bottommost */
-	struct ContainerQueue aboveq;           /* queue of containers ordered from topmost to bottommost */
-	struct ContainerQueue centerq;          /* queue of containers ordered from topmost to bottommost */
-	struct ContainerQueue belowq;           /* queue of containers ordered from topmost to bottommost */
+	struct ContainerQueue stackq;
+	struct Container layers[LAYER_LAST];
+	Window docklayer;                       /* dummy window used to set dock layer */
 
 	/*
 	 * We maintain a pointer to the focused container and the
@@ -559,12 +567,6 @@ struct WM {
 	Window wmcheckwin;                      /* dummy window required by EWMH */
 	Pixmap wmcheckpix;
 
-	/*
-	 * Shod uses an array of dummy windows to raise the containers
-	 * into the layers of the Z-axis.
-	 */
-	Window layerwins[LAYER_LAST];           /* dummy windows used to set stacking order */
-
 	Cursor cursors[CURSOR_LAST];            /* cursors for the mouse pointer */
 	int showingdesk;                        /* whether the desktop is being shown */
 	int minsize;                            /* minimum size of a container */
@@ -586,6 +588,7 @@ struct Config {
 	KeySym altkeysym;                       /* key to trigger alt-tab */
 	KeySym tabkeysym;                       /* key to cycle alt-tab */
 
+	int disablehidden;                      /* whether -h is passed */
 	int disablealttab;                      /* whether -t is passed */
 	int floatdialog;                        /* whether -d is passed */
 	int honorconfig;                        /* whether -c is passed */
@@ -636,7 +639,7 @@ typedef int Unmanagefunc(struct Object *obj, int ignoreunmap);
 struct Container *containerraisetemp(struct Container *prevc, int backward);
 void containerbacktoplace(struct Container *c, int restack);
 void containerdel(struct Container *c);
-void containermoveresize(struct Container *c);
+void containermoveresize(struct Container *c, int checkstack);
 void containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, int recursive, enum Octant o);
 void containerredecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, enum Octant o);
 void containercalccols(struct Container *c, int recalcfact, int recursive);
@@ -664,6 +667,7 @@ void deskfocus(struct Monitor *mon, int desk, int focus);
 void deskshow(int show);
 int tabattach(struct Container *c, struct Tab *t, int x, int y);
 int containerisshaded(struct Container *c);
+int containerisvisible(struct Container *c, struct Monitor *mon, int desk);
 
 /* other object routines */
 void barstrut(struct Bar *bar);

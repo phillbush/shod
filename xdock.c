@@ -289,7 +289,7 @@ dockupdate(void)
 		dockupdateresizeable();
 	}
 	dockdecorate();
-	wins[0] = wm.layerwins[LAYER_DOCK];
+	wins[0] = wm.docklayer;
 	wins[1] = dock.win;
 	XMoveResizeWindow(dpy, dock.win, dock.x, dock.y, dock.w, dock.h);
 	XRestackWindows(dpy, wins, 2);

@@ -28,7 +28,7 @@ splashplace(struct Splash *splash)
 	splash->x = wm.selmon->wx + (wm.selmon->ww - splash->w) / 2;
 	splash->y = wm.selmon->wy + (wm.selmon->wh - splash->h) / 2;
 	wins[1] = splash->obj.win;
-	wins[0] = wm.layerwins[LAYER_SPLASH];
+	wins[0] = wm.layers[LAYER_NORMAL].frame;
 	XMoveWindow(dpy, splash->obj.win, splash->x, splash->y);
 	XRestackWindows(dpy, wins, 2);
 }

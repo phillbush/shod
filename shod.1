@@ -7,7 +7,7 @@
 .Nd mouse-focused window manager
 .Sh SYNOPSIS
 .Nm shod
-.Op Fl cdst
+.Op Fl cdhst
 .Op Fl m Ar keysym
 .Op Ar file
 .Pp
@@ -95,6 +95,12 @@ Make dialogs float.
 By default, dialog windows are mapped inside the client window.
 With this option, dialogs are floating windows instead.
 (Technically, this option makes dialog windows behave the same as menu windows).
+.It Fl h
+Disable setting obscured windows as hidden.
+By default, windows whose containers are obscured by other containers are set as
+hidden (aka minimized).
+This default behavior emulates the way Plan9's rio lists obscured windows as hidden.
+With this option set, only manually minimized containers are set as hidden.
 .It Fl m Ar keysym
 Specifies the key symbol that is used for the container cycling,
 and that provides the modifier to move and resize windows with the mouse pointer.

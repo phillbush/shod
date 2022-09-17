@@ -29,7 +29,7 @@ struct Dock dock;
 static void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: shod [-cdst] [-m modifier] [file]\n");
+	(void)fprintf(stderr, "usage: shod [-cdhst] [-m modifier] [file]\n");
 	exit(1);
 }
 
@@ -176,13 +176,16 @@ getoptions(int argc, char *argv[])
 {
 	int c;
 
-	while ((c = getopt(argc, argv, "cdm:st")) != -1) {
+	while ((c = getopt(argc, argv, "cdhm:st")) != -1) {
 		switch (c) {
 		case 'c':
 			config.honorconfig = 1;
 			break;
 		case 'd':
 			config.floatdialog = 1;
+			break;
+		case 'h':
+			config.disablehidden = 1;
 			break;
 		case 'm':
 			if ((config.altkeysym = XStringToKeysym(optarg)) == NoSymbol)
@@ -283,12 +286,22 @@ initdock(void)
 static void
 initdummywindows(void)
 {
+	Window wins[2];
 	int i;
 
 	for (i = 0; i < LAYER_LAST; i++) {
-		wm.layerwins[i] = XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0);
-		XRaiseWindow(dpy, wm.layerwins[i]);
+		wm.layers[i].ncols = 0;
+		wm.layers[i].frame = XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0);
+		XRaiseWindow(dpy, wm.layers[i].frame);
+		TAILQ_INSERT_HEAD(&wm.stackq, &wm.layers[i], raiseentry);
 	}
+
+	/* the layer of docks/bars are just below fullscreen containers */
+	wm.docklayer = XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0);
+	wins[0] = wm.layers[LAYER_FULLSCREEN].frame;
+	wins[1] = wm.docklayer;
+	XRestackWindows(dpy, wins, 2);
+
 	wm.wmcheckwin = XCreateWindow(
 		dpy, root,
 		- (2 * config.borderwidth + config.titlewidth),
@@ -338,8 +351,9 @@ cleandummywindows(void)
 
 	XFreePixmap(dpy, wm.wmcheckpix);
 	XDestroyWindow(dpy, wm.wmcheckwin);
+	XDestroyWindow(dpy, wm.docklayer);
 	for (i = 0; i < LAYER_LAST; i++) {
-		XDestroyWindow(dpy, wm.layerwins[i]);
+		XDestroyWindow(dpy, wm.layers[i].frame);
 	}
 }
 
@@ -412,6 +426,14 @@ main(int argc, char *argv[])
 	if (config.sloppyfocus)
 		clientswa.event_mask |= EnterWindowMask;
 
+	/* initialize queues */
+	TAILQ_INIT(&wm.monq);
+	TAILQ_INIT(&wm.barq);
+	TAILQ_INIT(&wm.splashq);
+	TAILQ_INIT(&wm.notifq);
+	TAILQ_INIT(&wm.focusq);
+	TAILQ_INIT(&wm.stackq);
+
 	/* initialize */
 	initsignal();
 	initcursors();
@@ -420,17 +442,6 @@ main(int argc, char *argv[])
 	initdummywindows();
 	inittheme();
 	initdock();
-
-	/* initialize queues */
-	TAILQ_INIT(&wm.monq);
-	TAILQ_INIT(&wm.barq);
-	TAILQ_INIT(&wm.splashq);
-	TAILQ_INIT(&wm.notifq);
-	TAILQ_INIT(&wm.focusq);
-	TAILQ_INIT(&wm.fullq);
-	TAILQ_INIT(&wm.aboveq);
-	TAILQ_INIT(&wm.centerq);
-	TAILQ_INIT(&wm.belowq);
 
 	/* set up list of monitors */
 	monupdate();

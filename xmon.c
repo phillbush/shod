@@ -128,7 +128,7 @@ monupdate(void)
 			c->mon = wm.selmon;
 			c->desk = wm.selmon->seldesk;
 			containerplace(c, wm.selmon, wm.selmon->seldesk, 0);
-			containermoveresize(c);
+			containermoveresize(c, 0);
 
 			/* move menus to new monitor */
 			TAB_FOREACH_BEGIN(c, t) {
@@ -145,7 +145,7 @@ monupdate(void)
 		splashplace((struct Splash *)s);
 	if (focus != NULL)              /* if a contained changed desktop, focus it */
 		tabfocus(focus->selcol->selrow->seltab, 1);
-
+	ewmhsetclientsstacking();
 	free(unique);
 }
 
@@ -226,10 +226,11 @@ monupdatearea(void)
 	TAILQ_FOREACH(c, &wm.focusq, entry) {
 		if (c->ismaximized) {
 			containercalccols(c, 0, 1);
-			containermoveresize(c);
+			containermoveresize(c, 0);
 			containerredecorate(c, NULL, NULL, 0);
 		}
 	}
+	ewmhsetclientsstacking();
 }
 
 /* if window is bigger than monitor, resize it while maintaining proportion */
