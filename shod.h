@@ -98,6 +98,8 @@ enum {
 	LAYER_BELOW,
 	LAYER_NORMAL,
 	LAYER_ABOVE,
+	LAYER_MENU,
+	LAYER_DOCK,
 	LAYER_FULLSCREEN,
 	LAYER_LAST
 };
@@ -129,6 +131,10 @@ enum {
 	SHADED          = 0x20,
 	STICKY          = 0x40,
 	USERPLACED      = 0x80,
+
+	/* dockapp states bits */
+	EXTEND          = 0x100,
+	SHRUNK          = 0x200,
 };
 
 enum {
@@ -467,7 +473,9 @@ struct Dialog {
 
 struct Menu {
 	struct Object obj;
-	struct Tab *tab;                        /* pointer to parent tab */
+	struct Queue *menuq;                    /* pointer to queue it is in */
+	struct Tab *tab;                        /* tab for menu (if existant) */
+	struct Monitor *mon;
 
 	/*
 	 * Frames, pixmaps, saved pixmap geometry, etc
@@ -497,12 +505,15 @@ struct Dockapp {
 	int x, y, w, h;                 /* dockapp position and size */
 	int ignoreunmap;                /* number of unmap requests to ignore */
 	int dockpos;                    /* position of the dockapp in the dock */
-	int extend;                     /* whether to maximize dockapp size to fit dock */
+	int state;                      /* dockapp state */
 	int slotsize;                   /* size of the slot the dockapp is in */
 };
 
 struct Splash {
 	struct Object obj;
+	struct Monitor *mon;
+	Window frame;
+	int desk;
 	int x, y, w, h;                         /* splash screen geometry */
 };
 
@@ -523,6 +534,7 @@ struct WM {
 	struct Queue barq;                      /* queue of bars */
 	struct Queue splashq;                   /* queue of splash screen windows */
 	struct Queue notifq;                    /* queue of notifications */
+	struct Queue menuq;                     /* queue of desktop menus */
 	struct ContainerQueue focusq;           /* queue of containers ordered by focus history */
 	int nclients;                           /* total number of container windows */
 
@@ -636,6 +648,7 @@ typedef void Managefunc(struct Tab *, struct Monitor *, int, Window, Window, XRe
 typedef int Unmanagefunc(struct Object *obj, int ignoreunmap);
 
 /* container routines */
+struct Container *getnextfocused(struct Monitor *mon, int desk);
 struct Container *containerraisetemp(struct Container *prevc, int backward);
 void containerbacktoplace(struct Container *c, int restack);
 void containerdel(struct Container *c);
@@ -650,6 +663,7 @@ void containerconfigure(struct Container *c, unsigned int valuemask, XWindowChan
 void containersendtodeskandfocus(struct Container *c, struct Monitor *mon, unsigned long desk);
 void containerplace(struct Container *c, struct Monitor *mon, int desk, int userplaced);
 void containerdelrow(struct Row *row);
+void containerhide(struct Container *c, int hide);
 void tabdetach(struct Tab *tab, int x, int y);
 void tabfocus(struct Tab *tab, int gotodesk);
 void tabdecorate(struct Tab *t, int pressed);
@@ -657,22 +671,27 @@ void tabupdateurgency(struct Tab *t, int isurgent);
 void rowstack(struct Column *col, struct Row *row);
 void dialogconfigure(struct Dialog *d, unsigned int valuemask, XWindowChanges *wc);
 void dialogmoveresize(struct Dialog *dial);
-void menuincrmove(struct Menu *menu, int x, int y);
-void menuconfigure(struct Menu *menu, unsigned int valuemask, XWindowChanges *wc);
-void menumoveresize(struct Menu *menu);
-void menudecorate(struct Menu *menu, int titlepressed);
-void menuaddraise(struct Tab *tab, struct Menu *menu);
-void menuplace(struct Menu *menu);
-void deskfocus(struct Monitor *mon, int desk, int focus);
-void deskshow(int show);
 int tabattach(struct Container *c, struct Tab *t, int x, int y);
 int containerisshaded(struct Container *c);
 int containerisvisible(struct Container *c, struct Monitor *mon, int desk);
 
+/* menu */
+void menuhide(struct Menu *menu, int hide);
+void menuincrmove(struct Menu *menu, int x, int y);
+void menuconfigure(struct Menu *menu, unsigned int valuemask, XWindowChanges *wc);
+void menumoveresize(struct Menu *menu);
+void menudecorate(struct Menu *menu, int titlepressed);
+void menuaddraise(struct Menu *menu);
+void menuraise(struct Menu *menu);
+void menuplace(struct Monitor *mon, struct Menu *menu);
+
 /* other object routines */
+void dockappconfigure(struct Dockapp *dapp, unsigned int valuemask, XWindowChanges *wc);
 void barstrut(struct Bar *bar);
 void notifplace(void);
-void splashplace(struct Splash *splash);
+void splashplace(struct Monitor *mon, struct Splash *splash);
+void splashhide(struct Splash *splash, int hide);
+void splashrise(struct Splash *splash);
 void dockupdate(void);
 
 /* monitor routines */
@@ -707,7 +726,7 @@ void drawborders(Pixmap pix, int w, int h, int style);
 void drawbackground(Pixmap pix, int x, int y, int w, int h, int style);
 void drawframe(Pixmap pix, int isshaded, int w, int h, enum Octant o, int style);
 void drawshadow(Pixmap pix, int x, int y, int w, int h, int style, int pressed);
-void drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int pressed);
+void drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int pressed, int ismenu);
 void drawprompt(Pixmap pix, int w, int h);
 void drawdock(Pixmap pix, int w, int h);
 void buttonleftdecorate(Window button, Pixmap pix, int style, int pressed);
@@ -735,6 +754,7 @@ Unmanagefunc unmanagetab;
 Unmanagefunc unmanagebar;
 void setmod(void);
 void scan(void);
+void deskupdate(struct Monitor *mon, int desk);
 
 /* function tables */
 extern void (*managefuncs[])(struct Tab *, struct Monitor *, int, Window, Window, XRectangle, int, int);

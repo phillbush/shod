@@ -3,7 +3,7 @@
 #define DIV                     15      /* see containerplace() for details */
 
 /* get next focused container after old on given monitor and desktop */
-static struct Container *
+struct Container *
 getnextfocused(struct Monitor *mon, int desk)
 {
 	struct Container *c;
@@ -76,13 +76,6 @@ static void
 clientsdecr(void)
 {
 	wm.nclients--;
-}
-
-/* check if desktop is visible */
-static int
-deskisvisible(struct Monitor *mon, int desk)
-{
-	return mon->seldesk == desk;
 }
 
 /* get decoration style (and state) of container */
@@ -163,7 +156,7 @@ dialognew(Window win, int maxw, int maxh, int ignoreunmap)
 		.obj.win = win,
 		.obj.type = TYPE_DIALOG,
 	};
-	dial->frame = XCreateWindow(dpy, root, 0, 0, maxw, maxh, 0, depth, CopyFromParent, visual, clientmask, &clientswa),
+	dial->frame = XCreateWindow(dpy, root, 0, 0, maxw, maxh, 0, depth, CopyFromParent, visual, clientmask, &clientswa);
 	XReparentWindow(dpy, dial->obj.win, dial->frame, 0, 0);
 	XMapWindow(dpy, dial->obj.win);
 	return dial;
@@ -171,69 +164,21 @@ dialognew(Window win, int maxw, int maxh, int ignoreunmap)
 
 /* map menus */
 static void
-menumap(struct Tab *tab)
+tabhidemenus(struct Tab *tab, int hide)
 {
 	struct Object *menu;
 
 	if (tab == NULL)
 		return;
 	TAILQ_FOREACH(menu, &tab->menuq, entry) {
-		XMapWindow(dpy, ((struct Menu *)menu)->frame);
-		icccmwmstate(menu->win, NormalState);
+		if (hide) {
+			XMapWindow(dpy, ((struct Menu *)menu)->frame);
+			icccmwmstate(menu->win, NormalState);
+		} else {
+			XUnmapWindow(dpy, ((struct Menu *)menu)->frame);
+			icccmwmstate(menu->win, IconicState);
+		}
 	}
-}
-
-/* create new menu */
-static struct Menu *
-menunew(Window win, int x, int y, int w, int h, int ignoreunmap)
-{
-	struct Menu *menu;
-
-	menu = emalloc(sizeof(*menu));
-	*menu = (struct Menu){
-		.titlebar = None,
-		.button = None,
-		.obj.win = win,
-		.obj.type = TYPE_MENU,
-		.pix = None,
-		.pixbutton = None,
-		.pixtitlebar = None,
-		.x = x - config.borderwidth,
-		.y = y - config.borderwidth,
-		.w = w + config.borderwidth * 2,
-		.h = h + config.borderwidth * 2 + config.titlewidth,
-		.ignoreunmap = ignoreunmap,
-	};
-	menu->frame = XCreateWindow(dpy, root, 0, 0,
-	                            w + config.borderwidth * 2,
-	                            h + config.borderwidth * 2 + config.titlewidth, 0,
-	                            depth, CopyFromParent, visual,
-	                            clientmask, &clientswa),
-	menu->titlebar = XCreateWindow(dpy, menu->frame, config.borderwidth, config.borderwidth,
-	                               max(1, menu->w - 2 * config.borderwidth - config.titlewidth),
-	                               config.titlewidth, 0,
-	                               depth, CopyFromParent, visual,
-	                               clientmask, &clientswa);
-	menu->button = XCreateWindow(dpy, menu->frame, menu->w - config.borderwidth - config.titlewidth, config.borderwidth,
-	                             config.titlewidth, config.titlewidth, 0,
-	                             depth, CopyFromParent, visual,
-	                             clientmask, &clientswa);
-	menu->pixbutton = XCreatePixmap(dpy, menu->button, config.titlewidth, config.titlewidth, depth);
-	XDefineCursor(dpy, menu->button, wm.cursors[CURSOR_PIRATE]);
-	XReparentWindow(dpy, menu->obj.win, menu->frame, config.borderwidth, config.borderwidth + config.titlewidth);
-	XMapWindow(dpy, menu->obj.win);
-	XMapWindow(dpy, menu->button);
-	XMapWindow(dpy, menu->titlebar);
-	return menu;
-}
-
-/* remove menu from the menu list */
-static void
-menudelraise(struct Tab *tab, struct Menu *menu)
-{
-	if (TAILQ_EMPTY(&tab->menuq))
-		return;
-	TAILQ_REMOVE(&tab->menuq, (struct Object *)menu, entry);
 }
 
 /* calculate position and width of tabs of a row */
@@ -575,48 +520,6 @@ dialogdecorate(struct Dialog *d)
 	drawcommit(d->pix, d->frame, fullw, fullh);
 }
 
-/* unmap menus */
-static void
-menuunmap(struct Tab *tab)
-{
-	struct Object *menu;
-
-	if (tab == NULL)
-		return;
-	TAILQ_FOREACH(menu, &tab->menuq, entry) {
-		XUnmapWindow(dpy, ((struct Menu *)menu)->frame);
-		icccmwmstate(menu->win, IconicState);
-	}
-}
-
-/* raise menus */
-static void
-menuraise(struct Tab *tab)
-{
-	struct Container *c;
-	struct Object *p;
-	struct Menu *menu;
-	Window wins[2];
-
-	c = tab->row->col->c;
-	if (c == NULL || c->isminimized)
-		return;
-	if (c->isfullscreen)
-		wins[0] = wm.layers[LAYER_FULLSCREEN].frame;
-	else if (c->abovebelow > 0)
-		wins[0] = wm.layers[LAYER_ABOVE].frame;
-	else if (c->abovebelow < 0)
-		wins[0] = wm.layers[LAYER_BELOW].frame;
-	else
-		wins[0] = wm.layers[LAYER_NORMAL].frame;
-	TAILQ_FOREACH(p, &tab->menuq, entry) {
-		menu = (struct Menu *)p;
-		wins[1] = menu->frame;
-		XRestackWindows(dpy, wins, 2);
-		wins[0] = menu->frame;
-	}
-}
-
 /* get focused fullscreen window in given monitor and desktop */
 static struct Container *
 getfullscreen(struct Monitor *mon, int desk)
@@ -677,7 +580,7 @@ containerdelraise(struct Container *c)
 }
 
 /* hide container */
-static void
+void
 containerhide(struct Container *c, int hide)
 {
 	struct Object *t, *d;
@@ -687,7 +590,7 @@ containerhide(struct Container *c, int hide)
 	c->ishidden = hide;
 	if (hide) {
 		XUnmapWindow(dpy, c->frame);
-		menuunmap(c->selcol->selrow->seltab);
+		tabhidemenus(c->selcol->selrow->seltab, ADD);
 	} else {
 		XMapWindow(dpy, c->frame);
 	}
@@ -1254,7 +1157,7 @@ containerincrmove(struct Container *c, int x, int y)
 		if (monto != NULL && monto != c->mon) {
 			containersendtodesk(c, monto, monto->seldesk);
 			if (wm.focused == c) {
-				deskfocus(monto, monto->seldesk, 0);
+				deskupdate(monto, monto->seldesk);
 			}
 		}
 	}
@@ -1264,6 +1167,8 @@ containerincrmove(struct Container *c, int x, int y)
 void
 containerraise(struct Container *c, int isfullscreen, int abovebelow)
 {
+	struct Menu *menu;
+	struct Object *obj;
 	Window wins[2];
 	int layer;
 
@@ -1283,7 +1188,12 @@ containerraise(struct Container *c, int isfullscreen, int abovebelow)
 	c->isfullscreen = isfullscreen;
 	c->abovebelow = abovebelow;
 	XRestackWindows(dpy, wins, 2);
-	menuraise(c->selcol->selrow->seltab);
+	TAILQ_FOREACH(obj, &c->selcol->selrow->seltab->menuq, entry) {
+		menu = (struct Menu *)obj;
+		wins[1] = menu->frame;
+		XRestackWindows(dpy, wins, 2);
+		wins[0] = menu->frame;
+	}
 	ewmhsetclientsstacking();
 }
 
@@ -1705,7 +1615,7 @@ tabfocus(struct Tab *tab, int gotodesk)
 		tab->row->col->selrow = tab->row;
 		tab->row->col->c->selcol = tab->row->col;
 		if (gotodesk)
-			deskfocus(c->mon, c->issticky ? c->mon->seldesk : c->desk, 0);
+			deskupdate(c->mon, c->issticky ? c->mon->seldesk : c->desk);
 		if (tab->row->fact == 0.0)
 			rowstack(tab->row->col, tab->row);
 		XRaiseWindow(dpy, tab->frame);
@@ -1721,7 +1631,7 @@ tabfocus(struct Tab *tab, int gotodesk)
 		ewmhsetactivewindow(tab->obj.win);
 		if (tab->isurgent)
 			tabclearurgency(tab);
-		menumap(tab);
+		tabhidemenus(tab, REMOVE);
 		containeraddfocus(c);
 		containerdecorate(c, NULL, NULL, 1, 0);
 		containerminimize(c, 0, 0);
@@ -1732,7 +1642,7 @@ tabfocus(struct Tab *tab, int gotodesk)
 	}
 	if (wm.prevfocused != NULL && wm.prevfocused != wm.focused) {
 		if (tab != wm.prevfocused->selcol->selrow->seltab)
-			menuunmap(wm.prevfocused->selcol->selrow->seltab);
+			tabhidemenus(wm.prevfocused->selcol->selrow->seltab, ADD);
 		containerdecorate(wm.prevfocused, NULL, NULL, 1, 0);
 		ewmhsetstate(wm.prevfocused);
 	}
@@ -1774,7 +1684,7 @@ tabdecorate(struct Tab *t, int pressed)
 
 	/* write tab title */
 	if (t->name != NULL)
-		drawtitle(t->pixtitle, t->name, t->w, drawlines, style, pressed);
+		drawtitle(t->pixtitle, t->name, t->w, drawlines, style, pressed, 0);
 
 	/* draw frame background */
 	drawbackground(t->pix, 0, 0, t->winw, t->winh, style);
@@ -1835,24 +1745,6 @@ dialogconfigure(struct Dialog *d, unsigned int valuemask, XWindowChanges *wc)
 	dialogmoveresize(d);
 }
 
-/* configure menu window */
-void
-menuconfigure(struct Menu *menu, unsigned int valuemask, XWindowChanges *wc)
-{
-	if (menu == NULL)
-		return;
-	if (valuemask & CWX)
-		menu->x = wc->x;
-	if (valuemask & CWY)
-		menu->y = wc->y;
-	if (valuemask & CWWidth)
-		menu->w = wc->width;
-	if (valuemask & CWHeight)
-		menu->h = wc->height;
-	menumoveresize(menu);
-	menudecorate(menu, 0);
-}
-
 /* commit dialog size and position */
 void
 dialogmoveresize(struct Dialog *dial)
@@ -1872,126 +1764,6 @@ dialogmoveresize(struct Dialog *dial)
 	if (dial->pw != dw || dial->ph != dh) {
 		dialogdecorate(dial);
 	}
-}
-
-void
-menuincrmove(struct Menu *menu, int x, int y)
-{
-	menu->x += x;
-	menu->y += y;
-	snaptoedge(&menu->x, &menu->y, menu->w, menu->h);
-	XMoveWindow(dpy, menu->frame, menu->x, menu->y);
-}
-
-/* commit menu geometry */
-void
-menumoveresize(struct Menu *menu)
-{
-	XMoveResizeWindow(dpy, menu->frame, menu->x, menu->y, menu->w, menu->h);
-	XMoveWindow(dpy, menu->button, menu->w - config.borderwidth - config.titlewidth, config.borderwidth);
-	XResizeWindow(dpy, menu->titlebar, max(1, menu->w - 2 * config.borderwidth - config.titlewidth), config.titlewidth);
-	XResizeWindow(dpy, menu->obj.win, menu->w - 2 * config.borderwidth, menu->h - 2 * config.borderwidth - config.titlewidth);
-}
-
-/* decorate menu */
-void
-menudecorate(struct Menu *menu, int titlepressed)
-{
-	int tw, th;
-
-	if (menu->pw != menu->w || menu->ph != menu->h || menu->pix == None)
-		pixmapnew(&menu->pix, menu->frame, menu->w, menu->h);
-	menu->pw = menu->w;
-	menu->ph = menu->h;
-	tw = max(1, menu->w - 2 * config.borderwidth - config.titlewidth);
-	th = config.titlewidth;
-	if (menu->tw != tw || menu->th != th || menu->pixtitlebar == None)
-		pixmapnew(&menu->pixtitlebar, menu->titlebar, tw, th);
-	menu->tw = tw;
-	menu->th = th;
-
-	drawbackground(menu->pix, 0, 0, menu->w, menu->h, FOCUSED);
-	drawborders(menu->pix, menu->w, menu->h, FOCUSED);
-
-	drawbackground(menu->pixtitlebar, 0, 0, menu->tw, menu->th, FOCUSED);
-	drawshadow(menu->pixtitlebar, 0, 0, menu->tw, config.titlewidth, FOCUSED, titlepressed);
-	/* write menu title */
-	if (menu->name != NULL)
-		drawtitle(menu->pixtitlebar, menu->name, menu->tw, 0, FOCUSED, 0);
-	buttonrightdecorate(menu->button, menu->pixbutton, FOCUSED, 0);
-	drawcommit(menu->pix, menu->frame, menu->pw, menu->ph);
-	drawcommit(menu->pixtitlebar, menu->titlebar, menu->tw, menu->th);
-}
-
-/* put menu on beginning of menu list */
-void
-menuaddraise(struct Tab *tab, struct Menu *menu)
-{
-	menudelraise(tab, menu);
-	TAILQ_INSERT_HEAD(&tab->menuq, (struct Object *)menu, entry);
-	XSetInputFocus(dpy, menu->obj.win, RevertToParent, CurrentTime);
-}
-
-/* place menu next to its container */
-void
-menuplace(struct Menu *menu)
-{
-	struct Container *c;
-
-	c = menu->tab->row->col->c;
-	fitmonitor(c->mon, &menu->x, &menu->y, &menu->w, &menu->h, 1.0);
-	menumoveresize(menu);
-}
-
-/* change desktop */
-void
-deskfocus(struct Monitor *mon, int desk, int focus)
-{
-	struct Container *c;
-
-	if (desk < 0 || desk >= config.ndesktops || desk == wm.selmon->seldesk)
-		return;
-	if (!deskisvisible(mon, desk)) {
-		/* unhide cointainers of new current desktop
-		 * hide containers of previous current desktop */
-		TAILQ_FOREACH(c, &wm.focusq, entry) {
-			if (!c->isminimized && c->desk == desk) {
-				containerhide(c, 0);
-			} else if (!c->issticky && c->desk == mon->seldesk) {
-				containerhide(c, 1);
-			}
-		}
-	}
-
-	/* update current desktop */
-	wm.selmon = mon;
-	wm.selmon->seldesk = desk;
-	if (wm.showingdesk)
-		deskshow(0);
-	ewmhsetcurrentdesktop(desk);
-
-	/* focus client on the new current desktop */
-	if (focus) {
-		c = getnextfocused(mon, desk);
-		if (c != NULL) {
-			tabfocus(c->selcol->selrow->seltab, 0);
-		} else {
-			tabfocus(NULL, 0);
-		}
-	}
-}
-
-/* (un)show desktop */
-void
-deskshow(int show)
-{
-	struct Container *c;
-
-	TAILQ_FOREACH(c, &wm.focusq, entry)
-		if (!c->isminimized)
-			containerhide(c, show);
-	wm.showingdesk = show;
-	ewmhsetshowingdesktop(show);
 }
 
 /* create container for tab */
@@ -2047,29 +1819,6 @@ managedialog(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window 
 	icccmwmstate(dial->obj.win, NormalState);
 	dialogmoveresize(dial);
 	XMapRaised(dpy, dial->frame);
-	if (wm.focused != NULL && wm.focused->selcol->selrow->seltab == tab)
-		tabfocus(tab, 0);
-	ewmhsetclients();
-	ewmhsetclientsstacking();
-}
-
-/* assign menu to tab */
-void
-managemenu(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state, int ignoreunmap)
-{
-	struct Menu *menu;
-
-	(void)mon;
-	(void)desk;
-	(void)leader;
-	(void)state;
-	menu = menunew(win, rect.x, rect.y, rect.width, rect.height, ignoreunmap);
-	menu->tab = tab;
-	winupdatetitle(menu->obj.win, &menu->name);
-	TAILQ_INSERT_HEAD(&tab->menuq, (struct Object *)menu, entry);
-	icccmwmstate(menu->obj.win, NormalState);
-	menuplace(menu);
-	menudecorate(menu, 0);
 	if (wm.focused != NULL && wm.focused->selcol->selrow->seltab == tab)
 		tabfocus(tab, 0);
 	ewmhsetclients();
@@ -2145,33 +1894,5 @@ unmanagedialog(struct Object *obj, int ignoreunmap)
 	XReparentWindow(dpy, dial->obj.win, root, 0, 0);
 	XDestroyWindow(dpy, dial->frame);
 	free(dial);
-	return 1;
-}
-
-/* delete menu; return whether menu was deleted */
-int
-unmanagemenu(struct Object *obj, int ignoreunmap)
-{
-	struct Menu *menu;
-
-	menu = (struct Menu *)obj;
-	if (ignoreunmap && menu->ignoreunmap) {
-		menu->ignoreunmap--;
-		return 0;
-	}
-	menudelraise(menu->tab, menu);
-	if (menu->pix != None)
-		XFreePixmap(dpy, menu->pix);
-	if (menu->pixbutton != None)
-		XFreePixmap(dpy, menu->pixbutton);
-	if (menu->pixtitlebar != None)
-		XFreePixmap(dpy, menu->pixtitlebar);
-	icccmdeletestate(menu->obj.win);
-	XReparentWindow(dpy, menu->obj.win, root, 0, 0);
-	XDestroyWindow(dpy, menu->frame);
-	XDestroyWindow(dpy, menu->titlebar);
-	XDestroyWindow(dpy, menu->button);
-	free(menu->name);
-	free(menu);
 	return 1;
 }

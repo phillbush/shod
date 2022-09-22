@@ -11,7 +11,7 @@ XCPPFLAGS = -I${LOCALINC} -I${X11INC} -I/usr/include/freetype2 -I${X11INC}/freet
 XLDFLAGS  = -L${LOCALLIB} -L${X11LIB} -lfontconfig -lXft -lX11 -lXinerama -lXrender
 
 SHOD_OBJS   = shod.o config.o xhints.o xmon.o xdraw.o xevents.o \
-              xcontainer.o xbar.o xdock.o xsplash.o xnotif.o xprompt.o
+              xcontainer.o xmenu.o xbar.o xdock.o xsplash.o xnotif.o xprompt.o
 SHODC_OBJS  = shodc.o
 SHARED_OBJS = xutil.o
 PROGS = shod shodc

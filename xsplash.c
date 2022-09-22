@@ -14,22 +14,54 @@ splashnew(Window win, int w, int h)
 		.h = h,
 	};
 	((struct Object *)splash)->type = TYPE_SPLASH;
-	XReparentWindow(dpy, win, root, 0, 0);
+	splash->frame = XCreateWindow(
+		dpy,
+		root,
+		0, 0,
+		w, h,
+		0,
+		depth, CopyFromParent, visual,
+		clientmask, &clientswa
+	);
+	XReparentWindow(dpy, win, splash->frame, 0, 0);
+	XMapWindow(dpy, splash->frame);
 	TAILQ_INSERT_HEAD(&wm.splashq, (struct Object *)splash, entry);
 	return splash;
 }
 
 /* center splash screen on monitor and raise it above other windows */
 void
-splashplace(struct Splash *splash)
+splashplace(struct Monitor *mon, struct Splash *splash)
 {
 	Window wins[2];
-	fitmonitor(wm.selmon, &splash->x, &splash->y, &splash->w, &splash->h, 0.5);
-	splash->x = wm.selmon->wx + (wm.selmon->ww - splash->w) / 2;
-	splash->y = wm.selmon->wy + (wm.selmon->wh - splash->h) / 2;
-	wins[1] = splash->obj.win;
+
+	fitmonitor(mon, &splash->x, &splash->y, &splash->w, &splash->h, 0.5);
+	splash->x = mon->wx + (mon->ww - splash->w) / 2;
+	splash->y = mon->wy + (mon->wh - splash->h) / 2;
+	wins[1] = splash->frame;
 	wins[0] = wm.layers[LAYER_NORMAL].frame;
-	XMoveWindow(dpy, splash->obj.win, splash->x, splash->y);
+	XMoveWindow(dpy, splash->frame, splash->x, splash->y);
+	XRestackWindows(dpy, wins, 2);
+}
+
+/* (un)hide splash screen */
+void
+splashhide(struct Splash *splash, int hide)
+{
+	if (hide)
+		XUnmapWindow(dpy, splash->frame);
+	else
+		XMapWindow(dpy, splash->frame);
+	icccmwmstate(splash->frame, (hide ? IconicState : NormalState));
+}
+
+void
+splashrise(struct Splash *splash)
+{
+	Window wins[2];
+
+	wins[1] = splash->frame;
+	wins[0] = wm.layers[LAYER_NORMAL].frame;
 	XRestackWindows(dpy, wins, 2);
 }
 
@@ -43,6 +75,7 @@ unmanagesplash(struct Object *obj, int dummy)
 	(void)dummy;
 	TAILQ_REMOVE(&wm.splashq, (struct Object *)splash, entry);
 	icccmdeletestate(splash->obj.win);
+	XDestroyWindow(dpy, splash->frame);
 	free(splash);
 	return 0;
 }
@@ -54,13 +87,13 @@ managesplash(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window 
 	struct Splash *splash;
 
 	(void)tab;
-	(void)mon;
-	(void)desk;
 	(void)leader;
 	(void)state;
 	(void)ignoreunmap;
 	splash = splashnew(win, rect.width, rect.height);
+	splash->mon = mon;
+	splash->desk = desk;
 	icccmwmstate(splash->obj.win, NormalState);
-	splashplace(splash);
+	splashplace(mon, splash);
 	XMapWindow(dpy, splash->obj.win);
 }

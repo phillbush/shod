@@ -12,9 +12,40 @@ dockdecorate(void)
 	drawcommit(dock.pix, dock.win, dock.w, dock.h);
 }
 
+/* configure dockapp window */
+void
+dockappconfigure(struct Dockapp *dapp, unsigned int valuemask, XWindowChanges *wc)
+{
+	if (dapp == NULL)
+		return;
+	if (valuemask & CWWidth)
+		dapp->w = wc->width;
+	if (valuemask & CWHeight)
+		dapp->h = wc->height;
+	switch (config.dockgravity[0]) {
+	case 'N':
+	case 'S':
+		if (dapp->state & SHRUNK)
+			dapp->slotsize = dapp->w;
+		else
+			dapp->slotsize = (dapp->w / config.dockspace + (dapp->w % config.dockspace ? 1 : 0)) * config.dockspace;
+		dapp->h = min(config.dockwidth, dapp->h);
+		break;
+	case 'W':
+	case 'E':
+	default:
+		if (dapp->state & SHRUNK)
+			dapp->slotsize = dapp->h;
+		else
+			dapp->slotsize = (dapp->h / config.dockspace + (dapp->h % config.dockspace ? 1 : 0)) * config.dockspace;
+		dapp->w = min(config.dockwidth, dapp->w);
+		break;
+	}
+}
+
 /* create dockapp */
 static void
-dockappnew(Window win, int w, int h, int dockpos, int ignoreunmap)
+dockappnew(Window win, int w, int h, int dockpos, int state, int ignoreunmap)
 {
 	struct Dockapp *dapp;
 	struct Object *prev;
@@ -23,11 +54,13 @@ dockappnew(Window win, int w, int h, int dockpos, int ignoreunmap)
 	*dapp = (struct Dockapp){
 		.obj.type = TYPE_DOCKAPP,
 		.obj.win = win,
-		.w = w,
-		.h = h,
+		.x = 0,
+		.y = 0,
+		.w = 0,
+		.h = 0,
 		.ignoreunmap = ignoreunmap,
-		.dockpos = abs(dockpos),
-		.extend = dockpos < 0,
+		.dockpos = dockpos,
+		.state = state,
 	};
 	TAILQ_FOREACH_REVERSE(prev, &dock.dappq, Queue, entry)
 		if (((struct Dockapp *)prev)->dockpos <= dapp->dockpos)
@@ -37,26 +70,14 @@ dockappnew(Window win, int w, int h, int dockpos, int ignoreunmap)
 	} else {
 		TAILQ_INSERT_HEAD(&dock.dappq, (struct Object *)dapp, entry);
 	}
-	switch (config.dockgravity[0]) {
-	case 'N':
-		dapp->slotsize = dapp->w / config.dockspace + (dapp->w % config.dockspace ? 1 : 0);
-		dapp->h = min(config.dockwidth, dapp->h);
-		break;
-	case 'S':
-		dapp->slotsize = dapp->w / config.dockspace + (dapp->w % config.dockspace ? 1 : 0);
-		dapp->h = min(config.dockwidth, dapp->h);
-		break;
-	case 'W':
-		dapp->slotsize = dapp->h / config.dockspace + (dapp->h % config.dockspace ? 1 : 0);
-		dapp->w = min(config.dockwidth, dapp->w);
-		break;
-	case 'E':
-	default:
-		dapp->slotsize = dapp->h / config.dockspace + (dapp->h % config.dockspace ? 1 : 0);
-		dapp->w = min(config.dockwidth, dapp->w);
-		break;
-	}
-	dapp->slotsize *= config.dockspace;
+	dockappconfigure(
+		dapp,
+		CWWidth | CWHeight,
+		&(XWindowChanges){
+			.width = w,
+			.height = h,
+		}
+	);
 }
 
 /* update dock position; create it, if necessary */
@@ -215,7 +236,7 @@ dockupdatefull(void)
 	size = 0;
 	TAILQ_FOREACH(p, &dock.dappq, entry) {
 		dapp = (struct Dockapp *)p;
-		if (dapp->extend) {
+		if (dapp->state & EXTEND) {
 			nextend++;
 		} else {
 			size += dapp->slotsize;
@@ -230,7 +251,7 @@ dockupdatefull(void)
 		dapp = (struct Dockapp *)p;
 		switch (config.dockgravity[0]) {
 		case 'N':
-			if (dapp->extend) {
+			if (dapp->state & EXTEND) {
 				dapp->w = max(1, (i + 1) * part - i * part);
 				n = dapp->w;
 			} else {
@@ -240,7 +261,7 @@ dockupdatefull(void)
 			dapp->y = DOCKBORDER + max(0, (config.dockwidth - dapp->h) / 2);
 			break;
 		case 'S':
-			if (dapp->extend) {
+			if (dapp->state & EXTEND) {
 				dapp->w = max(1, (i + 1) * part - i * part);
 				n = dapp->w;
 			} else {
@@ -250,7 +271,7 @@ dockupdatefull(void)
 			dapp->y = DOCKBORDER + max(0, (config.dockwidth - dapp->h) / 2);
 			break;
 		case 'W':
-			if (dapp->extend) {
+			if (dapp->state & EXTEND) {
 				dapp->h = max(1, (i + 1) * part - i * part);
 				n = dapp->h;
 			} else {
@@ -261,7 +282,7 @@ dockupdatefull(void)
 			break;
 		case 'E':
 		default:
-			if (dapp->extend) {
+			if (dapp->state & EXTEND) {
 				dapp->h = max(1, (i + 1) * part - i * part);
 				n = dapp->h;
 			} else {
@@ -289,7 +310,7 @@ dockupdate(void)
 		dockupdateresizeable();
 	}
 	dockdecorate();
-	wins[0] = wm.docklayer;
+	wins[0] = wm.layers[LAYER_DOCK].frame;
 	wins[1] = dock.win;
 	XMoveResizeWindow(dpy, dock.win, dock.x, dock.y, dock.w, dock.h);
 	XRestackWindows(dpy, wins, 2);
@@ -299,14 +320,14 @@ dockupdate(void)
 
 /* map dockapp window */
 void
-managedockapp(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int pos, int ignoreunmap)
+managedockapp(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state, int ignoreunmap)
 {
 	(void)tab;
 	(void)mon;
 	(void)desk;
 	(void)leader;
 	XReparentWindow(dpy, win, dock.win, 0, 0);
-	dockappnew(win, rect.width, rect.height, pos, ignoreunmap);
+	dockappnew(win, rect.width, rect.height, rect.x, state, ignoreunmap);
 	dockupdate();
 	monupdatearea();
 }

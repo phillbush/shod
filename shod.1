@@ -81,7 +81,7 @@ ignore requests to configure a window size or position after the window is mappe
 A client may request the window mager to configure (ie', resize or reposition) its own window.
 For example,
 .Xr xterm 1
-sends a configure request for the window manager to expand or shrink its window
+sends a configure request for the window manager to resize its window
 when the user changes its font size.
 Clients requesting to change its own size may be annoying,
 so configure requests are ignored by default;
@@ -542,9 +542,10 @@ or
 .Ic MWM_TEAROFF_WINDOW
 (called menu windows)
 are windows that cannot be tiled or tabbed into a container
-and are tied to a leader window.
-They are floating windows that always apeear on top of their leader
+and are optionally tied to a leader window.
+They are floating windows that always apear on top of their leader
 and are not listed on the list of clients.
+If a menu has no leader window, they apear on top of all windows.
 .Pp
 Menu windows, often called
 .Dq "torn off windows" ,
@@ -629,6 +630,32 @@ Inside the dock, dockapps are organized by order of map request.
 .Pp
 Dockapps, or docked applications are windows which appear to reside
 inside an icon or a dock rather than a container.
+.Pp
+Dockapps can have one of three possible states: spaced, shrunk, or extended.
+The state of a dockapp can be set with the
+.Ic "shod.CLASS.NAME.ROLE.state"
+X resource.
+.Pp
+A
+.Dq Em "spaced"
+dockapp is centered on a slot whose size is multiple of, by default, 64 pixels
+(this value can be changed with the
+.Ic "shod.dockSpace"
+X resource).
+So for example, by default, if a dockapp has 58 pixels, it is centered on a slot of 64 pixels (64 * 1);
+but if a dockapp has 100 pixels, it is centered on a slot of 128 pixels (64 * 2).
+This is the default state for a dockapp.
+.Pp
+A
+.Dq Em "shrunk"
+dockapp
+has its slot resized to the size of the dockapp itself.
+.Pp
+An
+.Dq Em "extended"
+dockapp has is resized to fit all the remaining unused space of the dock.
+For example, if the only content of the dock is an extended taskbar dockapp,
+this dockapp is resized to fit all the dock.
 .Sh RESOURCES
 .Nm shod
 understands the following X resources.
@@ -659,6 +686,12 @@ a horizontal dock will be placed in the north edge of the monitor, alligned to t
 And for a value of
 .Cm EF ,
 a vertical dock will be placed in the east edge of the monitor, stretched to the full hight of the monitor.
+.It Ic "shod.dockSpace"
+The multiplier for the height (for vertical docks) or width (for horizontal docks)
+in pixels of the slot dockapps are placed in.
+See the section
+.Sx "Dockapps"
+above for more information.
 .It Ic "shod.dockWidth"
 The width (for vertical docks) or height (for horizontal docks)
 of the dock in pixels.
@@ -719,7 +752,7 @@ Possible values are
 .It Ic shod.CLASS.NAME.ROLE.state
 Define the initial state of a window matching the given class, name and role.
 Its value should be a comma-separated list of states.
-Possible states are
+Possible states for normal windows are
 .Cm above ,
 .Cm below ,
 .Cm fullscreen ,
@@ -728,12 +761,13 @@ Possible states are
 .Cm shaded ,
 and
 .Cm sticky .
+Possible states for dockapp windows are
+.Cm extend ,
+and
+.Cm shrunk .
 .It Ic shod.CLASS.NAME.ROLE.dockpos
 Define the position in the dock of a docked application matching the given class, name and role.
 Its value should be a number, starting from position 1.
-If the value is followed by an asterisk
-.Pq "*" ,
-the docked application will be stretched to fill the dock.
 .El
 .Sh ENVIRONMENT
 The following environment variables affect the execution of

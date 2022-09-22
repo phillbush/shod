@@ -38,12 +38,19 @@ monnew(XineramaScreenInfo *info)
 void
 mondel(struct Monitor *mon)
 {
+	struct Object *obj;
 	struct Container *c;
 
 	TAILQ_REMOVE(&wm.monq, mon, entry);
 	TAILQ_FOREACH(c, &wm.focusq, entry)
 		if (c->mon == mon)
 			c->mon = NULL;
+	TAILQ_FOREACH(obj, &wm.menuq, entry)
+		if (((struct Menu *)obj)->mon == mon)
+			((struct Menu *)obj)->mon = NULL;
+	TAILQ_FOREACH(obj, &wm.splashq, entry)
+		if (((struct Splash *)obj)->mon == mon)
+			((struct Splash *)obj)->mon = NULL;
 	free(mon);
 }
 
@@ -133,7 +140,7 @@ monupdate(void)
 			/* move menus to new monitor */
 			TAB_FOREACH_BEGIN(c, t) {
 				TAILQ_FOREACH(m, &((struct Tab *)t)->menuq, entry) {
-					menuplace((struct Menu *)m);
+					menuplace(wm.selmon, (struct Menu *)m);
 				}
 			} TAB_FOREACH_END
 
@@ -141,8 +148,12 @@ monupdate(void)
 			ewmhsetstate(c);
 		}
 	}
+	TAILQ_FOREACH(m, &wm.menuq, entry)
+		if (((struct Menu *)m)->mon == NULL)
+			menuplace(wm.selmon, (struct Menu *)m);
 	TAILQ_FOREACH(s, &wm.splashq, entry)
-		splashplace((struct Splash *)s);
+		if (((struct Splash *)s)->mon == NULL)
+			splashplace(wm.selmon, (struct Splash *)s);
 	if (focus != NULL)              /* if a contained changed desktop, focus it */
 		tabfocus(focus->selcol->selrow->seltab, 1);
 	ewmhsetclientsstacking();

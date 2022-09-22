@@ -56,6 +56,27 @@ getexposed(Window win, Pixmap *pix, int *pw, int *ph)
 		*ph = dock.h;
 		return 1;
 	}
+	TAILQ_FOREACH(m, &wm.menuq, entry) {
+		menu = (struct Menu *)m;
+		if (menu->frame == win) {
+			*pix = menu->pix;
+			*pw = menu->pw;
+			*ph = menu->ph;
+			return 1;
+		}
+		if (menu->titlebar == win) {
+			*pix = menu->pixtitlebar;
+			*pw = menu->tw;
+			*ph = menu->th;
+			return 1;
+		}
+		if (menu->button == win) {
+			*pix = menu->pixbutton;
+			*pw = config.titlewidth;
+			*ph = config.titlewidth;
+			return 1;
+		}
+	}
 	TAILQ_FOREACH(n, &wm.notifq, entry) {
 		notif = (struct Notification *)n;
 		if (notif->frame == win) {
@@ -159,7 +180,7 @@ drawcommit(Pixmap pix, Window win, int w, int h)
 
 /* draw text into drawable */
 void
-drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int pressed)
+drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int pressed, int ismenu)
 {
 	XGCValues val;
 	XGlyphInfo box;
@@ -171,7 +192,7 @@ drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int p
 
 	top = theme.border[style][pressed ? COLOR_DARK : COLOR_LIGHT];
 	bot = theme.border[style][pressed ? COLOR_LIGHT : COLOR_DARK];
-	color = &theme.fg[style][1];
+	color = &theme.fg[style][ismenu ? 1 : drawlines];
 	draw = XftDrawCreate(dpy, pix, visual, colormap);
 	len = strlen(text);
 	XftTextExtentsUtf8(dpy, theme.font, text, len, &box);

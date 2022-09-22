@@ -39,7 +39,7 @@ isobscured(struct Container *c, struct Monitor *mon, int desk, int x, int y, int
 			if (!isobscured(c, mon, desk, x, y, w, c->y - y))
 				return 0;
 		if (x < c->x)
-			if (!isobscured(c, mon, desk, x, y, c->x - x, y))
+			if (!isobscured(c, mon, desk, x, y, c->x - x, h))
 				return 0;
 		if (y + h > c->y + c->h)
 			if (!isobscured(c, mon, desk, x, c->y + c->h, w, h))

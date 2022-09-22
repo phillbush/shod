@@ -135,6 +135,13 @@ isuserplaced(Window win)
 	return (XGetWMNormalHints(dpy, win, &size, &dl) && (size.flags & USPosition));
 }
 
+/* check if desktop is visible */
+static int
+deskisvisible(struct Monitor *mon, int desk)
+{
+	return mon->seldesk == desk;
+}
+
 /* get pointer to managed object given a window */
 static struct Object *
 getmanaged(Window win)
@@ -148,7 +155,18 @@ getmanaged(Window win)
 	GETMANAGED(dock.dappq, p, win)
 	GETMANAGED(wm.barq, p, win)
 	GETMANAGED(wm.notifq, p, win)
-	GETMANAGED(wm.splashq, p, win)
+	TAILQ_FOREACH(p, &wm.splashq, entry) {
+		if (p->win == win || ((struct Splash *)p)->frame) {
+			return p;
+		}
+	}
+	TAILQ_FOREACH(menu, &wm.menuq, entry) {
+		if (menu->win == win ||
+		    ((struct Menu *)menu)->frame == win ||
+		    ((struct Menu *)menu)->button == win ||
+		    ((struct Menu *)menu)->titlebar == win)
+			return menu;
+	}
 	TAILQ_FOREACH(c, &wm.focusq, entry) {
 		if (c->frame == win)
 			return (struct Object *)c->selcol->selrow->seltab;
@@ -219,7 +237,7 @@ getleaderof(Window leader)
 
 	TAILQ_FOREACH(c, &wm.focusq, entry) {
 		TAB_FOREACH_BEGIN(c, tab){
-			if (tab->win == leader || ((struct Tab *)tab)->leader == leader)
+			if (leader != None && (tab->win == leader || ((struct Tab *)tab)->leader == leader))
 				return (struct Tab *)tab;
 		}TAB_FOREACH_END
 	}
@@ -334,12 +352,11 @@ getmwmhints(Window win)
 
 /* get window info based on its type */
 static int
-getwintype(Window win, Window *leader, struct Tab **tab, int *state)
+getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectangle *rect)
 {
 	/* rules for identifying windows */
 	enum { CLASS = 0, INSTANCE = 1, ROLE = 2 };
 	char *rule[] = { "_", "_", "_" };
-	char *endp;
 
 	struct MwmHints *mwmhints;
 	XClassHint classh;
@@ -348,11 +365,12 @@ getwintype(Window win, Window *leader, struct Tab **tab, int *state)
 	Atom prop;
 	size_t i;
 	long n;
-	int type, isdockapp, ismenu;
+	int type, isdockapp, ismenu, pos;
 	char *ds;
 	char buf[NAMEMAXLEN];
 	char role[NAMEMAXLEN];
 
+	pos = 0;
 	*tab = NULL;
 	*state = 0;
 	type = TYPE_UNKNOWN;
@@ -423,17 +441,19 @@ getwintype(Window win, Window *leader, struct Tab **tab, int *state)
 			if (strcasestr(xval.addr, "sticky") != NULL) {
 				*state |= STICKY;
 			}
+			if (strcasestr(xval.addr, "extend") != NULL) {
+				*state |= EXTEND;
+			}
+			if (strcasestr(xval.addr, "shrunk") != NULL) {
+				*state |= SHRUNK;
+			}
 		}
 
 		/* check for dockapp position */
 		(void)snprintf(buf, NAMEMAXLEN, "shod.%s.%s.%s.dockpos", rule[CLASS], rule[INSTANCE], rule[ROLE]);
 		if (XrmGetResource(xdb, buf, "*", &ds, &xval) == True) {
-			if ((n = strtol(xval.addr, &endp, 10)) >= 0 && n < INT_MAX) {
-				if (*endp == '*') {
-					*state = -n;
-				} else {
-					*state = n;
-				}
+			if ((n = strtol(xval.addr, NULL, 10)) >= 0 && n < INT_MAX) {
+				pos = n;
 			}
 		}
 	}
@@ -472,12 +492,9 @@ getwintype(Window win, Window *leader, struct Tab **tab, int *state)
 	           prop == atoms[_NET_WM_WINDOW_TYPE_MENU] ||
 	           prop == atoms[_NET_WM_WINDOW_TYPE_UTILITY] ||
 	           prop == atoms[_NET_WM_WINDOW_TYPE_TOOLBAR]) {
-		if (*tab == NULL) {
+		if (*tab == NULL)
 			*tab = getleaderof(*leader);
-		}
-		if (*tab != NULL) {
-			type = TYPE_MENU;
-		}
+		type = TYPE_MENU;
 	} else if (*tab != NULL) {
 		type = config.floatdialog ? TYPE_MENU : TYPE_DIALOG;
 	} else {
@@ -485,6 +502,8 @@ getwintype(Window win, Window *leader, struct Tab **tab, int *state)
 	}
 
 done:
+	if (type == TYPE_DOCKAPP)
+		rect->x = rect->y = pos;
 	return type;
 }
 
@@ -576,6 +595,79 @@ getquadrant(int w, int h, int x, int y)
 	return C;
 }
 
+/* (un)show desktop */
+static void
+deskshow(int show)
+{
+	struct Object *obj;
+	struct Container *c;
+
+	TAILQ_FOREACH(c, &wm.focusq, entry)
+		if (!c->isminimized)
+			containerhide(c, show);
+	TAILQ_FOREACH(obj, &wm.splashq, entry)
+		splashhide((struct Splash *)obj, show);
+	wm.showingdesk = show;
+	ewmhsetshowingdesktop(show);
+}
+
+/* update desktop */
+void
+deskupdate(struct Monitor *mon, int desk)
+{
+	struct Object *obj;
+	struct Splash *splash;
+	struct Container *c;
+
+	if (desk < 0 || desk >= config.ndesktops || (mon == wm.selmon && desk == wm.selmon->seldesk))
+		return;
+	if (wm.showingdesk)
+		deskshow(0);
+	if (!deskisvisible(mon, desk)) {
+		/* unhide cointainers of new current desktop
+		 * hide containers of previous current desktop */
+		TAILQ_FOREACH(c, &wm.focusq, entry) {
+			if (c->mon != mon)
+				continue;
+			if (!c->isminimized && c->desk == desk) {
+				containerhide(c, 0);
+			} else if (!c->issticky && c->desk == mon->seldesk) {
+				containerhide(c, 1);
+			}
+		}
+		TAILQ_FOREACH(obj, &wm.splashq, entry) {
+			splash = (struct Splash *)obj;
+			if (splash->mon != mon)
+				continue;
+			if (splash->desk == desk) {
+				splashhide(splash, 0);
+			} else if (splash->desk == mon->seldesk) {
+				splashhide(splash, 1);
+			}
+		}
+	}
+	wm.selmon = mon;
+	wm.selmon->seldesk = desk;
+	ewmhsetcurrentdesktop(desk);
+}
+
+/* change desktop */
+static void
+deskfocus(struct Monitor *mon, int desk)
+{
+	struct Container *c;
+
+	if (desk < 0 || desk >= config.ndesktops || (mon == wm.selmon && desk == wm.selmon->seldesk))
+		return;
+	deskupdate(mon, desk);
+	c = getnextfocused(mon, desk);
+	if (c != NULL) {
+		tabfocus(c->selcol->selrow->seltab, 0);
+	} else {
+		tabfocus(NULL, 0);
+	}
+}
+
 /* call one of the manage- functions */
 static void
 manage(Window win, XRectangle rect, int ignoreunmap)
@@ -586,7 +678,7 @@ manage(Window win, XRectangle rect, int ignoreunmap)
 
 	if (getmanaged(win) != NULL)
 		return;
-	type = getwintype(win, &leader, &tab, &state);
+	type = getwintype(win, &leader, &tab, &state, &rect);
 	if (type == TYPE_DESKTOP) {
 		/* we do not handle desktop windows */
 		XLowerWindow(dpy, win);
@@ -1131,12 +1223,13 @@ xeventbuttonpress(XEvent *e)
 	if ((obj = getmanaged(ev->window)) == NULL) {
 		/* if user clicked in no window, focus the monitor below cursor */
 		if ((mon = getmon(ev->x_root, ev->y_root)) != NULL)
-			deskfocus(mon, mon->seldesk, 1);
+			deskfocus(mon, mon->seldesk);
 		goto done;
 	}
 
 	menu = NULL;
 	tab = NULL;
+	c = NULL;
 	switch (obj->type) {
 	case TYPE_NORMAL:
 		tab = (struct Tab *)obj;
@@ -1149,27 +1242,32 @@ xeventbuttonpress(XEvent *e)
 	case TYPE_MENU:
 		menu = (struct Menu *)obj;
 		tab = menu->tab;
-		c = tab->row->col->c;
+		if (tab != NULL)
+			c = tab->row->col->c;
 		break;
+	case TYPE_SPLASH:
+		splashrise((struct Splash *)obj);
+		goto done;
 	default:
 		if ((mon = getmon(ev->x_root, ev->y_root)) != NULL)
-			deskfocus(mon, mon->seldesk, 1);
+			deskfocus(mon, mon->seldesk);
 		goto done;
 	}
 
 	/* raise menu above others or focus tab */
 	if (menu != NULL)
-		menuaddraise(tab, menu);
+		menuaddraise(menu);
 	else if ((wm.focused == NULL || tab != wm.focused->selcol->selrow->seltab) && ev->button == Button1)
 		tabfocus(tab, 1);
 
 	/* raise client */
-	if (ev->button == Button1)
-		containerraise(c, c->isfullscreen, c->abovebelow);
-
-	/* get pointer position */
-	if (!XTranslateCoordinates(dpy, ev->window, c->frame, ev->x, ev->y, &x, &y, &dw))
-		goto done;
+	if (ev->button == Button1) {
+		if (c != NULL) {
+			containerraise(c, c->isfullscreen, c->abovebelow);
+		} else if (menu != NULL) {
+			menuraise(menu);
+		}
+	}
 
 	/* do action performed by mouse */
 	if (menu != NULL) {
@@ -1181,10 +1279,14 @@ xeventbuttonpress(XEvent *e)
 		        || (isvalidstate(ev->state) && ev->button == Button1)) {
 			mousemove(FLOAT_MENU, menu, ev->x_root, ev->y_root, 0);
 		} else if (isvalidstate(ev->state) && ev->button == Button3) {
+			if (!XTranslateCoordinates(dpy, ev->window, menu->frame, ev->x, ev->y, &x, &y, &dw))
+				goto done;
 			o = getquadrant(menu->w, menu->h, x, y);
 			mouseresize(FLOAT_MENU, menu, ev->x_root, ev->y_root, o);
 		}
-	} else {
+	} else if (tab != NULL) {
+		if (!XTranslateCoordinates(dpy, ev->window, c->frame, ev->x, ev->y, &x, &y, &dw))
+			goto done;
 		if (ev->window == tab->title && ev->button == Button1) {
 			if (lastc == c && ev->time - lasttime < DOUBLECLICK) {
 				containersetstate(
@@ -1242,7 +1344,6 @@ xeventclientmessage(XEvent *e)
 {
 	struct Container *c = NULL;
 	struct Tab *tab = NULL;
-	struct Menu *menu = NULL;
 	struct Object *obj;
 	XClientMessageEvent *ev;
 	XWindowChanges wc;
@@ -1261,20 +1362,15 @@ xeventclientmessage(XEvent *e)
 			tab = ((struct Dialog *)obj)->tab;
 			c = tab->row->col->c;
 			break;
-		case TYPE_MENU:
-			menu = (struct Menu *)obj;
-			tab = menu->tab;
-			c = tab->row->col->c;
-			break;
 		}
 	}
 	if (ev->message_type == atoms[_NET_CURRENT_DESKTOP]) {
-		deskfocus(wm.selmon, ev->data.l[0], 1);
+		deskfocus(wm.selmon, ev->data.l[0]);
 	} else if (ev->message_type == atoms[_NET_SHOWING_DESKTOP]) {
 		if (ev->data.l[0]) {
 			deskshow(1);
 		} else {
-			deskfocus(wm.selmon, wm.selmon->seldesk, 1);
+			deskfocus(wm.selmon, wm.selmon->seldesk);
 		}
 	} else if (ev->message_type == atoms[_NET_WM_STATE]) {
 		if (obj == NULL || obj->type != TYPE_NORMAL)
@@ -1370,8 +1466,8 @@ xeventclientmessage(XEvent *e)
 		 */
 		if (obj == NULL || (obj->type != TYPE_NORMAL && obj->type != TYPE_MENU))
 			return;
-		if (menu != NULL) {
-			p = menu;
+		if (obj->type == TYPE_MENU) {
+			p = obj;
 			floattype = FLOAT_MENU;
 		} else {
 			p = c;
@@ -1448,6 +1544,8 @@ xeventconfigurerequest(XEvent *e)
 		dialogconfigure((struct Dialog *)obj, ev->value_mask, &wc);
 	} else if (obj->type == TYPE_MENU) {
 		menuconfigure((struct Menu *)obj, ev->value_mask, &wc);
+	} else if (obj->type == TYPE_DOCKAPP) {
+		dockappconfigure((struct Dockapp *)obj, ev->value_mask, &wc);
 	} else if (obj->type == TYPE_NORMAL) {
 		if (config.honorconfig) {
 			containerconfigure(((struct Tab *)obj)->row->col->c, ev->value_mask, &wc);
@@ -1555,6 +1653,7 @@ xeventkeypress(XEvent *e)
 		alttab(e);
 	}
 	if (ev->window == wm.wmcheckwin) {
+		e->xkey.window = root;
 		XSendEvent(dpy, root, False, KeyPressMask, e);
 	}
 }

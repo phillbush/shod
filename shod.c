@@ -286,8 +286,8 @@ initdock(void)
 static void
 initdummywindows(void)
 {
-	Window wins[2];
 	int i;
+	XSetWindowAttributes swa;
 
 	for (i = 0; i < LAYER_LAST; i++) {
 		wm.layers[i].ncols = 0;
@@ -295,13 +295,8 @@ initdummywindows(void)
 		XRaiseWindow(dpy, wm.layers[i].frame);
 		TAILQ_INSERT_HEAD(&wm.stackq, &wm.layers[i], raiseentry);
 	}
-
-	/* the layer of docks/bars are just below fullscreen containers */
-	wm.docklayer = XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0);
-	wins[0] = wm.layers[LAYER_FULLSCREEN].frame;
-	wins[1] = wm.docklayer;
-	XRestackWindows(dpy, wins, 2);
-
+	swa = clientswa;
+	swa.event_mask |= KeyPressMask;
 	wm.wmcheckwin = XCreateWindow(
 		dpy, root,
 		- (2 * config.borderwidth + config.titlewidth),
@@ -309,8 +304,8 @@ initdummywindows(void)
 		2 * config.borderwidth + config.titlewidth,
 		2 * config.borderwidth + config.titlewidth,
 		0, depth, CopyFromParent, visual,
-		clientmask | KeyPressMask,
-		&clientswa
+		clientmask,
+		&swa
 	);
 	wm.wmcheckpix = XCreatePixmap(
 		dpy, wm.wmcheckwin,
@@ -325,6 +320,7 @@ static void
 mapdummywins(void)
 {
 	XMapWindow(dpy, wm.wmcheckwin);
+	XSetInputFocus(dpy, wm.wmcheckwin, RevertToParent, CurrentTime);
 }
 
 /* run stdin on sh */
@@ -351,7 +347,6 @@ cleandummywindows(void)
 
 	XFreePixmap(dpy, wm.wmcheckpix);
 	XDestroyWindow(dpy, wm.wmcheckwin);
-	XDestroyWindow(dpy, wm.docklayer);
 	for (i = 0; i < LAYER_LAST; i++) {
 		XDestroyWindow(dpy, wm.layers[i].frame);
 	}

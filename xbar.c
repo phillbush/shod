@@ -36,7 +36,7 @@ managebar(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window lea
 	(void)rect;
 	(void)state;
 	(void)ignoreunmap;
-	Window wins[2] = {wm.docklayer, win};
+	Window wins[2] = {wm.layers[LAYER_DOCK].frame, win};
 
 	bar = emalloc(sizeof(*bar));
 	*bar = (struct Bar){
