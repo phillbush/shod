@@ -44,48 +44,6 @@ getexposed(Window win, Pixmap *pix, int *pw, int *ph)
 	struct Menu *menu;
 	struct Notification *notif;
 
-	if (wm.wmcheckwin == win) {
-		*pix = wm.wmcheckpix;
-		*pw = 2 * config.borderwidth + config.titlewidth;
-		*ph = 2 * config.borderwidth + config.titlewidth;
-		return 1;
-	}
-	if (dock.win == win) {
-		*pix = dock.pix;
-		*pw = dock.w;
-		*ph = dock.h;
-		return 1;
-	}
-	TAILQ_FOREACH(m, &wm.menuq, entry) {
-		menu = (struct Menu *)m;
-		if (menu->frame == win) {
-			*pix = menu->pix;
-			*pw = menu->pw;
-			*ph = menu->ph;
-			return 1;
-		}
-		if (menu->titlebar == win) {
-			*pix = menu->pixtitlebar;
-			*pw = menu->tw;
-			*ph = menu->th;
-			return 1;
-		}
-		if (menu->button == win) {
-			*pix = menu->pixbutton;
-			*pw = config.titlewidth;
-			*ph = config.titlewidth;
-			return 1;
-		}
-	}
-	TAILQ_FOREACH(n, &wm.notifq, entry) {
-		notif = (struct Notification *)n;
-		if (notif->frame == win) {
-			*pix = notif->frame;
-			*pw = notif->pw;
-			*ph = notif->ph;
-			return 1;
-		}
-	}
 	TAILQ_FOREACH(c, &wm.focusq, entry) {
 		if (c->frame == win) {
 			*pix = c->pix;
@@ -136,29 +94,50 @@ getexposed(Window win, Pixmap *pix, int *pw, int *ph)
 							return 1;
 						}
 					}
-					TAILQ_FOREACH(m, &tab->menuq, entry) {
-						menu = (struct Menu *)m;
-						if (menu->frame == win) {
-							*pix = menu->pix;
-							*pw = menu->pw;
-							*ph = menu->ph;
-							return 1;
-						}
-						if (menu->titlebar == win) {
-							*pix = menu->pixtitlebar;
-							*pw = menu->tw;
-							*ph = menu->th;
-							return 1;
-						}
-						if (menu->button == win) {
-							*pix = menu->pixbutton;
-							*pw = config.titlewidth;
-							*ph = config.titlewidth;
-							return 1;
-						}
-					}
 				}
 			}
+		}
+	}
+	if (wm.wmcheckwin == win) {
+		*pix = wm.wmcheckpix;
+		*pw = 2 * config.borderwidth + config.titlewidth;
+		*ph = 2 * config.borderwidth + config.titlewidth;
+		return 1;
+	}
+	if (dock.win == win) {
+		*pix = dock.pix;
+		*pw = dock.w;
+		*ph = dock.h;
+		return 1;
+	}
+	TAILQ_FOREACH(m, &wm.menuq, entry) {
+		menu = (struct Menu *)m;
+		if (menu->frame == win) {
+			*pix = menu->pix;
+			*pw = menu->pw;
+			*ph = menu->ph;
+			return 1;
+		}
+		if (menu->titlebar == win) {
+			*pix = menu->pixtitlebar;
+			*pw = menu->tw;
+			*ph = menu->th;
+			return 1;
+		}
+		if (menu->button == win) {
+			*pix = menu->pixbutton;
+			*pw = config.titlewidth;
+			*ph = config.titlewidth;
+			return 1;
+		}
+	}
+	TAILQ_FOREACH(n, &wm.notifq, entry) {
+		notif = (struct Notification *)n;
+		if (notif->frame == win) {
+			*pix = notif->frame;
+			*pw = notif->pw;
+			*ph = notif->ph;
+			return 1;
 		}
 	}
 	return 0;

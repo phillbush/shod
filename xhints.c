@@ -53,7 +53,7 @@ isobscured(struct Container *c, struct Monitor *mon, int desk, int x, int y, int
 }
 
 /* set desktop for a given window */
-static void
+void
 ewmhsetdesktop(Window win, long d)
 {
 	XChangeProperty(dpy, win, atoms[_NET_WM_DESKTOP], XA_CARDINAL, 32, PropModeReplace, (unsigned char *)&d, 1);

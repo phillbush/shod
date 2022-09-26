@@ -48,9 +48,9 @@ menunew(Window win, int x, int y, int w, int h, int ignoreunmap)
 static void
 menudelraise(struct Menu *menu)
 {
-	if (TAILQ_EMPTY(menu->menuq))
+	if (TAILQ_EMPTY(&wm.menuq))
 		return;
-	TAILQ_REMOVE(menu->menuq, (struct Object *)menu, entry);
+	TAILQ_REMOVE(&wm.menuq, (struct Object *)menu, entry);
 }
 
 /* configure menu window */
@@ -84,15 +84,11 @@ menuincrmove(struct Menu *menu, int x, int y)
 void
 menumoveresize(struct Menu *menu)
 {
-	struct Monitor *mon;
-
 	XMoveResizeWindow(dpy, menu->frame, menu->x, menu->y, menu->w, menu->h);
 	XMoveWindow(dpy, menu->button, menu->w - config.borderwidth - config.titlewidth, config.borderwidth);
 	XResizeWindow(dpy, menu->titlebar, max(1, menu->w - 2 * config.borderwidth - config.titlewidth), config.titlewidth);
 	XResizeWindow(dpy, menu->obj.win, menu->w - 2 * config.borderwidth, menu->h - 2 * config.borderwidth - config.titlewidth);
-	if (menu->tab == NULL && (mon = getmon(menu->x, menu->y)) != NULL) {
-		menu->mon = mon;
-	}
+	menu->mon = getmon(menu->x, menu->y);
 }
 
 /* decorate menu */
@@ -125,13 +121,19 @@ menudecorate(struct Menu *menu, int titlepressed)
 	drawcommit(menu->pixtitlebar, menu->titlebar, menu->tw, menu->th);
 }
 
+void
+menufocus(struct Menu *menu)
+{
+	XSetInputFocus(dpy, menu->obj.win, RevertToParent, CurrentTime);
+}
+
 /* put menu on beginning of menu list */
 void
 menuaddraise(struct Menu *menu)
 {
 	menudelraise(menu);
-	TAILQ_INSERT_HEAD(menu->menuq, (struct Object *)menu, entry);
-	XSetInputFocus(dpy, menu->obj.win, RevertToParent, CurrentTime);
+	TAILQ_INSERT_HEAD(&wm.menuq, (struct Object *)menu, entry);
+	menufocus(menu);
 }
 
 /* place menu next to its container */
@@ -168,33 +170,21 @@ menuhide(struct Menu *menu, int hide)
 void
 managemenu(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state, int ignoreunmap)
 {
-	struct Queue *menuq;
 	struct Menu *menu;
 
-	(void)leader;
+	(void)tab;
+	(void)mon;
 	(void)desk;
 	(void)state;
 	menu = menunew(win, rect.x, rect.y, rect.width, rect.height, ignoreunmap);
-	if (tab) {
-		menuq = &tab->menuq;
-		mon = tab->row->col->c->mon;
-	} else {
-		menuq = &wm.menuq;
-	}
-	menu->mon = mon;
-	menu->menuq = menuq;
-	menu->tab = tab;
+	menu->leader = leader;
 	winupdatetitle(menu->obj.win, &menu->name);
-	TAILQ_INSERT_HEAD(menuq, (struct Object *)menu, entry);
+	TAILQ_INSERT_HEAD(&wm.menuq, (struct Object *)menu, entry);
 	icccmwmstate(menu->obj.win, NormalState);
-	menuplace(mon, menu);
+	menuplace(mon, menu);           /* this will set menu->mon for us */
 	menudecorate(menu, 0);
-	if (tab != NULL && wm.focused != NULL && wm.focused->selcol->selrow->seltab == tab) {
-		tabfocus(tab, 0);
-	} else {
-		menuraise(menu);
-		XMapWindow(dpy, menu->frame);
-	}
+	menuraise(menu);
+	XMapWindow(dpy, menu->frame);
 }
 
 /* delete menu; return whether menu was deleted */

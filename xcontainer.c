@@ -31,7 +31,7 @@ snaptoedge(int *x, int *y, int w, int h)
 	if (abs(*x + w - wm.selmon->wx - wm.selmon->ww) < config.snap)
 		*x = wm.selmon->wx + wm.selmon->ww - w;
 	TAILQ_FOREACH(c, &wm.focusq, entry) {
-		if (containerisvisible(c, wm.selmon, wm.selmon->seldesk)) {
+		if (!c->isminimized && containerisvisible(c, wm.selmon, wm.selmon->seldesk)) {
 			if (*x + w >= c->x && *x <= c->x + c->w) {
 				if (abs(*y + h - c->y) < config.snap) {
 					*y = c->y - h;
@@ -166,17 +166,21 @@ dialognew(Window win, int maxw, int maxh, int ignoreunmap)
 static void
 tabhidemenus(struct Tab *tab, int hide)
 {
-	struct Object *menu;
+	struct Object *obj;
+	struct Menu *menu;
 
 	if (tab == NULL)
 		return;
-	TAILQ_FOREACH(menu, &tab->menuq, entry) {
+	TAILQ_FOREACH(obj, &wm.menuq, entry) {
+		menu = ((struct Menu *)obj);
+		if (menu->leader != tab->obj.win && menu->leader != tab->leader)
+			continue;
 		if (hide) {
-			XMapWindow(dpy, ((struct Menu *)menu)->frame);
-			icccmwmstate(menu->win, NormalState);
+			XUnmapWindow(dpy, ((struct Menu *)obj)->frame);
+			icccmwmstate(obj->win, IconicState);
 		} else {
-			XUnmapWindow(dpy, ((struct Menu *)menu)->frame);
-			icccmwmstate(menu->win, IconicState);
+			XMapWindow(dpy, menu->frame);
+			icccmwmstate(obj->win, NormalState);
 		}
 	}
 }
@@ -278,7 +282,6 @@ tabnew(Window win, Window leader, int ignoreunmap)
 		.obj.type = TYPE_NORMAL,
 	};
 	TAILQ_INIT(&tab->dialq);
-	TAILQ_INIT(&tab->menuq);
 	((struct Object *)tab)->type = TYPE_NORMAL;
 	tab->frame = XCreateWindow(dpy, root, 0, 0, 1, 1, 0, depth, CopyFromParent, visual, clientmask, &clientswa),
 	XReparentWindow(dpy, tab->obj.win, tab->frame, 0, 0);
@@ -293,15 +296,11 @@ static void
 tabdel(struct Tab *tab)
 {
 	struct Dialog *dial;
-	struct Menu *menu;
 
+	tabhidemenus(tab, ADD);
 	while ((dial = (struct Dialog *)TAILQ_FIRST(&tab->dialq)) != NULL) {
 		XDestroyWindow(dpy, dial->obj.win);
 		unmanagedialog((struct Object *)dial, 0);
-	}
-	while ((menu = (struct Menu *)TAILQ_FIRST(&tab->menuq)) != NULL) {
-		XDestroyWindow(dpy, menu->obj.win);
-		unmanagemenu((struct Object *)menu, 0);
 	}
 	tabdetach(tab, 0, 0);
 	if (tab->pixtitle != None)
@@ -593,6 +592,7 @@ containerhide(struct Container *c, int hide)
 		tabhidemenus(c->selcol->selrow->seltab, ADD);
 	} else {
 		XMapWindow(dpy, c->frame);
+		tabhidemenus(c->selcol->selrow->seltab, REMOVE);
 	}
 	TAB_FOREACH_BEGIN(c, t) {
 		icccmwmstate(t->win, (hide ? IconicState : NormalState));
@@ -1167,6 +1167,7 @@ containerincrmove(struct Container *c, int x, int y)
 void
 containerraise(struct Container *c, int isfullscreen, int abovebelow)
 {
+	struct Tab *tab;
 	struct Menu *menu;
 	struct Object *obj;
 	Window wins[2];
@@ -1188,7 +1189,14 @@ containerraise(struct Container *c, int isfullscreen, int abovebelow)
 	c->isfullscreen = isfullscreen;
 	c->abovebelow = abovebelow;
 	XRestackWindows(dpy, wins, 2);
-	TAILQ_FOREACH(obj, &c->selcol->selrow->seltab->menuq, entry) {
+	tab = c->selcol->selrow->seltab;
+
+	/* raise any menu for the container */
+	wins[0] = wm.layers[LAYER_MENU].frame;
+	TAILQ_FOREACH(obj, &wm.menuq, entry) {
+		menu = ((struct Menu *)obj);
+		if (menu->leader != tab->obj.win && menu->leader != tab->leader)
+			continue;
 		menu = (struct Menu *)obj;
 		wins[1] = menu->frame;
 		XRestackWindows(dpy, wins, 2);
@@ -1453,6 +1461,7 @@ found:
 	tabfocus(det, 0);
 	XMapSubwindows(dpy, c->frame);
 	/* no need to call shodgrouptab() and shodgroupcontainer(); tabfocus() already calls them */
+	ewmhsetdesktop(det->obj.win, c->desk);
 	ewmhsetclientsstacking();
 	containermoveresize(c, 0);
 	containerredecorate(c, NULL, NULL, 0);
@@ -1768,16 +1777,14 @@ dialogmoveresize(struct Dialog *dial)
 
 /* create container for tab */
 void
-managetab(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state, int ignoreunmap)
+containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle rect, int state)
 {
 	struct Container *c;
 	struct Column *col;
 	struct Row *row;
 
-	if (tab == NULL) {
-		tab = tabnew(win, leader, ignoreunmap);
-		winupdatetitle(tab->obj.win, &tab->name);
-	}
+	if (tab == NULL)
+		return;
 	c = containernew(rect.x, rect.y, rect.width, rect.height, state);
 	c->mon = mon;
 	c->desk = desk;
@@ -1800,6 +1807,35 @@ managetab(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window lea
 	ewmhsetwmdesktop(c);
 	ewmhsetclients();
 	ewmhsetclientsstacking();
+}
+
+/* create container for tab */
+void
+managecontainer(struct Tab *prev, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state, int ignoreunmap)
+{
+	struct Tab *tab;
+	struct Container *c;
+	struct Row *row;
+
+	tab = tabnew(win, leader, ignoreunmap);
+	winupdatetitle(tab->obj.win, &tab->name);
+	if (prev == NULL) {
+		containernewwithtab(tab, mon, desk, rect, state);
+	} else {
+		row = prev->row;
+		c = row->col->c;
+		rowaddtab(row, tab, prev);
+		rowcalctabs(row);
+		ewmhsetdesktop(win, c->desk);
+		ewmhsetclients();
+		ewmhsetclientsstacking();
+		containermoveresize(c, 0);
+		containerredecorate(c, NULL, NULL, 0);
+		XMapSubwindows(dpy, c->frame);
+		if (wm.focused == c) {
+			tabfocus(tab, 1);
+		}
+	}
 }
 
 /* create container for tab */
@@ -1827,7 +1863,7 @@ managedialog(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window 
 
 /* unmanage tab (and delete its row if it is the only tab); return whether deletion occurred */
 int
-unmanagetab(struct Object *obj, int ignoreunmap)
+unmanagecontainer(struct Object *obj, int ignoreunmap)
 {
 	struct Container *c, *next;
 	struct Column *col;

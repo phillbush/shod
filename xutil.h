@@ -92,6 +92,7 @@ unsigned long getwinsprop(Window win, Atom prop, Window **wins);
 unsigned long getcardsprop(Window win, Atom prop, unsigned long **array);
 unsigned long getcardprop(Window win, Atom prop);
 unsigned long getatomsprop(Window win, Atom prop, Atom **atoms);
+Window getwinprop(Window win, Atom prop);
 Atom getatomprop(Window win, Atom prop);
 void initatoms(void);
 void initatom(int atomenum);

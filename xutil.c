@@ -129,8 +129,21 @@ getwinsprop(Window win, Atom prop, Window **wins)
 	return len;
 }
 
+Window
+getwinprop(Window win, Atom prop)
+{
+	Window *wins;
+	Window ret = None;
+
+	getwinsprop(win, prop, &wins);
+	if (wins != NULL)
+		ret = *wins;
+	XFree(wins);
+	return ret;
+}
+
 unsigned long
-getcardsprop(Window win, Atom prop, unsigned long **array)
+getcardsprop(Window win, Atom prop, Atom **array)
 {
 	unsigned char *p;
 	unsigned long len;
@@ -144,15 +157,15 @@ getcardsprop(Window win, Atom prop, unsigned long **array)
 		XFree(p);
 		return 0;
 	}
-	*array = (unsigned long *)p;
+	*array = (Atom *)p;
 	return len;
 }
 
-unsigned long
+Atom
 getcardprop(Window win, Atom prop)
 {
 	unsigned long *array;
-	unsigned long card = 0;
+	Atom card = None;
 
 	getcardsprop(win, prop, &array);
 	if (array != NULL)

@@ -401,7 +401,6 @@ struct Tab {
 	 * its parent row.
 	 */
 	struct Queue dialq;                     /* queue of dialogs */
-	struct Queue menuq;                     /* queue of menus */
 	struct Row *row;                        /* pointer to parent row */
 
 	/*
@@ -473,9 +472,8 @@ struct Dialog {
 
 struct Menu {
 	struct Object obj;
-	struct Queue *menuq;                    /* pointer to queue it is in */
-	struct Tab *tab;                        /* tab for menu (if existant) */
 	struct Monitor *mon;
+	Window leader;
 
 	/*
 	 * Frames, pixmaps, saved pixmap geometry, etc
@@ -534,7 +532,7 @@ struct WM {
 	struct Queue barq;                      /* queue of bars */
 	struct Queue splashq;                   /* queue of splash screen windows */
 	struct Queue notifq;                    /* queue of notifications */
-	struct Queue menuq;                     /* queue of desktop menus */
+	struct Queue menuq;                     /* queue of menus */
 	struct ContainerQueue focusq;           /* queue of containers ordered by focus history */
 	int nclients;                           /* total number of container windows */
 
@@ -650,6 +648,7 @@ typedef int Unmanagefunc(struct Object *obj, int ignoreunmap);
 /* container routines */
 struct Container *getnextfocused(struct Monitor *mon, int desk);
 struct Container *containerraisetemp(struct Container *prevc, int backward);
+void containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle rect, int state);
 void containerbacktoplace(struct Container *c, int restack);
 void containerdel(struct Container *c);
 void containermoveresize(struct Container *c, int checkstack);
@@ -676,6 +675,7 @@ int containerisshaded(struct Container *c);
 int containerisvisible(struct Container *c, struct Monitor *mon, int desk);
 
 /* menu */
+void menufocus(struct Menu *menu);
 void menuhide(struct Menu *menu, int hide);
 void menuincrmove(struct Menu *menu, int x, int y);
 void menuconfigure(struct Menu *menu, unsigned int valuemask, XWindowChanges *wc);
@@ -705,6 +705,7 @@ void fitmonitor(struct Monitor *mon, int *x, int *y, int *w, int *h, float facto
 void icccmdeletestate(Window win);
 void icccmwmstate(Window win, int state);
 void ewmhinit(const char *wmname);
+void ewmhsetdesktop(Window win, long d);
 void ewmhsetframeextents(Window win, int b, int t);
 void ewmhsetclients(void);
 void ewmhsetclientsstacking(void);
@@ -742,7 +743,7 @@ Managefunc managesplash;
 Managefunc manageprompt;
 Managefunc managenotif;
 Managefunc managemenu;
-Managefunc managetab;
+Managefunc managecontainer;
 Managefunc managebar;
 Unmanagefunc unmanagedockapp;
 Unmanagefunc unmanagedialog;
@@ -750,7 +751,7 @@ Unmanagefunc unmanagesplash;
 Unmanagefunc unmanageprompt;
 Unmanagefunc unmanagenotif;
 Unmanagefunc unmanagemenu;
-Unmanagefunc unmanagetab;
+Unmanagefunc unmanagecontainer;
 Unmanagefunc unmanagebar;
 void setmod(void);
 void scan(void);

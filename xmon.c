@@ -74,7 +74,7 @@ monupdate(void)
 	XineramaScreenInfo *unique = NULL;
 	struct Monitor *mon, *tmp;
 	struct Container *c, *focus;
-	struct Object *t, *m, *s;
+	struct Object *m, *s;
 	int delselmon = 0;
 	int del, add;
 	int i, j, n;
@@ -136,14 +136,6 @@ monupdate(void)
 			c->desk = wm.selmon->seldesk;
 			containerplace(c, wm.selmon, wm.selmon->seldesk, 0);
 			containermoveresize(c, 0);
-
-			/* move menus to new monitor */
-			TAB_FOREACH_BEGIN(c, t) {
-				TAILQ_FOREACH(m, &((struct Tab *)t)->menuq, entry) {
-					menuplace(wm.selmon, (struct Menu *)m);
-				}
-			} TAB_FOREACH_END
-
 			ewmhsetwmdesktop(c);
 			ewmhsetstate(c);
 		}

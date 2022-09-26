@@ -101,7 +101,7 @@ struct MwmHints {
 void (*managefuncs[TYPE_LAST])(struct Tab *, struct Monitor *, int, Window, Window, XRectangle, int, int) = {
 	[TYPE_NOTIFICATION] = managenotif,
 	[TYPE_DOCKAPP] = managedockapp,
-	[TYPE_NORMAL] = managetab,
+	[TYPE_NORMAL] = managecontainer,
 	[TYPE_DIALOG] = managedialog,
 	[TYPE_SPLASH] = managesplash,
 	[TYPE_PROMPT] = manageprompt,
@@ -112,7 +112,7 @@ void (*managefuncs[TYPE_LAST])(struct Tab *, struct Monitor *, int, Window, Wind
 int (*unmanagefuncs[TYPE_LAST])(struct Object *, int) = {
 	[TYPE_NOTIFICATION] = unmanagenotif,
 	[TYPE_DOCKAPP] = unmanagedockapp,
-	[TYPE_NORMAL] = unmanagetab,
+	[TYPE_NORMAL] = unmanagecontainer,
 	[TYPE_DIALOG] = unmanagedialog,
 	[TYPE_SPLASH] = unmanagesplash,
 	[TYPE_PROMPT] = unmanageprompt,
@@ -152,21 +152,6 @@ getmanaged(Window win)
 	struct Row *row;
 	int i;
 
-	GETMANAGED(dock.dappq, p, win)
-	GETMANAGED(wm.barq, p, win)
-	GETMANAGED(wm.notifq, p, win)
-	TAILQ_FOREACH(p, &wm.splashq, entry) {
-		if (p->win == win || ((struct Splash *)p)->frame) {
-			return p;
-		}
-	}
-	TAILQ_FOREACH(menu, &wm.menuq, entry) {
-		if (menu->win == win ||
-		    ((struct Menu *)menu)->frame == win ||
-		    ((struct Menu *)menu)->button == win ||
-		    ((struct Menu *)menu)->titlebar == win)
-			return menu;
-	}
 	TAILQ_FOREACH(c, &wm.focusq, entry) {
 		if (c->frame == win)
 			return (struct Object *)c->selcol->selrow->seltab;
@@ -187,16 +172,22 @@ getmanaged(Window win)
 						    ((struct Dialog *)dial)->frame == win)
 							return dial;
 						}
-					TAILQ_FOREACH(menu, &((struct Tab *)tab)->menuq, entry) {
-						if (menu->win == win ||
-						    ((struct Menu *)menu)->frame == win ||
-						    ((struct Menu *)menu)->button == win ||
-						    ((struct Menu *)menu)->titlebar == win)
-							return menu;
-					}
 				}
 			}
 		}
+	}
+	GETMANAGED(dock.dappq, p, win)
+	GETMANAGED(wm.barq, p, win)
+	GETMANAGED(wm.notifq, p, win)
+	TAILQ_FOREACH(p, &wm.splashq, entry)
+		if (p->win == win || ((struct Splash *)p)->frame == win)
+			return p;
+	TAILQ_FOREACH(menu, &wm.menuq, entry) {
+		if (menu->win == win ||
+		    ((struct Menu *)menu)->frame == win ||
+		    ((struct Menu *)menu)->button == win ||
+		    ((struct Menu *)menu)->titlebar == win)
+			return menu;
 	}
 	return NULL;
 }
@@ -466,13 +457,14 @@ getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectangle 
 		goto done;
 
 	/* try to guess window type */
-	type = TYPE_NORMAL;
 	prop = getatomprop(win, atoms[_NET_WM_WINDOW_TYPE]);
 	wmhints = XGetWMHints(dpy, win);
 	mwmhints = getmwmhints(win);
 	ismenu = mwmhints != NULL && (mwmhints->flags & MWM_HINTS_STATUS) && (mwmhints->status & MWM_TEAROFF_WINDOW);
 	isdockapp = (wmhints && (wmhints->flags & (IconWindowHint | StateHint)) && wmhints->initial_state == WithdrawnState);
-	*leader = (wmhints != NULL && (wmhints->flags & WindowGroupHint)) ? wmhints->window_group : None;
+	*leader = getwinprop(win, atoms[WM_CLIENT_LEADER]);
+	if (*leader == None)
+		*leader = (wmhints != NULL && (wmhints->flags & WindowGroupHint)) ? wmhints->window_group : None;
 	*tab = getdialogfor(win);
 	XFree(mwmhints);
 	XFree(wmhints);
@@ -492,12 +484,20 @@ getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectangle 
 	           prop == atoms[_NET_WM_WINDOW_TYPE_MENU] ||
 	           prop == atoms[_NET_WM_WINDOW_TYPE_UTILITY] ||
 	           prop == atoms[_NET_WM_WINDOW_TYPE_TOOLBAR]) {
-		if (*tab == NULL)
-			*tab = getleaderof(*leader);
+		if (*tab != NULL)
+			*leader = (*tab)->obj.win;
 		type = TYPE_MENU;
 	} else if (*tab != NULL) {
+		if (*tab != NULL)
+			*leader = (*tab)->obj.win;
 		type = config.floatdialog ? TYPE_MENU : TYPE_DIALOG;
 	} else {
+		if (prop != atoms[_NET_WM_WINDOW_TYPE_MENU] &&
+		    prop != atoms[_NET_WM_WINDOW_TYPE_DIALOG] &&
+		    prop != atoms[_NET_WM_WINDOW_TYPE_UTILITY] &&
+		    prop != atoms[_NET_WM_WINDOW_TYPE_TOOLBAR]) {
+			*tab = getleaderof(*leader);
+		}
 		type = TYPE_NORMAL;
 	}
 
@@ -796,16 +796,15 @@ done:
 		mon = getmon(x, y);
 		if (mon == NULL)
 			mon = wm.selmon;
-		managetab(
+		containernewwithtab(
 			tab, mon, mon->seldesk,
-			None, None,
 			(XRectangle){
 				.x = xroot - config.titlewidth,
 				.y = yroot,
 				.width = tab->winw,
 				.height = tab->winh,
 			},
-			USERPLACED, 0
+			USERPLACED
 		);
 	}
 	containerdelrow(row);
@@ -1241,9 +1240,6 @@ xeventbuttonpress(XEvent *e)
 		break;
 	case TYPE_MENU:
 		menu = (struct Menu *)obj;
-		tab = menu->tab;
-		if (tab != NULL)
-			c = tab->row->col->c;
 		break;
 	case TYPE_SPLASH:
 		splashrise((struct Splash *)obj);
@@ -1585,7 +1581,7 @@ xevententernotify(XEvent *e)
 		return;
 	switch (obj->type) {
 	case TYPE_MENU:
-		tabfocus(((struct Menu *)obj)->tab, 1);
+		menufocus((struct Menu *)obj);
 		break;
 	case TYPE_DIALOG:
 		tabfocus(((struct Dialog *)obj)->tab, 1);
@@ -1625,8 +1621,7 @@ xeventfocusin(XEvent *e)
 		goto focus;
 	switch (obj->type) {
 	case TYPE_MENU:
-		if (((struct Menu *)obj)->tab != wm.focused->selcol->selrow->seltab)
-			goto focus;
+		menufocus((struct Menu *)obj);
 		break;
 	case TYPE_DIALOG:
 		if (((struct Dialog *)obj)->tab != wm.focused->selcol->selrow->seltab)
