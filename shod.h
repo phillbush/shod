@@ -689,10 +689,12 @@ void menuplace(struct Monitor *mon, struct Menu *menu);
 void dockappconfigure(struct Dockapp *dapp, unsigned int valuemask, XWindowChanges *wc);
 void barstrut(struct Bar *bar);
 void notifplace(void);
+void notifdecorate(struct Notification *n);
 void splashplace(struct Monitor *mon, struct Splash *splash);
 void splashhide(struct Splash *splash, int hide);
 void splashrise(struct Splash *splash);
 void dockupdate(void);
+void dockdecorate(void);
 
 /* monitor routines */
 struct Monitor *getmon(int x, int y);
@@ -735,6 +737,7 @@ void buttonrightdecorate(Window button, Pixmap pix, int style, int pressed);
 void copypixmap(Window win);
 void inittheme(void);
 void cleantheme(void);
+void setresources(char *xrm);
 
 /* window management routines */
 Managefunc managedockapp;

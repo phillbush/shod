@@ -392,7 +392,7 @@ getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectangle 
 	}
 
 	/* get window type (and other info) from X resources */
-	if (xrm != NULL && xdb != NULL) {
+	if (xdb != NULL) {
 		/* check for window type */
 		(void)snprintf(buf, NAMEMAXLEN, "shod.%s.%s.%s.type", rule[CLASS], rule[INSTANCE], rule[ROLE]);
 		if (XrmGetResource(xdb, buf, "*", &ds, &xval) == True && xval.addr != NULL) {
@@ -1690,11 +1690,29 @@ static void
 xeventpropertynotify(XEvent *e)
 {
 	XPropertyEvent *ev;
+	XTextProperty prop;
+	struct Container *c;
 	struct Object *obj;
 	struct Tab *tab;
 	struct Menu *menu;
 
 	ev = &e->xproperty;
+	if (ev->window == root && ev->atom == XA_RESOURCE_MANAGER) {
+		if (!XGetTextProperty(dpy, root, &prop, XA_RESOURCE_MANAGER))
+			return;
+		setresources(prop.value);
+		XFree(prop.value);
+		cleantheme();
+		inittheme();
+		TAILQ_FOREACH(c, &wm.focusq, entry)
+			containerdecorate(c, NULL, NULL, 1, C);
+		TAILQ_FOREACH(obj, &wm.menuq, entry)
+			menudecorate((struct Menu *)obj, 0);
+		TAILQ_FOREACH(obj, &wm.notifq, entry)
+			notifdecorate((struct Notification *)obj);
+		dockdecorate();
+		return;
+	}
 	if (ev->state == PropertyDelete)
 		return;
 	obj = getmanaged(ev->window);

@@ -98,78 +98,6 @@ siginthandler(int signo)
 	running = 0;
 }
 
-/* read xrdb for configuration options */
-static void
-getresources(void)
-{
-	long n;
-	char *type;
-	XrmValue xval;
-
-	if (xrm == NULL || xdb == NULL)
-		return;
-
-	if (XrmGetResource(xdb, "shod.faceName", "*", &type, &xval) == True)
-		config.font = xval.addr;
-	if (XrmGetResource(xdb, "shod.foreground", "*", &type, &xval) == True)
-		config.foreground = xval.addr;
-
-	if (XrmGetResource(xdb, "shod.dockBackground", "*", &type, &xval) == True)
-		config.dockcolors[COLOR_DEF] = xval.addr;
-	if (XrmGetResource(xdb, "shod.dockBorder", "*", &type, &xval) == True)
-		config.dockcolors[COLOR_ALT] = xval.addr;
-
-	if (XrmGetResource(xdb, "shod.activeBackground", "*", &type, &xval) == True)
-		config.bordercolors[FOCUSED][COLOR_MID] = xval.addr;
-	if (XrmGetResource(xdb, "shod.activeTopShadowColor", "*", &type, &xval) == True)
-		config.bordercolors[FOCUSED][COLOR_LIGHT] = xval.addr;
-	if (XrmGetResource(xdb, "shod.activeBottomShadowColor", "*", &type, &xval) == True)
-		config.bordercolors[FOCUSED][COLOR_DARK] = xval.addr;
-
-	if (XrmGetResource(xdb, "shod.inactiveBackground", "*", &type, &xval) == True)
-		config.bordercolors[UNFOCUSED][COLOR_MID] = xval.addr;
-	if (XrmGetResource(xdb, "shod.inactiveTopShadowColor", "*", &type, &xval) == True)
-		config.bordercolors[UNFOCUSED][COLOR_LIGHT] = xval.addr;
-	if (XrmGetResource(xdb, "shod.inactiveBottomShadowColor", "*", &type, &xval) == True)
-		config.bordercolors[UNFOCUSED][COLOR_DARK] = xval.addr;
-
-	if (XrmGetResource(xdb, "shod.urgentBackground", "*", &type, &xval) == True)
-		config.bordercolors[URGENT][COLOR_MID] = xval.addr;
-	if (XrmGetResource(xdb, "shod.urgentTopShadowColor", "*", &type, &xval) == True)
-		config.bordercolors[URGENT][COLOR_LIGHT] = xval.addr;
-	if (XrmGetResource(xdb, "shod.urgentBottomShadowColor", "*", &type, &xval) == True)
-		config.bordercolors[URGENT][COLOR_DARK] = xval.addr;
-
-	if (XrmGetResource(xdb, "shod.borderWidth", "*", &type, &xval) == True)
-		if ((n = strtol(xval.addr, NULL, 10)) > 0 && n < 100)
-			config.borderwidth = n;
-	if (XrmGetResource(xdb, "shod.shadowThickness", "*", &type, &xval) == True)
-		if ((n = strtol(xval.addr, NULL, 10)) > 0 && n < 100)
-			config.shadowthickness = n;
-	if (XrmGetResource(xdb, "shod.titleWidth", "*", &type, &xval) == True)
-		if ((n = strtol(xval.addr, NULL, 10)) > 0 && n < 100)
-			config.titlewidth = n;
-	if (XrmGetResource(xdb, "shod.dockWidth", "*", &type, &xval) == True)
-		if ((n = strtol(xval.addr, NULL, 10)) > 0)
-			config.dockwidth = n;
-	if (XrmGetResource(xdb, "shod.dockSpace", "*", &type, &xval) == True)
-		if ((n = strtol(xval.addr, NULL, 10)) > 0)
-			config.dockspace = n;
-	if (XrmGetResource(xdb, "shod.dockGravity", "*", &type, &xval) == True)
-		config.dockgravity = xval.addr;
-	if (XrmGetResource(xdb, "shod.notifGap", "*", &type, &xval) == True)
-		if ((n = strtol(xval.addr, NULL, 10)) > 0)
-			config.notifgap = n;
-	if (XrmGetResource(xdb, "shod.notifGravity", "*", &type, &xval) == True)
-		config.notifgravity = xval.addr;
-	if (XrmGetResource(xdb, "shod.numOfDesktops", "*", &type, &xval) == True)
-		if ((n = strtol(xval.addr, NULL, 10)) > 0 && n < 100)
-			config.ndesktops = n;
-	if (XrmGetResource(xdb, "shod.snapProximity", "*", &type, &xval) == True)
-		if ((n = strtol(xval.addr, NULL, 10)) >= 0 && n < 100)
-			config.snap = n;
-}
-
 /* read command-line options */
 static char *
 getoptions(int argc, char *argv[])
@@ -258,8 +186,9 @@ initroot(void)
 
 	/* Select SubstructureRedirect events on root window */
 	swa.cursor = wm.cursors[CURSOR_NORMAL];
-	swa.event_mask = SubstructureRedirectMask|SubstructureNotifyMask
-	               | StructureNotifyMask | ButtonPressMask;
+	swa.event_mask = SubstructureRedirectMask | SubstructureNotifyMask
+	               | StructureNotifyMask | ButtonPressMask
+	               | PropertyChangeMask;
 	XChangeWindowAttributes(dpy, root, CWEventMask | CWCursor, &swa);
 
 	/* Set focus to root window */
@@ -393,7 +322,7 @@ int
 main(int argc, char *argv[])
 {
 	XEvent ev;
-	char *filename, *wmname;
+	char *filename, *wmname, *xrm;
 
 	if (!setlocale(LC_ALL, "") || !XSupportsLocale())
 		warnx("warning: no locale support");
@@ -401,8 +330,8 @@ main(int argc, char *argv[])
 	xinitvisual();
 	xiniterrfunc(xerror, &xerrorxlib);
 	XrmInitialize();
-	if ((xrm = XResourceManagerString(dpy)) != NULL)
-		xdb = XrmGetStringDatabase(xrm);
+	xrm = XResourceManagerString(dpy);
+	setresources(xrm);
 	clientswa.colormap = colormap;
 	clientswa.border_pixel = BlackPixel(dpy, screen);
 	clientswa.background_pixel = BlackPixel(dpy, screen);
@@ -414,7 +343,6 @@ main(int argc, char *argv[])
 		wmname = argv[0];
 	else
 		wmname = WMNAME;
-	getresources();
 	filename = getoptions(argc, argv);
 
 	/* check sloppy focus */

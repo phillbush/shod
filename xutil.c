@@ -62,12 +62,11 @@ static char *atomnames[ATOM_LAST] = {
 Visual *visual;
 Colormap colormap;
 unsigned int depth;
-XrmDatabase xdb;
+XrmDatabase xdb = NULL;
 Display *dpy;
 Window root;
 Atom atoms[ATOM_LAST];
 int screen;
-char *xrm;
 
 int
 max(int x, int y)

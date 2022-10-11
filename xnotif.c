@@ -29,7 +29,7 @@ notifnew(Window win, int w, int h)
 }
 
 /* decorate notification */
-static void
+void
 notifdecorate(struct Notification *n)
 {
 	/* (re)create pixmap */

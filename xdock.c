@@ -1,7 +1,7 @@
 #include "shod.h"
 
 /* decorate dock */
-static void
+void
 dockdecorate(void)
 {
 	if (dock.pw != dock.w || dock.ph != dock.h || dock.pix == None)

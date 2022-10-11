@@ -80,7 +80,6 @@ extern Display *dpy;
 extern Window root;
 extern Atom atoms[ATOM_LAST];
 extern int screen;
-extern char *xrm;
 
 int max(int x, int y);
 int min(int x, int y);
