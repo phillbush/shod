@@ -1700,6 +1700,7 @@ xeventpropertynotify(XEvent *e)
 	if (ev->window == root && ev->atom == XA_RESOURCE_MANAGER) {
 		if (!XGetTextProperty(dpy, root, &prop, XA_RESOURCE_MANAGER))
 			return;
+		XrmDestroyDatabase(xdb);
 		setresources(prop.value);
 		XFree(prop.value);
 		cleantheme();

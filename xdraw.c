@@ -786,7 +786,6 @@ setresources(char *xrm)
 	char *type;
 	XrmValue xval;
 
-	XrmDestroyDatabase(xdb);
 	if (xrm == NULL || (xdb = XrmGetStringDatabase(xrm)) == NULL)
 		return;
 
