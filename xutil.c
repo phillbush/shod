@@ -261,7 +261,7 @@ xinitvisual(void)
 }
 
 void
-xiniterrfunc(int (*xerror)(Display *, XErrorEvent *), int (**xerrorxlib)())
+xiniterrfunc(XErrorFunc xerror, XErrorFunc *xerrorxlib)
 {
 	*xerrorxlib = XSetErrorHandler(xerror);
 }

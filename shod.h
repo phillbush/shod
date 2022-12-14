@@ -681,7 +681,7 @@ void menuincrmove(struct Menu *menu, int x, int y);
 void menuconfigure(struct Menu *menu, unsigned int valuemask, XWindowChanges *wc);
 void menumoveresize(struct Menu *menu);
 void menudecorate(struct Menu *menu, int titlepressed);
-void menuaddraise(struct Menu *menu);
+void menufocusraise(struct Menu *menu);
 void menuraise(struct Menu *menu);
 void menuplace(struct Monitor *mon, struct Menu *menu);
 

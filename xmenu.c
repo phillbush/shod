@@ -129,7 +129,7 @@ menufocus(struct Menu *menu)
 
 /* put menu on beginning of menu list */
 void
-menuaddraise(struct Menu *menu)
+menufocusraise(struct Menu *menu)
 {
 	menudelraise(menu);
 	TAILQ_INSERT_HEAD(&wm.menuq, (struct Object *)menu, entry);

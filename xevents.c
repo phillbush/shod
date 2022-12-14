@@ -1251,10 +1251,13 @@ xeventbuttonpress(XEvent *e)
 	}
 
 	/* raise menu above others or focus tab */
-	if (menu != NULL)
-		menuaddraise(menu);
-	else if ((wm.focused == NULL || tab != wm.focused->selcol->selrow->seltab) && ev->button == Button1)
-		tabfocus(tab, 1);
+	if (ev->button == Button1) {
+		if (menu != NULL) {
+			menufocusraise(menu);
+		} else {
+			tabfocus(tab, 1);
+		}
+	}
 
 	/* raise client */
 	if (ev->button == Button1) {
