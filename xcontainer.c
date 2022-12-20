@@ -162,6 +162,13 @@ dialognew(Window win, int maxw, int maxh, int ignoreunmap)
 	return dial;
 }
 
+/* check if given tab accepts given menu */
+static int
+istabformenu(struct Tab *tab, struct Menu *menu)
+{
+	return (menu->leader == tab->obj.win || menu->leader == tab->leader);
+}
+
 /* map menus */
 static void
 tabhidemenus(struct Tab *tab, int hide)
@@ -173,7 +180,7 @@ tabhidemenus(struct Tab *tab, int hide)
 		return;
 	TAILQ_FOREACH(obj, &wm.menuq, entry) {
 		menu = ((struct Menu *)obj);
-		if (menu->leader != tab->obj.win && menu->leader != tab->leader)
+		if (!istabformenu(tab, menu))
 			continue;
 		if (hide) {
 			XUnmapWindow(dpy, ((struct Menu *)obj)->frame);
@@ -623,14 +630,14 @@ containeraddcol(struct Container *c, struct Column *col, struct Column *prev)
 	}
 }
 
-/* send container to desktop and raise it */
-static void
+/* send container to desktop and raise it; return nonzero if it was actually sent anywhere */
+static int
 containersendtodesk(struct Container *c, struct Monitor *mon, unsigned long desk)
 {
 	void containerstick(struct Container *c, int stick);
 
 	if (c == NULL || c->isminimized)
-		return;
+		return 0;
 	if (desk == 0xFFFFFFFF) {
 		containerstick(c, ADD);
 	} else if ((int)desk < config.ndesktops) {
@@ -641,12 +648,15 @@ containersendtodesk(struct Container *c, struct Monitor *mon, unsigned long desk
 		c->issticky = 0;
 		if ((int)desk != mon->seldesk)  /* container was sent to invisible desktop */
 			containerhide(c, 1);
+		else
+			containerhide(c, 0);
 		containerraise(c, c->isfullscreen, c->abovebelow);
 	} else {
-		return;
+		return 0;
 	}
 	ewmhsetwmdesktop(c);
 	ewmhsetstate(c);
+	return 1;
 }
 
 /* make a container occupy the whole monitor */
@@ -698,7 +708,7 @@ containerminimize(struct Container *c, int minimize, int focus)
 		}
 	} else if (minimize != ADD && c->isminimized) {
 		c->isminimized = 0;
-		containersendtodesk(c, wm.selmon, wm.selmon->seldesk);
+		(void)containersendtodesk(c, wm.selmon, wm.selmon->seldesk);
 		containermoveresize(c, 1);
 		containerhide(c, 0);
 		tabfocus(c->selcol->selrow->seltab, 0);
@@ -743,7 +753,7 @@ containerstick(struct Container *c, int stick)
 		ewmhsetwmdesktop(c);
 	} else if (stick != ADD && c->issticky) {
 		c->issticky = 0;
-		containersendtodesk(c, c->mon, c->mon->seldesk);
+		(void)containersendtodesk(c, c->mon, c->mon->seldesk);
 	} else {
 		return;
 	}
@@ -963,7 +973,7 @@ containermoveresize(struct Container *c, int checkstack)
 		}
 	}
 	if (!config.disablehidden && checkstack) {
-		ewmhsetclientsstacking();
+		wm.setclientlist = 1;
 	}
 }
 
@@ -1116,19 +1126,51 @@ containercalccols(struct Container *c, int recalcfact, int recursive)
 
 /* send container to desktop and focus another on the original desktop */
 void
-containersendtodeskandfocus(struct Container *c, struct Monitor *mon, unsigned long desk)
+containersendtodeskandfocus(struct Container *c, struct Monitor *mon, unsigned long d)
 {
-	int prevdesk;
+	struct Monitor *prevmon;
+	int prevdesk, desk;
 
 	if (c == NULL)
 		return;
+	prevmon = c->mon;
 	prevdesk = c->desk;
-	containersendtodesk(c, mon, desk);
-	c = getnextfocused(mon, prevdesk);
-	if (c != NULL) {
-		tabfocus(c->selcol->selrow->seltab, 0);
-	} else {
-		tabfocus(NULL, 0);
+	desk = d;
+
+	/* is it necessary to send the container to the desktop */
+	if (c->mon != mon || c->desk != desk) {
+		/*
+		 * Container sent to a desktop which is not the same
+		 * as the one it was originally at.
+		 */
+		if (!containersendtodesk(c, mon, d)) {
+			/*
+			 * container could not be sent to given desktop;
+			 */
+			return;
+		}
+	}
+
+	/* is it necessary to focus something? */
+	if (mon == wm.selmon && desk == wm.selmon->seldesk) {
+		/*
+		 * Container sent to the focused desktop.
+		 * Focus it, if visible.
+		 */
+		if (containerisvisible(c, mon, wm.selmon->seldesk)) {
+			tabfocus(c->selcol->selrow->seltab, 0);
+		}
+	} else if (prevmon == wm.selmon && prevdesk == wm.selmon->seldesk) {
+		/*
+		 * Container moved from the focused desktop.
+		 * Focus the next visible container, if existing;
+		 * or nothing, if there's no visible container.
+		 */
+		if ((c = getnextfocused(mon, prevdesk)) != NULL) {
+			tabfocus(c->selcol->selrow->seltab, 0);
+		} else {
+			tabfocus(NULL, 0);
+		}
 	}
 }
 
@@ -1155,7 +1197,7 @@ containerincrmove(struct Container *c, int x, int y)
 	if (!c->issticky) {
 		monto = getmon(c->nx + c->nw / 2, c->ny + c->nh / 2);
 		if (monto != NULL && monto != c->mon) {
-			containersendtodesk(c, monto, monto->seldesk);
+			(void)containersendtodesk(c, monto, monto->seldesk);
 			if (wm.focused == c) {
 				deskupdate(monto, monto->seldesk);
 			}
@@ -1195,14 +1237,14 @@ containerraise(struct Container *c, int isfullscreen, int abovebelow)
 	wins[0] = wm.layers[LAYER_MENU].frame;
 	TAILQ_FOREACH(obj, &wm.menuq, entry) {
 		menu = ((struct Menu *)obj);
-		if (menu->leader != tab->obj.win && menu->leader != tab->leader)
+		if (!istabformenu(tab, menu))
 			continue;
 		menu = (struct Menu *)obj;
 		wins[1] = menu->frame;
 		XRestackWindows(dpy, wins, 2);
 		wins[0] = menu->frame;
 	}
-	ewmhsetclientsstacking();
+	wm.setclientlist = 1;
 }
 
 /* configure container size and position */
@@ -1262,16 +1304,45 @@ containersetstate(struct Tab *tab, Atom *props, unsigned long set)
 	ewmhsetstate(c);
 }
 
+/* fill placement grid for given rectangle */
+static void
+fillgrid(struct Monitor *mon, int x, int y, int w, int h, int grid[DIV][DIV])
+{
+	int i, j;
+	int ha, hb, wa, wb;
+	int ya, yb, xa, xb;
+
+	for (i = 0; i < DIV; i++) {
+		for (j = 0; j < DIV; j++) {
+			ha = mon->wy + (mon->wh * i)/DIV;
+			hb = mon->wy + (mon->wh * (i + 1))/DIV;
+			wa = mon->wx + (mon->ww * j)/DIV;
+			wb = mon->wx + (mon->ww * (j + 1))/DIV;
+			ya = y;
+			yb = y + h;
+			xa = x;
+			xb = x + w;
+			if (ya <= hb && ha <= yb && xa <= wb && wa <= xb) {
+				if (ya < ha && yb > hb)
+					grid[i][j]++;
+				if (xa < wa && xb > wb)
+					grid[i][j]++;
+				grid[i][j]++;
+			}
+		}
+	}
+}
+
 /* find best position to place a container on screen */
 void
 containerplace(struct Container *c, struct Monitor *mon, int desk, int userplaced)
 {
 	struct Container *tmp;
+	struct Object *obj;
+	struct Menu *menu;
 	int grid[DIV][DIV] = {{0}, {0}};
 	int lowest;
 	int i, j, k, w, h;
-	int ha, hb, wa, wb;
-	int ya, yb, xa, xb;
 	int subx, suby;         /* position of the larger subregion */
 	int subw, subh;         /* larger subregion width and height */
 
@@ -1303,26 +1374,14 @@ containerplace(struct Container *c, struct Monitor *mon, int desk, int userplace
 
 	/* increment cells of grid a window is in */
 	TAILQ_FOREACH(tmp, &wm.focusq, entry) {
-		if (tmp != c && !tmp->isminimized && ((tmp->issticky && tmp->mon == mon) || tmp->desk == desk)) {
-			for (i = 0; i < DIV; i++) {
-				for (j = 0; j < DIV; j++) {
-					ha = mon->wy + (mon->wh * i)/DIV;
-					hb = mon->wy + (mon->wh * (i + 1))/DIV;
-					wa = mon->wx + (mon->ww * j)/DIV;
-					wb = mon->wx + (mon->ww * (j + 1))/DIV;
-					ya = tmp->ny;
-					yb = tmp->ny + tmp->nh;
-					xa = tmp->nx;
-					xb = tmp->nx + tmp->nw;
-					if (ya <= hb && ha <= yb && xa <= wb && wa <= xb) {
-						if (ya < ha && yb > hb)
-							grid[i][j]++;
-						if (xa < wa && xb > wb)
-							grid[i][j]++;
-						grid[i][j]++;
-					}
-				}
-			}
+		if (tmp != c && containerisvisible(tmp, c->mon, c->desk)) {
+			fillgrid(mon, tmp->nx, tmp->ny, tmp->nw, tmp->nh, grid);
+		}
+	}
+	TAILQ_FOREACH(obj, &wm.menuq, entry) {
+		menu = ((struct Menu *)obj);
+		if (istabformenu(c->selcol->selrow->seltab, menu)) {
+			fillgrid(mon, menu->x, menu->y, menu->w, menu->h, grid);
 		}
 	}
 
@@ -1390,6 +1449,8 @@ tabattach(struct Container *c, struct Tab *det, int x, int y)
 	struct Object *obj;
 	int flag;
 
+	if (c == NULL)
+		return 0;
 	flag = CREATTAB;
 	col = NULL;
 	row = NULL;
@@ -1462,7 +1523,6 @@ found:
 	XMapSubwindows(dpy, c->frame);
 	/* no need to call shodgrouptab() and shodgroupcontainer(); tabfocus() already calls them */
 	ewmhsetdesktop(det->obj.win, c->desk);
-	ewmhsetclientsstacking();
 	containermoveresize(c, 0);
 	containerredecorate(c, NULL, NULL, 0);
 	return 1;
@@ -1611,6 +1671,8 @@ tabfocus(struct Tab *tab, int gotodesk)
 	struct Dialog *dial;
 
 	wm.prevfocused = wm.focused;
+	if (wm.prevfocused != NULL && tab != wm.prevfocused->selcol->selrow->seltab)
+		tabhidemenus(wm.prevfocused->selcol->selrow->seltab, ADD);
 	if (tab == NULL) {
 		wm.focused = NULL;
 		XSetInputFocus(dpy, wm.wmcheckwin, RevertToParent, CurrentTime);
@@ -1650,8 +1712,6 @@ tabfocus(struct Tab *tab, int gotodesk)
 		ewmhsetstate(c);
 	}
 	if (wm.prevfocused != NULL && wm.prevfocused != wm.focused) {
-		if (tab != wm.prevfocused->selcol->selrow->seltab)
-			tabhidemenus(wm.prevfocused->selcol->selrow->seltab, ADD);
 		containerdecorate(wm.prevfocused, NULL, NULL, 1, 0);
 		ewmhsetstate(wm.prevfocused);
 	}
@@ -1805,8 +1865,7 @@ containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle r
 	}
 	/* no need to call shodgrouptab() and shodgroupcontainer(); tabfocus() already calls them */
 	ewmhsetwmdesktop(c);
-	ewmhsetclients();
-	ewmhsetclientsstacking();
+	wm.setclientlist = 1;
 }
 
 /* create container for tab */
@@ -1827,8 +1886,7 @@ managecontainer(struct Tab *prev, struct Monitor *mon, int desk, Window win, Win
 		rowaddtab(row, tab, prev);
 		rowcalctabs(row);
 		ewmhsetdesktop(win, c->desk);
-		ewmhsetclients();
-		ewmhsetclientsstacking();
+		wm.setclientlist = 1;
 		containermoveresize(c, 0);
 		containerredecorate(c, NULL, NULL, 0);
 		XMapSubwindows(dpy, c->frame);
@@ -1857,8 +1915,7 @@ managedialog(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window 
 	XMapRaised(dpy, dial->frame);
 	if (wm.focused != NULL && wm.focused->selcol->selrow->seltab == tab)
 		tabfocus(tab, 0);
-	ewmhsetclients();
-	ewmhsetclientsstacking();
+	wm.setclientlist = 1;
 }
 
 /* unmanage tab (and delete its row if it is the only tab); return whether deletion occurred */

@@ -80,6 +80,13 @@ dockappnew(Window win, int w, int h, int dockpos, int state, int ignoreunmap)
 	);
 }
 
+/* compute dockapp position given its width or height */
+static int
+dockapppos(int pos)
+{
+	return max(0, config.dockwidth / 2 - pos / 2);
+}
+
 /* update dock position; create it, if necessary */
 void
 dockupdateresizeable(void)
@@ -93,20 +100,28 @@ dockupdateresizeable(void)
 		dapp = (struct Dockapp *)p;
 		switch (config.dockgravity[0]) {
 		case 'N':
+			if (dapp->state & RESIZED)
+				dapp->h = config.dockwidth;
 			dapp->x = DOCKBORDER + size + max(0, (dapp->slotsize - dapp->w) / 2);
-			dapp->y = DOCKBORDER + max(0, (config.dockwidth - dapp->h) / 2);
+			dapp->y = DOCKBORDER + dockapppos(dapp->h);
 			break;
 		case 'S':
+			if (dapp->state & RESIZED)
+				dapp->h = config.dockwidth;
 			dapp->x = DOCKBORDER + size + max(0, (dapp->slotsize - dapp->w) / 2);
-			dapp->y = DOCKBORDER + max(0, (config.dockwidth - dapp->h) / 2);
+			dapp->y = DOCKBORDER + dockapppos(dapp->h);
 			break;
 		case 'W':
-			dapp->x = DOCKBORDER + max(0, (config.dockwidth - dapp->w) / 2);
+			if (dapp->state & RESIZED)
+				dapp->w = config.dockwidth;
+			dapp->x = DOCKBORDER + dockapppos(dapp->w);
 			dapp->y = DOCKBORDER + size + max(0, (dapp->slotsize - dapp->h) / 2);
 			break;
 		case 'E':
 		default:
-			dapp->x = DOCKBORDER + max(0, (config.dockwidth - dapp->w) / 2);
+			if (dapp->state & RESIZED)
+				dapp->w = config.dockwidth;
+			dapp->x = DOCKBORDER + dockapppos(dapp->w);
 			dapp->y = DOCKBORDER + size + max(0, (dapp->slotsize - dapp->h) / 2);
 			break;
 		}
@@ -251,6 +266,8 @@ dockupdatefull(void)
 		dapp = (struct Dockapp *)p;
 		switch (config.dockgravity[0]) {
 		case 'N':
+			if (dapp->state & RESIZED)
+				dapp->h = config.dockwidth - DOCKBORDER;
 			if (dapp->state & EXTEND) {
 				dapp->w = max(1, (i + 1) * part - i * part);
 				n = dapp->w;
@@ -258,9 +275,11 @@ dockupdatefull(void)
 				n = dapp->slotsize;
 			}
 			dapp->x = size + max(0, (n - dapp->w) / 2);
-			dapp->y = DOCKBORDER + max(0, (config.dockwidth - dapp->h) / 2);
+			dapp->y = DOCKBORDER + dockapppos(dapp->h);
 			break;
 		case 'S':
+			if (dapp->state & RESIZED)
+				dapp->h = config.dockwidth - DOCKBORDER;
 			if (dapp->state & EXTEND) {
 				dapp->w = max(1, (i + 1) * part - i * part);
 				n = dapp->w;
@@ -268,27 +287,31 @@ dockupdatefull(void)
 				n = dapp->slotsize;
 			}
 			dapp->x = size + max(0, (n - dapp->w) / 2);
-			dapp->y = DOCKBORDER + max(0, (config.dockwidth - dapp->h) / 2);
+			dapp->y = DOCKBORDER + dockapppos(dapp->h);
 			break;
 		case 'W':
+			if (dapp->state & RESIZED)
+				dapp->w = config.dockwidth - DOCKBORDER;
 			if (dapp->state & EXTEND) {
 				dapp->h = max(1, (i + 1) * part - i * part);
 				n = dapp->h;
 			} else {
 				n = dapp->slotsize;
 			}
-			dapp->x = DOCKBORDER + max(0, (config.dockwidth - dapp->w) / 2);
+			dapp->x = DOCKBORDER + dockapppos(dapp->w);
 			dapp->y = size + max(0, (n - dapp->h) / 2);
 			break;
 		case 'E':
 		default:
+			if (dapp->state & RESIZED)
+				dapp->w = config.dockwidth - DOCKBORDER;
 			if (dapp->state & EXTEND) {
 				dapp->h = max(1, (i + 1) * part - i * part);
 				n = dapp->h;
 			} else {
 				n = dapp->slotsize;
 			}
-			dapp->x = DOCKBORDER + max(0, (config.dockwidth - dapp->w) / 2);
+			dapp->x = DOCKBORDER + dockapppos(dapp->w);
 			dapp->y = size + max(0, (n - dapp->h) / 2);
 			break;
 		}

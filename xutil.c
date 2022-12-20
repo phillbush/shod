@@ -57,6 +57,7 @@ static char *atomnames[ATOM_LAST] = {
 	[_MOTIF_WM_HINTS]                      = "_MOTIF_WM_HINTS",
 	[_SHOD_GROUP_TAB]                      = "_SHOD_GROUP_TAB",
 	[_SHOD_GROUP_CONTAINER]                = "_SHOD_GROUP_CONTAINER",
+	[_SHOD_CONTAINER_LIST]                 = "_SHOD_CONTAINER_LIST",
 };
 
 Visual *visual;

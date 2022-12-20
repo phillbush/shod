@@ -493,17 +493,17 @@ drawdock(Pixmap pix, int w, int h)
 	if (config.dockgravity[0] != '\0' && (config.dockgravity[1] == 'F' || config.dockgravity[1] == 'f')) {
 		switch (config.dockgravity[0]) {
 		case 'N':
-			XFillRectangle(dpy, pix, gc, 0, h - DOCKBORDER, w, 1);
+			XFillRectangle(dpy, pix, gc, 0, h - DOCKBORDER, w, DOCKBORDER);
 			break;
 		case 'S':
 			XFillRectangle(dpy, pix, gc, 0, 0, w, 1);
 			break;
 		case 'W':
-			XFillRectangle(dpy, pix, gc, w - DOCKBORDER, 0, 1, h);
+			XFillRectangle(dpy, pix, gc, w - DOCKBORDER, 0, DOCKBORDER, h);
 			break;
 		default:
 		case 'E':
-			XFillRectangle(dpy, pix, gc, 0, 0, 1, h);
+			XFillRectangle(dpy, pix, gc, 0, 0, DOCKBORDER, h);
 			break;
 		}
 		return;

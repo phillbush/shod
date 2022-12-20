@@ -61,7 +61,7 @@ getmon(int x, int y)
 	struct Monitor *mon;
 
 	TAILQ_FOREACH(mon, &wm.monq, entry)
-		if (x >= mon->mx && x <= mon->mx + mon->mw && y >= mon->my && y <= mon->my + mon->mh)
+		if (x >= mon->mx && x < mon->mx + mon->mw && y >= mon->my && y < mon->my + mon->mh)
 			return mon;
 	return NULL;
 }
@@ -148,7 +148,7 @@ monupdate(void)
 			splashplace(wm.selmon, (struct Splash *)s);
 	if (focus != NULL)              /* if a contained changed desktop, focus it */
 		tabfocus(focus->selcol->selrow->seltab, 1);
-	ewmhsetclientsstacking();
+	wm.setclientlist = 1;
 	free(unique);
 }
 
@@ -233,7 +233,7 @@ monupdatearea(void)
 			containerredecorate(c, NULL, NULL, 0);
 		}
 	}
-	ewmhsetclientsstacking();
+	wm.setclientlist = 1;
 }
 
 /* if window is bigger than monitor, resize it while maintaining proportion */

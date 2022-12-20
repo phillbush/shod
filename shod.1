@@ -653,9 +653,14 @@ has its slot resized to the size of the dockapp itself.
 .Pp
 An
 .Dq Em "extended"
-dockapp has is resized to fit all the remaining unused space of the dock.
+dockapp is resized to fit all the remaining unused space of the dock.
 For example, if the only content of the dock is an extended taskbar dockapp,
 this dockapp is resized to fit all the dock.
+.Pp
+an
+.Dq Em "resized"
+dockapp is resized to fit the width of the dock
+(that is, the width of a vertical dock or the height of an horizontal dock).
 .Sh RESOURCES
 .Nm shod
 understands the following X resources.
@@ -763,6 +768,8 @@ and
 .Cm sticky .
 Possible states for dockapp windows are
 .Cm extend ,
+and
+.Cm resized ,
 and
 .Cm shrunk .
 .It Ic shod.CLASS.NAME.ROLE.dockpos

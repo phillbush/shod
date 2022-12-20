@@ -10,7 +10,7 @@
 #define DROPPIXELS              30      /* number of pixels from the border where a tab can be dropped in */
 #define RESIZETIME              64      /* time to redraw containers during resizing */
 #define MOVETIME                32      /* time to redraw containers during moving */
-#define DOCKBORDER              2
+#define DOCKBORDER              1
 #define LEN(x)                  (sizeof(x) / sizeof((x)[0]))
 #define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
 #define ISDUMMY(c)              ((c)->ncols == 0)
@@ -135,6 +135,7 @@ enum {
 	/* dockapp states bits */
 	EXTEND          = 0x100,
 	SHRUNK          = 0x200,
+	RESIZED         = 0x400,
 };
 
 enum {
@@ -580,6 +581,14 @@ struct WM {
 	Cursor cursors[CURSOR_LAST];            /* cursors for the mouse pointer */
 	int showingdesk;                        /* whether the desktop is being shown */
 	int minsize;                            /* minimum size of a container */
+
+	/*
+	 * Some operations need to reset the list of clients, to do it
+	 * only once when more than one of such operations, we use this
+	 * value we check at the end of each main loop iteration and
+	 * reset at the beginning of each main loop iteration
+	 */
+	int setclientlist;
 };
 
 struct Dock {
@@ -710,7 +719,6 @@ void ewmhinit(const char *wmname);
 void ewmhsetdesktop(Window win, long d);
 void ewmhsetframeextents(Window win, int b, int t);
 void ewmhsetclients(void);
-void ewmhsetclientsstacking(void);
 void ewmhsetstate(struct Container *c);
 void ewmhsetwmdesktop(struct Container *c);
 void ewmhsetactivewindow(Window w);

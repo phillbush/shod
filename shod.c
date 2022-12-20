@@ -375,7 +375,6 @@ main(int argc, char *argv[])
 	ewmhsetcurrentdesktop(0);
 	ewmhsetshowingdesktop(0);
 	ewmhsetclients();
-	ewmhsetclientsstacking();
 	ewmhsetactivewindow(None);
 
 	/* run sh script */
@@ -389,9 +388,15 @@ main(int argc, char *argv[])
 	setmod();
 
 	/* run main event loop */
-	while (running && !XNextEvent(dpy, &ev))
-		if (xevents[ev.type])
+	while (running && !XNextEvent(dpy, &ev)) {
+		if (xevents[ev.type]) {
+			wm.setclientlist = 0;
 			(*xevents[ev.type])(&ev);
+			if (wm.setclientlist) {
+				ewmhsetclients();
+			}
+		}
+	}
 
 	/* clean up */
 	cleandummywindows();
@@ -401,7 +406,6 @@ main(int argc, char *argv[])
 
 	/* clear ewmh hints */
 	ewmhsetclients();
-	ewmhsetclientsstacking();
 	ewmhsetactivewindow(None);
 
 	/* close connection to server */

@@ -68,6 +68,7 @@ enum {
 	/* shod atoms */
 	_SHOD_GROUP_TAB,
 	_SHOD_GROUP_CONTAINER,
+	_SHOD_CONTAINER_LIST,
 
 	ATOM_LAST
 };

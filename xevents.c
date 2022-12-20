@@ -438,6 +438,9 @@ getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectangle 
 			if (strcasestr(xval.addr, "shrunk") != NULL) {
 				*state |= SHRUNK;
 			}
+			if (strcasestr(xval.addr, "resized") != NULL) {
+				*state |= RESIZED;
+			}
 		}
 
 		/* check for dockapp position */
@@ -693,10 +696,11 @@ manage(Window win, XRectangle rect, int ignoreunmap)
 static void
 alttab(XEvent *e)
 {
-	struct Container *c;
+	struct Container *c, *prevfocused;
 	XEvent ev;
 	int raised;
 
+	prevfocused = wm.focused;
 	if ((c = TAILQ_FIRST(&wm.focusq)) == NULL)
 		return;
 	ev = *e;
@@ -733,6 +737,7 @@ done:
 		return;
 	if (raised) {
 		containerbacktoplace(c, raised);
+		wm.focused = prevfocused;
 		tabfocus(c->selcol->selrow->seltab, 0);
 	}
 }
@@ -751,7 +756,7 @@ mouseretab(struct Tab *tab, int xroot, int yroot, int x, int y)
 	row = tab->row;
 	c = row->col->c;
 	if (XGrabPointer(dpy, root, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, None, CurrentTime) != GrabSuccess)
-		goto done;
+		goto error;
 	tabdetach(tab, xroot - x, yroot - y);
 	containermoveresize(c, 0);
 	XUnmapWindow(dpy, tab->title);
@@ -792,7 +797,11 @@ done:
 		c = ((struct Tab *)obj)->row->col->c;
 		XTranslateCoordinates(dpy, ev.xbutton.window, c->frame, ev.xbutton.x_root, ev.xbutton.y_root, &x, &y, &win);
 	}
-	if (c == NULL || !tabattach(c, tab, x, y)) {
+	if (row->col->c != c) {
+		XUnmapWindow(dpy, tab->frame);
+		XReparentWindow(dpy, tab->frame, root, x, y);
+	}
+	if (!tabattach(c, tab, x, y)) {
 		mon = getmon(x, y);
 		if (mon == NULL)
 			mon = wm.selmon;
@@ -808,6 +817,8 @@ done:
 		);
 	}
 	containerdelrow(row);
+	ewmhsetactivewindow(tab->obj.win);
+error:
 	XUngrabPointer(dpy, CurrentTime);
 }
 
@@ -1220,9 +1231,16 @@ xeventbuttonpress(XEvent *e)
 	ev = &e->xbutton;
 
 	if ((obj = getmanaged(ev->window)) == NULL) {
-		/* if user clicked in no window, focus the monitor below cursor */
-		if ((mon = getmon(ev->x_root, ev->y_root)) != NULL)
+		/*
+		 * If user clicked in no managed window, focus the
+		 * monitor below the cursor, but only if the click
+		 * occurred inside monitor's window area.
+		 */
+		if ((mon = getmon(ev->x_root, ev->y_root)) != NULL &&
+		    ev->x_root >= mon->wx && ev->x_root < mon->wx + mon->ww &&
+		    ev->y_root >= mon->wy && ev->y_root < mon->wy + mon->wh) {
 			deskfocus(mon, mon->seldesk);
+		}
 		goto done;
 	}
 
@@ -1516,7 +1534,9 @@ xeventconfigurenotify(XEvent *e)
 	ev = &e->xconfigure;
 	if (ev->window == root) {
 		monupdate();
+		monupdatearea();
 		notifplace();
+		dockupdate();
 	}
 }
 
@@ -1564,8 +1584,7 @@ xeventdestroynotify(XEvent *e)
 	ev = &e->xdestroywindow;
 	if ((obj = getmanaged(ev->window)) != NULL) {
 		if (obj->win == ev->window && (*unmanagefuncs[obj->type])(obj, 0)) {
-			ewmhsetclients();
-			ewmhsetclientsstacking();
+			wm.setclientlist = 1;
 		}
 	}
 }
@@ -1752,8 +1771,7 @@ xeventunmapnotify(XEvent *e)
 	ev = &e->xunmap;
 	if ((obj = getmanaged(ev->window)) != NULL) {
 		if (obj->win == ev->window && (*unmanagefuncs[obj->type])(obj, 1)) {
-			ewmhsetclients();
-			ewmhsetclientsstacking();
+			wm.setclientlist = 1;
 		}
 	}
 }
