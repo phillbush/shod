@@ -90,6 +90,16 @@ xerror(Display *dpy, XErrorEvent *e)
 	exit(1);        /* unreached */
 }
 
+
+/* Startup Error handler to check if another window manager
+ * is already running. */
+static int
+xerrorstart(Display *dpy, XErrorEvent *ee)
+{
+	fprintf(stderr, "shod: another window manager is already running\n");
+	exit(1);
+}
+
 /* stop running */
 static void
 siginthandler(int signo)
@@ -268,6 +278,17 @@ autostart(char *filename)
 	waitpid(pid, NULL, 0);
 }
 
+static void
+checkotherwm(void)
+{
+	xerrorxlib = XSetErrorHandler(xerrorstart);
+	/* this causes an error if some other window manager is running */
+	XSelectInput(dpy, DefaultRootWindow(dpy), SubstructureRedirectMask);
+	XSync(dpy, False);
+	XSetErrorHandler(xerror);
+	XSync(dpy, False);
+}
+
 /* destroy dummy windows */
 static void
 cleandummywindows(void)
@@ -327,6 +348,7 @@ main(int argc, char *argv[])
 	if (!setlocale(LC_ALL, "") || !XSupportsLocale())
 		warnx("warning: no locale support");
 	xinit();
+	checkotherwm();
 	xinitvisual();
 	xiniterrfunc(xerror, &xerrorxlib);
 	XrmInitialize();
