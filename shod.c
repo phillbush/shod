@@ -90,14 +90,13 @@ xerror(Display *dpy, XErrorEvent *e)
 	exit(1);        /* unreached */
 }
 
-
-/* Startup Error handler to check if another window manager
- * is already running. */
+/* startup error handler to check if another window manager is already running. */
 static int
-xerrorstart(Display *dpy, XErrorEvent *ee)
+xerrorstart(Display *dpy, XErrorEvent *e)
 {
-	fprintf(stderr, "shod: another window manager is already running\n");
-	exit(1);
+	(void)dpy;
+	(void)e;
+	errx(1, "another window manager is already running");
 }
 
 /* stop running */
