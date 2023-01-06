@@ -12,6 +12,9 @@
 #include "shod.h"
 
 #define WMNAME          "shod"
+#define ROOT_EVENTS     (SubstructureRedirectMask | SubstructureNotifyMask \
+                        | StructureNotifyMask | ButtonPressMask \
+                        | PropertyChangeMask)
 
 static int (*xerrorxlib)(Display *, XErrorEvent *);
 volatile sig_atomic_t running = 1;
@@ -191,14 +194,8 @@ initcursors(void)
 static void
 initroot(void)
 {
-	XSetWindowAttributes swa;
-
-	/* Select SubstructureRedirect events on root window */
-	swa.cursor = wm.cursors[CURSOR_NORMAL];
-	swa.event_mask = SubstructureRedirectMask | SubstructureNotifyMask
-	               | StructureNotifyMask | ButtonPressMask
-	               | PropertyChangeMask;
-	XChangeWindowAttributes(dpy, root, CWEventMask | CWCursor, &swa);
+	/* change default cursor */
+	XDefineCursor(dpy, root, wm.cursors[CURSOR_NORMAL]);
 
 	/* Set focus to root window */
 	XSetInputFocus(dpy, root, RevertToParent, CurrentTime);
@@ -281,8 +278,7 @@ static void
 checkotherwm(void)
 {
 	xerrorxlib = XSetErrorHandler(xerrorstart);
-	/* this causes an error if some other window manager is running */
-	XSelectInput(dpy, DefaultRootWindow(dpy), SubstructureRedirectMask);
+	XSelectInput(dpy, root, ROOT_EVENTS);
 	XSync(dpy, False);
 	XSetErrorHandler(xerror);
 	XSync(dpy, False);
