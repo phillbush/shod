@@ -22,8 +22,9 @@ volatile sig_atomic_t running = 1;
 /* shared variables */
 unsigned long clientmask = CWEventMask | CWColormap | CWBackPixel | CWBorderPixel;
 XSetWindowAttributes clientswa = {
-	.event_mask = SubstructureNotifyMask | ExposureMask
+	.event_mask = SubstructureNotifyMask | ExposureMask | ButtonReleaseMask
 	            | SubstructureRedirectMask | ButtonPressMask | FocusChangeMask
+	            | Button1MotionMask
 };
 struct WM wm = {};
 struct Dock dock;

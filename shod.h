@@ -589,6 +589,8 @@ struct WM {
 	 * reset at the beginning of each main loop iteration
 	 */
 	int setclientlist;
+
+	Window presswin;
 };
 
 struct Dock {

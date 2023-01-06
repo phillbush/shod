@@ -7,6 +7,7 @@
 #define MOUSEEVENTMASK          (ButtonReleaseMask | PointerMotionMask | ExposureMask)
 #define ALTTABMASK              (KeyPressMask | KeyReleaseMask | ExposureMask)
 #define DOUBLECLICK     250     /* time in miliseconds of a double click */
+#define BETWEEN(a, b, c)        ((a) <= (b) && (b) < (c))
 
 /* moveresize action */
 enum {
@@ -983,15 +984,16 @@ done:
 
 /* move floating entity (container or menu) with mouse */
 static void
-mousemove(int type, void *p, int xroot, int yroot, enum Octant o)
+mousemove(Window win, int type, void *p, int xroot, int yroot, enum Octant o)
 {
 	struct Container *c;
 	struct Menu *menu;
 	Window frame;
 	XEvent ev;
 	Time lasttime;
-	int x, y;
+	int moved, x, y;
 
+	moved = 0;
 	if (type == FLOAT_MENU) {
 		menu = (struct Menu *)p;
 		menudecorate(menu, o);
@@ -1002,9 +1004,11 @@ mousemove(int type, void *p, int xroot, int yroot, enum Octant o)
 		frame = c->frame;
 	}
 	x = y = 0;
-	if (XGrabPointer(dpy, frame, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, wm.cursors[CURSOR_MOVE], CurrentTime) != GrabSuccess)
-		goto done;
 	lasttime = 0;
+	if (win != None)
+		XDefineCursor(dpy, win, wm.cursors[CURSOR_MOVE]);
+	else if (XGrabPointer(dpy, frame, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, wm.cursors[CURSOR_MOVE], CurrentTime) != GrabSuccess)
+		goto done;
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
 		case Expose:
@@ -1015,6 +1019,7 @@ mousemove(int type, void *p, int xroot, int yroot, enum Octant o)
 			goto done;
 			break;
 		case MotionNotify:
+			moved = 1;
 			if (ev.xmotion.time - lasttime > MOVETIME) {
 				x = ev.xmotion.x_root - xroot;
 				y = ev.xmotion.y_root - yroot;
@@ -1032,59 +1037,19 @@ mousemove(int type, void *p, int xroot, int yroot, enum Octant o)
 	}
 done:
 	if (type == FLOAT_MENU) {
-		menumoveresize(menu);
+		if (!moved)
+			menumoveresize(menu);
 		menudecorate(menu, 0);
 	} else {
-		containermoveresize(c, 1);
+		if (!moved)
+			containermoveresize(c, 1);
 		containerdecorate(c, NULL, NULL, 0, 0);
 	}
-	XUngrabPointer(dpy, CurrentTime);
-}
-
-/* close tab with mouse */
-static void
-mouseclose(int type, void *obj)
-{
-	struct Row *row;
-	struct Menu *menu;
-	Window win, button;
-	XEvent ev;
-
-	if (type == FLOAT_MENU) {
-		menu = (struct Menu *)obj;
-		button = menu->button;
-		win = menu->obj.win;
-		buttonrightdecorate(button, menu->pixbutton, FOCUSED, 1);
+	if (win != None) {
+		XUndefineCursor(dpy, win);
 	} else {
-		row = (struct Row *)obj;
-		button = row->br;
-		win = TAILQ_EMPTY(&row->seltab->dialq) ? row->seltab->obj.win : TAILQ_FIRST(&row->seltab->dialq)->win;
-		buttonrightdecorate(button, row->pixbr, FOCUSED, 1);
+		XUngrabPointer(dpy, CurrentTime);
 	}
-	if (XGrabPointer(dpy, button, False, ButtonReleaseMask, GrabModeAsync, GrabModeAsync, None, None, CurrentTime) != GrabSuccess)
-		goto done;
-	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
-		switch(ev.type) {
-		case Expose:
-			if (ev.xexpose.count == 0)
-				copypixmap(ev.xexpose.window);
-			break;
-		case ButtonRelease:
-			if (ev.xbutton.window == button &&
-			    ev.xbutton.x >= 0 && ev.xbutton.x >= 0 &&
-			    ev.xbutton.x < config.titlewidth && ev.xbutton.x < config.titlewidth)
-				winclose(win);
-			goto done;
-			break;
-		}
-	}
-done:
-	if (type == FLOAT_MENU) {
-		buttonrightdecorate(menu->button, menu->pixbutton, FOCUSED, 0);
-	} else {
-		buttonrightdecorate(row->br, row->pixbr, FOCUSED, 0);
-	}
-	XUngrabPointer(dpy, CurrentTime);
 }
 
 /* resize tiles by dragging division with mouse */
@@ -1183,33 +1148,6 @@ done:
 	XUngrabPointer(dpy, CurrentTime);
 }
 
-/* stack rows in column with mouse */
-static void
-mousestack(struct Row *row)
-{
-	XEvent ev;
-
-	buttonleftdecorate(row->bl, row->pixbl, FOCUSED, 1);
-	if (XGrabPointer(dpy, row->bl, False, ButtonReleaseMask, GrabModeAsync, GrabModeAsync, None, None, CurrentTime) != GrabSuccess)
-		goto done;
-	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
-		switch(ev.type) {
-		case Expose:
-			if (ev.xexpose.count == 0)
-				copypixmap(ev.xexpose.window);
-			break;
-		case ButtonRelease:
-			rowstack(row->col, row);
-			goto done;
-			break;
-		}
-	}
-done:
-	tabfocus(row->seltab, 0);
-	buttonleftdecorate(row->bl, row->pixbl, FOCUSED, 0);
-	XUngrabPointer(dpy, CurrentTime);
-}
-
 /* handle mouse operation, focusing and raising */
 static void
 xeventbuttonpress(XEvent *e)
@@ -1289,12 +1227,13 @@ xeventbuttonpress(XEvent *e)
 	/* do action performed by mouse */
 	if (menu != NULL) {
 		if (ev->window == menu->titlebar && ev->button == Button1) {
-			mousemove(FLOAT_MENU, menu, ev->x_root, ev->y_root, 1);
+			mousemove(menu->titlebar, FLOAT_MENU, menu, ev->x_root, ev->y_root, 1);
 		} else if (ev->window == menu->button && ev->button == Button1) {
-			mouseclose(FLOAT_MENU, menu);
-		} else if ((ev->window == menu->frame && ev->button == Button3)
-		        || (isvalidstate(ev->state) && ev->button == Button1)) {
-			mousemove(FLOAT_MENU, menu, ev->x_root, ev->y_root, 0);
+			buttonrightdecorate(menu->button, menu->pixbutton, FOCUSED, 1);
+		} else if (isvalidstate(ev->state) && ev->button == Button1) {
+			mousemove(None, FLOAT_MENU, menu, ev->x_root, ev->y_root, 0);
+		} else if (ev->window == menu->frame && ev->button == Button3) {
+			mousemove(None, FLOAT_MENU, menu, ev->x_root, ev->y_root, 0);
 		} else if (isvalidstate(ev->state) && ev->button == Button3) {
 			if (!XTranslateCoordinates(dpy, ev->window, menu->frame, ev->x, ev->y, &x, &y, &dw))
 				goto done;
@@ -1325,9 +1264,11 @@ xeventbuttonpress(XEvent *e)
 		if (ev->window == tab->title && ev->button == Button3) {
 			mouseretab(tab, ev->x_root, ev->y_root, ev->x, ev->y);
 		} else if (ev->window == tab->row->bl && ev->button == Button1) {
-			mousestack(tab->row);
+			wm.presswin = ev->window;
+			buttonleftdecorate(tab->row->bl, tab->row->pixbl, FOCUSED, 1);
 		} else if (ev->window == tab->row->br && ev->button == Button1) {
-			mouseclose(FLOAT_CONTAINER, tab->row);
+			wm.presswin = ev->window;
+			buttonrightdecorate(tab->row->br, tab->row->pixbr, FOCUSED, 1);
 		} else if (ev->window == c->frame && ev->button == Button1 && o == C) {
 			getdivisions(c, &cdiv, &rdiv, x, y);
 			if (cdiv != NULL || rdiv != NULL) {
@@ -1335,9 +1276,9 @@ xeventbuttonpress(XEvent *e)
 			}
 		} else if (!c->isfullscreen && !c->isminimized && !c->ismaximized) {
 			if (isvalidstate(ev->state) && ev->button == Button1) {
-				mousemove(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, 0);
+				mousemove(None, FLOAT_CONTAINER, c, ev->x_root, ev->y_root, 0);
 			} else if (ev->window == c->frame && ev->button == Button3) {
-				mousemove(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, o);
+				mousemove(None, FLOAT_CONTAINER, c, ev->x_root, ev->y_root, o);
 			} else if ((isvalidstate(ev->state) && ev->button == Button3) ||
 		           	   (o != C && ev->window == c->frame && ev->button == Button1)) {
 				if (o == C)
@@ -1345,7 +1286,7 @@ xeventbuttonpress(XEvent *e)
 				mouseresize(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, o);
 			} else if (ev->window == tab->title && ev->button == Button1) {
 				tabdecorate(tab, 1);
-				mousemove(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, 0);
+				mousemove(tab->title, FLOAT_CONTAINER, c, ev->x_root, ev->y_root, 0);
 				tabdecorate(tab, 0);
 			}
 		}
@@ -1353,6 +1294,73 @@ xeventbuttonpress(XEvent *e)
 
 done:
 	XAllowEvents(dpy, ReplayPointer, CurrentTime);
+}
+
+/* handle click on titlebar button */
+static void
+xeventbuttonrelease(XEvent *e)
+{
+	struct Object *obj;
+	struct Row *row;
+	struct Menu *menu;
+	XButtonReleasedEvent *ev;
+	Window win, button;
+	Pixmap pix;
+	int perform;
+	enum { PRESS_CLOSE, PRESS_STACK } action;
+
+	ev = &e->xbutton;
+	wm.presswin = None;
+	if (ev->button != Button1)
+		return;
+	if ((obj = getmanaged(ev->window)) == NULL)
+		return;
+	switch (obj->type) {
+	case TYPE_NORMAL:
+		row = ((struct Tab *)obj)->row;
+		if (ev->window == row->br) {
+			action = PRESS_CLOSE;
+			button = row->br;
+			pix = row->pixbr;
+		} else if (ev->window == row->bl) {
+			action = PRESS_STACK;
+			button = row->bl;
+			pix = row->pixbl;
+		} else {
+			return;
+		}
+		win = TAILQ_EMPTY(&row->seltab->dialq)
+		    ? row->seltab->obj.win
+		    : TAILQ_FIRST(&row->seltab->dialq)->win;
+		break;
+	case TYPE_MENU:
+		menu = (struct Menu *)obj;
+		if (ev->window == menu->button) {
+			action = PRESS_CLOSE;
+			button = menu->button;
+			win = menu->obj.win;
+			pix = menu->pixbutton;
+		} else {
+			return;
+		}
+		break;
+	default:
+		return;
+	}
+	perform = BETWEEN(0, ev->x, config.titlewidth) &&
+	          BETWEEN(0, ev->y, config.titlewidth);
+	switch (action) {
+	case PRESS_CLOSE:
+		if (perform)
+			winclose(win);
+		buttonrightdecorate(button, pix, FOCUSED, 0);
+		break;
+	case PRESS_STACK:
+		rowstack(row->col, row);
+		tabfocus(row->seltab, 0);
+		buttonleftdecorate(button, pix, FOCUSED, 0);
+		break;
+	}
 }
 
 /* handle client message event */
@@ -1516,7 +1524,7 @@ xeventclientmessage(XEvent *e)
 			mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], W);
 			break;
 		case _NET_WM_MOVERESIZE_MOVE:
-			mousemove(floattype, p, ev->data.l[0], ev->data.l[1], C);
+			mousemove(None, floattype, p, ev->data.l[0], ev->data.l[1], C);
 			break;
 		default:
 			XUngrabPointer(dpy, CurrentTime);
@@ -1853,6 +1861,7 @@ setmod(void)
 
 void (*xevents[LASTEvent])(XEvent *) = {
 	[ButtonPress]      = xeventbuttonpress,
+	[ButtonRelease]    = xeventbuttonrelease,
 	[ClientMessage]    = xeventclientmessage,
 	[ConfigureNotify]  = xeventconfigurenotify,
 	[ConfigureRequest] = xeventconfigurerequest,
