@@ -91,10 +91,12 @@ dockapppos(int pos)
 void
 dockupdateresizeable(void)
 {
+	struct Monitor *mon;
 	struct Object *p;
 	struct Dockapp *dapp;
 	int size;
 
+	mon = TAILQ_FIRST(&wm.monq);
 	size = 0;
 	TAILQ_FOREACH(p, &dock.dappq, entry) {
 		dapp = (struct Dockapp *)p;
@@ -137,60 +139,63 @@ dockupdateresizeable(void)
 	switch (config.dockgravity[0]) {
 	case 'N':
 		dock.h = config.dockwidth;
-		dock.y = 0;
+		dock.x = mon->mx;
+		dock.y = mon->my;
 		break;
 	case 'S':
 		dock.h = config.dockwidth;
-		dock.y = TAILQ_FIRST(&wm.monq)->mh - config.dockwidth;
+		dock.x = mon->mx;
+		dock.y = mon->my + mon->mh - config.dockwidth;
 		break;
 	case 'W':
 		dock.w = config.dockwidth;
-		dock.x = 0;
+		dock.x = mon->mx;
+		dock.y = mon->my;
 		break;
 	case 'E':
 	default:
 		dock.w = config.dockwidth;
-		dock.x = TAILQ_FIRST(&wm.monq)->mw - config.dockwidth;
-		dock.h = min(size, TAILQ_FIRST(&wm.monq)->mh);
-		dock.y = TAILQ_FIRST(&wm.monq)->mh / 2 - size / 2;
+		dock.x = mon->mx + mon->mw - config.dockwidth;
+		dock.h = min(size, mon->mh);
+		dock.y = mon->my + mon->mh / 2 - size / 2;
 		break;
 	}
 	if (config.dockgravity[0] == 'N' || config.dockgravity[0] == 'S') {
 		switch (config.dockgravity[1]) {
 		case 'F':
-			dock.x = 0;
-			dock.w = TAILQ_FIRST(&wm.monq)->mw;
+			dock.x = mon->mx;
+			dock.w = mon->mw;
 			break;
 		case 'W':
-			dock.w = min(size, TAILQ_FIRST(&wm.monq)->mw);
-			dock.x = 0;
+			dock.w = min(size, mon->mw);
+			dock.x = mon->mx;
 			break;
 		case 'E':
-			dock.w = min(size, TAILQ_FIRST(&wm.monq)->mw);
-			dock.x = TAILQ_FIRST(&wm.monq)->mw - size;
+			dock.w = min(size, mon->mw);
+			dock.x = mon->mx + mon->mw - size;
 			break;
 		default:
-			dock.w = min(size, TAILQ_FIRST(&wm.monq)->mw);
-			dock.x = TAILQ_FIRST(&wm.monq)->mw / 2 - size / 2;
+			dock.w = min(size, mon->mw);
+			dock.x = mon->mx + mon->mw / 2 - size / 2;
 			break;
 		}
 	} else if (config.dockgravity[0] != '\0') {
 		switch (config.dockgravity[1]) {
 		case 'F':
-			dock.h = TAILQ_FIRST(&wm.monq)->mh;
-			dock.y = 0;
+			dock.h = mon->mh;
+			dock.y = mon->my;
 			break;
 		case 'N':
-			dock.h = min(size, TAILQ_FIRST(&wm.monq)->mh);
-			dock.y = 0;
+			dock.h = min(size, mon->mh);
+			dock.y = mon->my;
 			break;
 		case 'S':
-			dock.h = min(size, TAILQ_FIRST(&wm.monq)->mh);
-			dock.y = TAILQ_FIRST(&wm.monq)->mh - size;
+			dock.h = min(size, mon->mh);
+			dock.y = mon->my + mon->mh - size;
 			break;
 		default:
-			dock.h = min(size, TAILQ_FIRST(&wm.monq)->mh);
-			dock.y = TAILQ_FIRST(&wm.monq)->mh / 2 - size / 2;
+			dock.h = min(size, mon->mh);
+			dock.y = mon->my + mon->mh / 2 - size / 2;
 			break;
 		}
 	}
@@ -206,10 +211,12 @@ void
 dockupdatefull(void)
 {
 	struct Object *p;
+	struct Monitor *mon;
 	struct Dockapp *dapp;
 	int part, nextend, size;
 	int i, n;
 
+	mon = TAILQ_FIRST(&wm.monq);
 	if (TAILQ_FIRST(&dock.dappq) == NULL) {
 		XUnmapWindow(dpy, dock.win);
 		dock.mapped = 0;
@@ -218,32 +225,32 @@ dockupdatefull(void)
 	dock.mapped = 1;
 	switch (config.dockgravity[0]) {
 	case 'N':
-		dock.x = 0;
-		dock.y = 0;
-		dock.w = TAILQ_FIRST(&wm.monq)->mw;
+		dock.x = mon->mx;
+		dock.y = mon->my;
+		dock.w = mon->mw;
 		dock.h = config.dockwidth;
 		part = dock.w;
 		break;
 	case 'S':
-		dock.x = 0;
-		dock.y = TAILQ_FIRST(&wm.monq)->mh - config.dockwidth;
-		dock.w = TAILQ_FIRST(&wm.monq)->mw;
+		dock.x = mon->mx;
+		dock.y = mon->my + mon->mh - config.dockwidth;
+		dock.w = mon->mw;
 		dock.h = config.dockwidth;
 		part = dock.w;
 		break;
 	case 'W':
-		dock.x = 0;
-		dock.y = 0;
+		dock.x = mon->mx;
+		dock.y = mon->my;
 		dock.w = config.dockwidth;
-		dock.h = TAILQ_FIRST(&wm.monq)->mh;
+		dock.h = mon->mh;
 		part = dock.h;
 		break;
 	case 'E':
 	default:
-		dock.x = TAILQ_FIRST(&wm.monq)->mw - config.dockwidth;
-		dock.y = 0;
+		dock.x = mon->mx + mon->mw - config.dockwidth;
+		dock.y = mon->my;
 		dock.w = config.dockwidth;
-		dock.h = TAILQ_FIRST(&wm.monq)->mh;
+		dock.h = mon->mh;
 		part = dock.h;
 		break;
 	}

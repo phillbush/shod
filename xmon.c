@@ -1,37 +1,30 @@
 #include "shod.h"
 
-#include <X11/extensions/Xinerama.h>
+#include <X11/extensions/Xrandr.h>
 
-/* check if monitor geometry is unique */
-static int
-monisuniquegeom(XineramaScreenInfo *unique, size_t n, XineramaScreenInfo *info)
+void
+moninit(void)
 {
-	while (n--)
-		if (unique[n].x_org == info->x_org && unique[n].y_org == info->y_org
-		&& unique[n].width == info->width && unique[n].height == info->height)
-			return 0;
-	return 1;
+	int i;
+
+	if ((wm.xrandr = XRRQueryExtension(dpy, &wm.xrandrev, &i))) {
+		XRRSelectInput(dpy, root, RRScreenChangeNotifyMask);
+	}
 }
 
-/* add monitor */
-static void
-monnew(XineramaScreenInfo *info)
+void
+monevent(XEvent *e)
 {
-	struct Monitor *mon;
+	XRRScreenChangeNotifyEvent *ev;
 
-	mon = emalloc(sizeof *mon);
-	*mon = (struct Monitor){
-		.mx = info->x_org,
-		.my = info->y_org,
-		.mw = info->width,
-		.mh = info->height,
-		.wx = info->x_org,
-		.wy = info->y_org,
-		.ww = info->width,
-		.wh = info->height,
-	};
-	mon->seldesk = 0;
-	TAILQ_INSERT_TAIL(&wm.monq, mon, entry);
+	ev = (XRRScreenChangeNotifyEvent *)e;
+	if (ev->root == root) {
+		(void)XRRUpdateConfiguration(e);
+		monupdate();
+		monupdatearea();
+		notifplace();
+		dockupdate();
+	}
 }
 
 /* delete monitor and set monitor of clients on it to NULL */
@@ -70,64 +63,65 @@ getmon(int x, int y)
 void
 monupdate(void)
 {
-	XineramaScreenInfo *info = NULL;
-	XineramaScreenInfo *unique = NULL;
-	struct Monitor *mon, *tmp;
+	XRRScreenResources *sr;
+	XRRCrtcInfo *ci;
+	struct MonitorQueue monq;               /* queue of monitors */
+	struct Monitor *mon;
 	struct Container *c, *focus;
 	struct Object *m, *s;
-	int delselmon = 0;
-	int del, add;
-	int i, j, n;
-	int moncount;
+	int delselmon, i;
 
-	info = XineramaQueryScreens(dpy, &n);
-	unique = ecalloc(n, sizeof *unique);
-	
-	/* only consider unique geometries as separate screens */
-	for (i = 0, j = 0; i < n; i++)
-		if (monisuniquegeom(unique, j, &info[i]))
-			memcpy(&unique[j++], &info[i], sizeof *unique);
-	XFree(info);
-	moncount = j;
+	TAILQ_INIT(&monq);
+	sr = XRRGetScreenResources(dpy, root);
+	for (i = 0, ci = NULL; i < sr->ncrtc; i++) {
+		if ((ci = XRRGetCrtcInfo(dpy, sr, sr->crtcs[i])) == NULL)
+			continue;
+		if (ci->noutput == 0)
+			goto next;
 
-	/* look for monitors that do not exist anymore and delete them */
-	mon = TAILQ_FIRST(&wm.monq);
-	while (mon != NULL) {
-		del = 1;
-		for (i = 0; i < moncount; i++) {
-			if (unique[i].x_org == mon->mx && unique[i].y_org == mon->my &&
-			    unique[i].width == mon->mw && unique[i].height == mon->mh) {
-				del = 0;
+		TAILQ_FOREACH(mon, &wm.monq, entry)
+			if (ci->x == mon->mx && ci->y == mon->my &&
+			    (int)ci->width == mon->mw && (int)ci->height == mon->mh)
 				break;
-			}
+		if (mon != NULL) {
+			TAILQ_REMOVE(&wm.monq, mon, entry);
+		} else {
+			mon = emalloc(sizeof(*mon));
+			*mon = (struct Monitor){
+				.mx = ci->x,
+				.wx = ci->x,
+				.my = ci->y,
+				.wy = ci->y,
+				.mw = ci->width,
+				.ww = ci->width,
+				.mh = ci->height,
+				.wh = ci->height,
+			};
 		}
-		tmp = mon;
-		mon = TAILQ_NEXT(mon, entry);
-		if (del) {
-			if (tmp == wm.selmon)
-				delselmon = 1;
-			mondel(tmp);
-		}
+		TAILQ_INSERT_TAIL(&monq, mon, entry);
+next:
+		XRRFreeCrtcInfo(ci);
 	}
+	XRRFreeScreenResources(sr);
 
-	/* look for new monitors and add them */
-	for (i = 0; i < moncount; i++) {
-		add = 1;
-		TAILQ_FOREACH(mon, &wm.monq, entry) {
-			if (unique[i].x_org == mon->mx && unique[i].y_org == mon->my &&
-			    unique[i].width == mon->mw && unique[i].height == mon->mh) {
-				add = 0;
-				break;
-			}
-		}
-		if (add) {
-			monnew(&unique[i]);
-		}
+	/* delete monitors that do not exist anymore */
+	delselmon = 0;
+	while ((mon = TAILQ_FIRST(&wm.monq)) != NULL) {
+		if (mon == wm.selmon)
+			delselmon = 1;
+		mondel(mon);
 	}
-	if (delselmon)
+	if (delselmon) {
 		wm.selmon = TAILQ_FIRST(&wm.monq);
+	}
 
-	/* send containers which do not belong to a window to selected desktop */
+	/* commit new list of monitor */
+	while ((mon = TAILQ_FIRST(&monq)) != NULL) {
+		TAILQ_REMOVE(&monq, mon, entry);
+		TAILQ_INSERT_TAIL(&wm.monq, mon, entry);
+	}
+
+	/* send containers which do not belong to a monitor to selected desktop */
 	focus = NULL;
 	TAILQ_FOREACH(c, &wm.focusq, entry) {
 		if (!c->isminimized && c->mon == NULL) {
@@ -149,7 +143,6 @@ monupdate(void)
 	if (focus != NULL)              /* if a contained changed desktop, focus it */
 		tabfocus(focus->selcol->selrow->seltab, 1);
 	wm.setclientlist = 1;
-	free(unique);
 }
 
 /* update window area and dock area of monitor */

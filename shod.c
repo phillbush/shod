@@ -9,6 +9,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <X11/extensions/Xrandr.h>
+
 #include "shod.h"
 
 #define WMNAME          "shod"
@@ -345,6 +347,7 @@ main(int argc, char *argv[])
 		warnx("warning: no locale support");
 	xinit();
 	checkotherwm();
+	moninit();
 	xinitvisual();
 	XrmInitialize();
 	xrm = XResourceManagerString(dpy);
@@ -406,12 +409,13 @@ main(int argc, char *argv[])
 
 	/* run main event loop */
 	while (running && !XNextEvent(dpy, &ev)) {
-		if (xevents[ev.type]) {
-			wm.setclientlist = 0;
+		wm.setclientlist = 0;
+		if (wm.xrandr && ev.type - wm.xrandrev == RRScreenChangeNotify)
+			monevent(&ev);
+		else if (ev.type < LASTEvent && xevents[ev.type] != NULL)
 			(*xevents[ev.type])(&ev);
-			if (wm.setclientlist) {
-				ewmhsetclients();
-			}
+		if (wm.setclientlist) {
+			ewmhsetclients();
 		}
 	}
 

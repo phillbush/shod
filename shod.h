@@ -538,6 +538,12 @@ struct WM {
 	int nclients;                           /* total number of container windows */
 
 	/*
+	 * Xrandr information.
+	 */
+	int xrandr;                             /* whether Xrandr is being used */
+	int xrandrev;                           /* event base for Xrandr */
+
+	/*
 	 * Containers are listed by the focusq queue; they are also
 	 * listed under the stackq list, ordered by its position on
 	 * the Z-axis.
@@ -713,6 +719,8 @@ void mondel(struct Monitor *mon);
 void monupdate(void);
 void monupdatearea(void);
 void fitmonitor(struct Monitor *mon, int *x, int *y, int *w, int *h, float factor);
+void moninit(void);
+void monevent(XEvent *e);
 
 /* wm hints and messages routines */
 void icccmdeletestate(Window win);

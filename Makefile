@@ -8,7 +8,7 @@ X11LIB ?= /usr/X11R6/lib
 
 # includes and libs
 XCPPFLAGS = -I${LOCALINC} -I${X11INC} -I/usr/include/freetype2 -I${X11INC}/freetype2
-XLDFLAGS  = -L${LOCALLIB} -L${X11LIB} -lfontconfig -lXft -lX11 -lXinerama -lXrender
+XLDFLAGS  = -L${LOCALLIB} -L${X11LIB} -lfontconfig -lXft -lX11 -lXrandr -lXrender
 
 SHOD_OBJS   = shod.o config.o xhints.o xmon.o xdraw.o xevents.o \
               xcontainer.o xmenu.o xbar.o xdock.o xsplash.o xnotif.o xprompt.o

@@ -1533,21 +1533,6 @@ xeventclientmessage(XEvent *e)
 	}
 }
 
-/* handle configure notify event */
-static void
-xeventconfigurenotify(XEvent *e)
-{
-	XConfigureEvent *ev;
-
-	ev = &e->xconfigure;
-	if (ev->window == root) {
-		monupdate();
-		monupdatearea();
-		notifplace();
-		dockupdate();
-	}
-}
-
 /* handle configure request event */
 static void
 xeventconfigurerequest(XEvent *e)
@@ -1863,7 +1848,6 @@ void (*xevents[LASTEvent])(XEvent *) = {
 	[ButtonPress]      = xeventbuttonpress,
 	[ButtonRelease]    = xeventbuttonrelease,
 	[ClientMessage]    = xeventclientmessage,
-	[ConfigureNotify]  = xeventconfigurenotify,
 	[ConfigureRequest] = xeventconfigurerequest,
 	[DestroyNotify]    = xeventdestroynotify,
 	[EnterNotify]      = xevententernotify,
