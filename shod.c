@@ -278,7 +278,7 @@ autostart(char *filename)
 static void
 checkotherwm(void)
 {
-	xerrorxlib = XSetErrorHandler(xerrorstart);
+	(void)XSetErrorHandler(xerrorstart);
 	XSelectInput(dpy, root, ROOT_EVENTS);
 	XSync(dpy, False);
 	XSetErrorHandler(xerror);
