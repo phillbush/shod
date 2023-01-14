@@ -278,10 +278,10 @@ autostart(char *filename)
 static void
 checkotherwm(void)
 {
-	(void)XSetErrorHandler(xerrorstart);
+	xerrorxlib = XSetErrorHandler(xerrorstart);
 	XSelectInput(dpy, root, ROOT_EVENTS);
 	XSync(dpy, False);
-	XSetErrorHandler(xerror);
+	(void)XSetErrorHandler(xerror);
 	XSync(dpy, False);
 }
 
@@ -346,7 +346,6 @@ main(int argc, char *argv[])
 	xinit();
 	checkotherwm();
 	xinitvisual();
-	xiniterrfunc(xerror, &xerrorxlib);
 	XrmInitialize();
 	xrm = XResourceManagerString(dpy);
 	setresources(xrm);

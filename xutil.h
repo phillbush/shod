@@ -73,8 +73,6 @@ enum {
 	ATOM_LAST
 };
 
-typedef int (*XErrorFunc)(Display *, XErrorEvent *);
-
 extern Visual *visual;
 extern Colormap colormap;
 extern unsigned int depth;
@@ -99,5 +97,4 @@ Atom getatomprop(Window win, Atom prop);
 void initatoms(void);
 void initatom(int atomenum);
 void xinit(void);
-void xiniterrfunc(XErrorFunc, XErrorFunc *);
 void xinitvisual(void);

@@ -260,9 +260,3 @@ xinitvisual(void)
 		colormap = DefaultColormap(dpy, screen);
 	}
 }
-
-void
-xiniterrfunc(XErrorFunc xerror, XErrorFunc *xerrorxlib)
-{
-	*xerrorxlib = XSetErrorHandler(xerror);
-}
