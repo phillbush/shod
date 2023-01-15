@@ -7,7 +7,7 @@ promptcalcgeom(int *x, int *y, int *w, int *h, int *fw, int *fh)
 	*w = min(*w, wm.selmon->ww - config.borderwidth * 2);
 	*h = min(*h, wm.selmon->wh - config.borderwidth);
 	*x = wm.selmon->wx + (wm.selmon->ww - *w) / 2 - config.borderwidth;
-	*y = 0;
+	*y = wm.selmon->wy;
 	*fw = *w + config.borderwidth * 2;
 	*fh = *h + config.borderwidth;
 }
