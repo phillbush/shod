@@ -344,7 +344,7 @@ getmwmhints(Window win)
 
 /* get window info based on its type */
 static int
-getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectangle *rect)
+getwintype(Window *win_ret, Window *leader, struct Tab **tab, int *state, XRectangle *rect)
 {
 	/* rules for identifying windows */
 	enum { CLASS = 0, INSTANCE = 1, ROLE = 2 };
@@ -354,6 +354,7 @@ getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectangle 
 	XClassHint classh;
 	XWMHints *wmhints;
 	XrmValue xval;
+	Window win;
 	Atom prop;
 	size_t i;
 	long n;
@@ -363,6 +364,7 @@ getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectangle 
 	char role[NAMEMAXLEN];
 
 	pos = 0;
+	win = *win_ret;
 	*tab = NULL;
 	*state = 0;
 	type = TYPE_UNKNOWN;
@@ -466,6 +468,8 @@ getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectangle 
 	mwmhints = getmwmhints(win);
 	ismenu = mwmhints != NULL && (mwmhints->flags & MWM_HINTS_STATUS) && (mwmhints->status & MWM_TEAROFF_WINDOW);
 	isdockapp = (wmhints && (wmhints->flags & (IconWindowHint | StateHint)) && wmhints->initial_state == WithdrawnState);
+	if (isdockapp && wmhints->icon_window != None)
+		*win_ret = wmhints->icon_window;
 	*leader = getwinprop(win, atoms[WM_CLIENT_LEADER]);
 	if (*leader == None)
 		*leader = (wmhints != NULL && (wmhints->flags & WindowGroupHint)) ? wmhints->window_group : None;
@@ -682,7 +686,7 @@ manage(Window win, XRectangle rect, int ignoreunmap)
 
 	if (getmanaged(win) != NULL)
 		return;
-	type = getwintype(win, &leader, &tab, &state, &rect);
+	type = getwintype(&win, &leader, &tab, &state, &rect);
 	if (type == TYPE_DESKTOP) {
 		/* we do not handle desktop windows */
 		XLowerWindow(dpy, win);
