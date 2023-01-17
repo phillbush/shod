@@ -35,7 +35,7 @@ struct Dock dock;
 static void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: shod [-cdhst] [-m modifier] [file]\n");
+	(void)fprintf(stderr, "usage: shod [-cdhs] [-m modifier] [file]\n");
 	exit(1);
 }
 
@@ -119,7 +119,7 @@ getoptions(int argc, char *argv[])
 {
 	int c;
 
-	while ((c = getopt(argc, argv, "cdhm:st")) != -1) {
+	while ((c = getopt(argc, argv, "cdhm:s")) != -1) {
 		switch (c) {
 		case 'c':
 			config.honorconfig = 1;
@@ -136,9 +136,6 @@ getoptions(int argc, char *argv[])
 			break;
 		case 's':
 			config.sloppyfocus = 1;
-			break;
-		case 't':
-			config.disablealttab = 1;
 			break;
 		default:
 			usage();

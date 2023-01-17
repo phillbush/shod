@@ -589,6 +589,37 @@ state(int argc, char *argv[])
 	clientmsg(win, atoms[_NET_WM_STATE], action, state1, state2, DIRECT_ACTION, 0);
 }
 
+/* cycle containers */
+static void
+cycle(int argc, char *argv[])
+{
+	KeyCode alt, tab;
+	KeySym ksym;
+	int c, shift;
+
+	alt = XKeysymToKeycode(dpy, XK_Alt_L);
+	tab = XKeysymToKeycode(dpy, XK_Tab);
+	shift = 0;
+	while ((c = getopt(argc, argv, "a:st:")) != -1) {
+		switch (c) {
+		case 'a':
+			if ((ksym = XStringToKeysym(optarg)) == NoSymbol)
+				errx(1, "%s: unknown key", optarg);
+			alt = XKeysymToKeycode(dpy, ksym);
+			break;
+		case 's':
+			shift = 1;
+			break;
+		case 't':
+			if ((ksym = XStringToKeysym(optarg)) == NoSymbol)
+				errx(1, "%s: unknown key", optarg);
+			tab = XKeysymToKeycode(dpy, ksym);
+			break;
+		}
+	}
+	clientmsg(None, atoms[_SHOD_CYCLE], alt, tab, shift, 0, 0);
+}
+
 /* shodc: remote controller for shod */
 int
 main(int argc, char *argv[])
@@ -615,6 +646,8 @@ main(int argc, char *argv[])
 		sendto(argc - 1, argv + 1);
 	else if (strcmp(argv[1], "state") == 0)
 		state(argc - 1, argv + 1);
+	else if (strcmp(argv[1], "cycle") == 0)
+		cycle(argc - 1, argv + 1);
 	else
 		usage();
 

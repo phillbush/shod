@@ -699,52 +699,48 @@ manage(Window win, XRectangle rect, int ignoreunmap)
 
 /* perform container switching (aka alt-tab) */
 static void
-alttab(XEvent *e)
+alttab(KeyCode alt, KeyCode tab, int shift)
 {
 	struct Container *c, *prevfocused;
 	XEvent ev;
-	int raised;
 
 	prevfocused = wm.focused;
 	if ((c = TAILQ_FIRST(&wm.focusq)) == NULL)
 		return;
-	ev = *e;
-	raised = 0;
 	if (XGrabKeyboard(dpy, root, True, GrabModeAsync, GrabModeAsync, CurrentTime) != GrabSuccess)
 		goto done;
 	if (XGrabPointer(dpy, root, False, 0, GrabModeAsync, GrabModeAsync, None, None, CurrentTime) != GrabSuccess)
 		goto done;
-	do {
+	containerbacktoplace(c, 0);
+	c = containerraisetemp(c, shift);
+	while (!XMaskEvent(dpy, ALTTABMASK, &ev)) {
 		switch (ev.type) {
 		case Expose:
 			if (ev.xexpose.count == 0)
 				copypixmap(ev.xexpose.window);
 			break;
 		case KeyPress:
-			if (ev.xkey.keycode == config.tabkeycode && isvalidstate(ev.xkey.state)) {
-				containerbacktoplace(c, raised);
+			if (ev.xkey.keycode == tab && isvalidstate(ev.xkey.state)) {
+				containerbacktoplace(c, 1);
 				c = containerraisetemp(c, isshiftstate(ev.xkey.state));
-				raised = 1;
 			} else if (!isvalidstate(ev.xkey.state)) {
 				goto done;
 			}
 			break;
 		case KeyRelease:
-			if (ev.xkey.keycode == config.altkeycode || !isvalidstate(ev.xkey.state))
+			if (ev.xkey.keycode == config.altkeycode || ev.xkey.keycode == alt || !isvalidstate(ev.xkey.state))
 				goto done;
 			break;
 		}
-	} while (!XMaskEvent(dpy, ALTTABMASK, &ev));
+	}
 done:
 	XUngrabKeyboard(dpy, CurrentTime);
 	XUngrabPointer(dpy, CurrentTime);
 	if (c == NULL)
 		return;
-	if (raised) {
-		containerbacktoplace(c, raised);
-		wm.focused = prevfocused;
-		tabfocus(c->selcol->selrow->seltab, 0);
-	}
+	containerbacktoplace(c, 1);
+	wm.focused = prevfocused;
+	tabfocus(c->selcol->selrow->seltab, 0);
 }
 
 /* detach tab from window with mouse */
@@ -1395,6 +1391,8 @@ xeventclientmessage(XEvent *e)
 	}
 	if (ev->message_type == atoms[_NET_CURRENT_DESKTOP]) {
 		deskfocus(wm.selmon, ev->data.l[0]);
+	} else if (ev->message_type == atoms[_SHOD_CYCLE]) {
+		alttab(ev->data.l[0], ev->data.l[1], ev->data.l[2]);
 	} else if (ev->message_type == atoms[_NET_SHOWING_DESKTOP]) {
 		if (ev->data.l[0]) {
 			deskshow(1);
@@ -1663,9 +1661,6 @@ xeventkeypress(XEvent *e)
 	XKeyPressedEvent *ev;
 
 	ev = &e->xkey;
-	if (!config.disablealttab && ev->keycode == config.tabkeycode) {
-		alttab(e);
-	}
 	if (ev->window == wm.wmcheckwin) {
 		e->xkey.window = root;
 		XSendEvent(dpy, root, False, KeyPressMask, e);
@@ -1832,20 +1827,10 @@ setmod(void)
 		warnx("could not get keycode from keysym");
 		return;
 	}
-	if ((config.tabkeycode = XKeysymToKeycode(dpy, config.tabkeysym)) == 0) {
-		warnx("could not get keycode from keysym");
-		return;
-	}
 	if ((config.modifier = XkbKeysymToModifiers(dpy, config.altkeysym)) == 0) {
 		warnx("could not get modifier from keysym");
 		return;
 	}
-	if (config.disablealttab)
-		return;
-	XUngrabKey(dpy, config.tabkeycode, config.modifier, root);
-	XUngrabKey(dpy, config.tabkeycode, config.modifier | config.shift, root);
-	XGrabKey(dpy, config.tabkeycode, config.modifier, root, False, GrabModeAsync, GrabModeAsync);
-	XGrabKey(dpy, config.tabkeycode, config.modifier | config.shift, root, False, GrabModeAsync, GrabModeAsync);
 }
 
 void (*xevents[LASTEvent])(XEvent *) = {

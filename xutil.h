@@ -66,6 +66,7 @@ enum {
 	_MOTIF_WM_HINTS,
 
 	/* shod atoms */
+	_SHOD_CYCLE,
 	_SHOD_GROUP_TAB,
 	_SHOD_GROUP_CONTAINER,
 	_SHOD_CONTAINER_LIST,
