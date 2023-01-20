@@ -699,7 +699,7 @@ manage(Window win, XRectangle rect, int ignoreunmap)
 
 /* perform container switching (aka alt-tab) */
 static void
-alttab(KeyCode alt, KeyCode tab, int shift)
+alttab(int shift)
 {
 	struct Container *c, *prevfocused;
 	XEvent ev;
@@ -720,13 +720,13 @@ alttab(KeyCode alt, KeyCode tab, int shift)
 				copypixmap(ev.xexpose.window);
 			break;
 		case KeyPress:
-			if (ev.xkey.keycode == tab) {
+			if (ev.xkey.keycode == config.tabkeycode && isvalidstate(ev.xkey.state)) {
 				containerbacktoplace(c, 1);
 				c = containerraisetemp(c, isshiftstate(ev.xkey.state));
 			}
 			break;
 		case KeyRelease:
-			if (ev.xkey.keycode == config.altkeycode || ev.xkey.keycode == alt)
+			if (ev.xkey.keycode == config.altkeycode)
 				goto done;
 			break;
 		}
@@ -1390,7 +1390,7 @@ xeventclientmessage(XEvent *e)
 	if (ev->message_type == atoms[_NET_CURRENT_DESKTOP]) {
 		deskfocus(wm.selmon, ev->data.l[0]);
 	} else if (ev->message_type == atoms[_SHOD_CYCLE]) {
-		alttab(ev->data.l[0], ev->data.l[1], ev->data.l[2]);
+		alttab(ev->data.l[0]);
 	} else if (ev->message_type == atoms[_NET_SHOWING_DESKTOP]) {
 		if (ev->data.l[0]) {
 			deskshow(1);
@@ -1659,6 +1659,9 @@ xeventkeypress(XEvent *e)
 	XKeyPressedEvent *ev;
 
 	ev = &e->xkey;
+	if (!config.disablealttab && ev->keycode == config.tabkeycode) {
+		alttab(ev->state & ShiftMask);
+	}
 	if (ev->window == wm.wmcheckwin) {
 		e->xkey.window = root;
 		XSendEvent(dpy, root, False, KeyPressMask, e);
@@ -1825,10 +1828,18 @@ setmod(void)
 		warnx("could not get keycode from keysym");
 		return;
 	}
+	if ((config.tabkeycode = XKeysymToKeycode(dpy, config.tabkeysym)) == 0) {
+		warnx("could not get keycode from keysym");
+		return;
+	}
 	if ((config.modifier = XkbKeysymToModifiers(dpy, config.altkeysym)) == 0) {
 		warnx("could not get modifier from keysym");
 		return;
 	}
+	if (config.disablealttab)
+		return;
+	XUngrabKey(dpy, config.tabkeycode, config.modifier, root);
+	XGrabKey(dpy, config.tabkeycode, config.modifier, root, False, GrabModeAsync, GrabModeAsync);
 }
 
 void (*xevents[LASTEvent])(XEvent *) = {

@@ -7,7 +7,7 @@
 .Nd mouse-focused window manager
 .Sh SYNOPSIS
 .Nm shod
-.Op Fl cdhs
+.Op Fl cdhst
 .Op Fl m Ar keysym
 .Op Ar file
 .Pp
@@ -17,8 +17,6 @@
 .Nm shodc
 .Cm cycle
 .Op Fl s
-.Op Fl a Ar altkey
-.Op Fl t Ar tabkey
 .Nm shodc
 .Cm desk
 .Nm shodc
@@ -124,6 +122,9 @@ or
 on most systems).
 .It Fl s
 Use sloppy focus rather than click-to-focus.
+.It Fl t
+Disable container cycling (aka
+.Dq "alt-tab" No ).
 .El
 .Pp
 .Nm shodc
@@ -145,30 +146,12 @@ If no argument is provided, close the active window.
 .Ss Cycle containers
 The
 .Cm cycle
-operation cycles through the open containers on the current desktop.
+operation initiates the cycling through the open containers on the current desktop.
 This cycling is generally called
-.Qq "Alt-Tab"
-and is initiated by pressing a key (usually
-.Qq "Tab" )
-while a modifier key (usually
-.Qq "Alt_L" )
-is pressed.
-If the
-.Qq "Shift"
-modifier is also pressed, the cycling is performed in the opposite direction.
-.Pp The options are as follows.
-.Bl -tag -width Ds
-.It Fl a Ar altkey
-Use the key
-.Ar altkey
-as Alt.
-.It Fl s
-Initiate the cycling in the opposite direction.
-.It Fl t Ar tabkey
-Use the key
-.Ar tabkey
-as Tab.
-.El
+.Qq "alt-tab" .
+Cycling is performed as
+.Qq "Tab"
+is pressed, and terminates when the modifier key is released.
 .Ss List desktops
 The
 .Cm desks
@@ -520,6 +503,27 @@ or undoes this state.
 Each title bar has a right button.
 Clicking on the right title-bar button with the first mouse button
 closes the focused client or its top dialog.
+.Pp
+Containers can be cycled using the key provided by the
+.Fl m
+option
+.No ( Cm Alt_L
+by default) followed by the
+.Cm Tab
+key.
+The
+.Cm Tab
+key can be further modified by
+.Cm Shift
+to cycle in the oposite direction.
+This mechanism is usually called
+.Dq "alt-tab"
+because of the key combination that usually triggers it.
+This mechanism can be turned off by invoking
+.Nm shod
+with the
+.Fl t
+command-line option.
 .Ss Dialog
 Windows that are transient for another managed windows (called its leader)
 are mapped in the center of the leader.

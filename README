@@ -22,8 +22,9 @@ on the screen.
 
 shod works via mouse, possibly with a given modifier (Alt by default),
 and by responding to client messages sent by the shodc utility (shod's
-remote controller).  Shod does no keybinding by itself and relies on
-other applications (such as sxhkd) for that.
+remote controller).  With the exception of the alt-tab combination for
+cycling windows, shod does no keybinding by itself and relies on other
+applications (such as sxhkd) for that.
 
 shod has no default bar.  However shod has a dock where dockapps (small
 windows commonly used on other window managers like Window Maker) can

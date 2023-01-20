@@ -53,6 +53,7 @@ static void
 usage(void)
 {
 	(void)fprintf(stderr, "usage: shodc close [WIN_ID]\n");
+	(void)fprintf(stderr, "       shodc cycle [-s]\n");
 	(void)fprintf(stderr, "       shodc desks\n");
 	(void)fprintf(stderr, "       shodc focus [-clrtbpnLRTBPN] [WIN_ID]\n");
 	(void)fprintf(stderr, "       shodc geom [-X|-x N] [-Y|-y N] [-W|-w N] [-H|-h N] [WIN_ID]\n");
@@ -593,31 +594,20 @@ state(int argc, char *argv[])
 static void
 cycle(int argc, char *argv[])
 {
-	KeyCode alt, tab;
-	KeySym ksym;
 	int c, shift;
 
-	alt = XKeysymToKeycode(dpy, XK_Alt_L);
-	tab = XKeysymToKeycode(dpy, XK_Tab);
 	shift = 0;
-	while ((c = getopt(argc, argv, "a:st:")) != -1) {
+	while ((c = getopt(argc, argv, "s")) != -1) {
 		switch (c) {
-		case 'a':
-			if ((ksym = XStringToKeysym(optarg)) == NoSymbol)
-				errx(1, "%s: unknown key", optarg);
-			alt = XKeysymToKeycode(dpy, ksym);
-			break;
 		case 's':
 			shift = 1;
 			break;
-		case 't':
-			if ((ksym = XStringToKeysym(optarg)) == NoSymbol)
-				errx(1, "%s: unknown key", optarg);
-			tab = XKeysymToKeycode(dpy, ksym);
+		default:
+			usage();
 			break;
 		}
 	}
-	clientmsg(None, atoms[_SHOD_CYCLE], alt, tab, shift, 0, 0);
+	clientmsg(None, atoms[_SHOD_CYCLE], shift, 0, 0, 0, 0);
 }
 
 /* shodc: remote controller for shod */
