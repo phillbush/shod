@@ -7,8 +7,7 @@
 .Nd mouse-focused window manager
 .Sh SYNOPSIS
 .Nm shod
-.Op Fl cdhst
-.Op Fl m Ar keysym
+.Op Fl AcdhstW
 .Op Ar file
 .Pp
 .Nm shodc
@@ -76,6 +75,17 @@ to run commands read from the standard input instead.
 .Pp
 The options are as follows:
 .Bl -tag -width Ds
+.It Fl A
+Use
+.Qq "Alt"
+as modifier key.
+More technically, use
+.Qq "Alt_L"
+as the key to perform container cycling (alt-tab); and use
+.Qq "Mod1Mask"
+as the modifier for mouse operations.
+This option is incompatible with
+.Fl W .
 .It Fl c
 Honor configure requests.
 By default,
@@ -104,27 +114,24 @@ By default, windows whose containers are obscured by other containers are set as
 hidden (aka minimized).
 This default behavior emulates the way Plan9's rio lists obscured windows as hidden.
 With this option set, only manually minimized containers are set as hidden.
-.It Fl m Ar keysym
-Specifies the key symbol that is used for the container cycling,
-and that provides the modifier to move and resize windows with the mouse pointer.
-By default,
-.Nm
-uses
-.Cm Alt_L
-(Left Alt) as modifier.
-See the
-.Pa keysymdef.h
-header file for a list of key symbols
-(it is usually at
-.Pa /usr/X11R6/include/X11/keysymdef.h
-or
-.Pa /usr/include/X11/keysymdef.h
-on most systems).
 .It Fl s
 Use sloppy focus rather than click-to-focus.
 .It Fl t
 Disable container cycling (aka
-.Dq "alt-tab" No ).
+.Dq "alt-tab" ) .
+.It Fl W
+Use
+.Qq "Super"
+(also known as
+.Qq "Window Key" ) .
+as modifier key.
+More technically, use
+.Qq "Super_L"
+as the key to perform container cycling (alt-tab); and use
+.Qq "Mod4Mask"
+as the modifier for mouse operations.
+This option is incompatible with
+.Fl A .
 .El
 .Pp
 .Nm shodc
@@ -504,9 +511,11 @@ Each title bar has a right button.
 Clicking on the right title-bar button with the first mouse button
 closes the focused client or its top dialog.
 .Pp
-Containers can be cycled using the key provided by the
-.Fl m
-option
+Containers can be cycled using the modifier key set with either the
+.Fl A
+or
+.Fl W
+command-line option
 .No ( Cm Alt_L
 by default) followed by the
 .Cm Tab

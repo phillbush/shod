@@ -200,13 +200,6 @@ isvalidstate(unsigned int state)
 	return config.modifier != 0 && (state & config.modifier) == config.modifier;
 }
 
-/* check whether given state matches shift */
-static int
-isshiftstate(unsigned int state)
-{
-	return config.shift != 0 && (state & config.shift) == config.shift;
-}
-
 /* get tab given window is a dialog for */
 static struct Tab *
 getdialogfor(Window win)
@@ -722,7 +715,7 @@ alttab(int shift)
 		case KeyPress:
 			if (ev.xkey.keycode == config.tabkeycode && isvalidstate(ev.xkey.state)) {
 				containerbacktoplace(c, 1);
-				c = containerraisetemp(c, isshiftstate(ev.xkey.state));
+				c = containerraisetemp(c, (ev.xkey.state & ShiftMask));
 			}
 			break;
 		case KeyRelease:
@@ -1823,17 +1816,12 @@ void
 setmod(void)
 {
 	config.altkeycode = 0;
-	config.modifier = 0;
 	if ((config.altkeycode = XKeysymToKeycode(dpy, config.altkeysym)) == 0) {
 		warnx("could not get keycode from keysym");
 		return;
 	}
 	if ((config.tabkeycode = XKeysymToKeycode(dpy, config.tabkeysym)) == 0) {
 		warnx("could not get keycode from keysym");
-		return;
-	}
-	if ((config.modifier = XkbKeysymToModifiers(dpy, config.altkeysym)) == 0) {
-		warnx("could not get modifier from keysym");
 		return;
 	}
 	if (config.disablealttab)

@@ -35,7 +35,7 @@ struct Dock dock;
 static void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: shod [-cdhst] [-m modifier] [file]\n");
+	(void)fprintf(stderr, "usage: shod [-AcdhstW] [file]\n");
 	exit(1);
 }
 
@@ -119,8 +119,12 @@ getoptions(int argc, char *argv[])
 {
 	int c;
 
-	while ((c = getopt(argc, argv, "cdhm:st")) != -1) {
+	while ((c = getopt(argc, argv, "AcdhstW")) != -1) {
 		switch (c) {
+		case 'A' :
+			config.altkeysym = XK_Alt_L;
+			config.modifier = Mod1Mask;
+			break;
 		case 'c':
 			config.honorconfig = 1;
 			break;
@@ -130,15 +134,15 @@ getoptions(int argc, char *argv[])
 		case 'h':
 			config.disablehidden = 1;
 			break;
-		case 'm':
-			if ((config.altkeysym = XStringToKeysym(optarg)) == NoSymbol)
-				errx(1, "supplied key does not match any key symbol: %s", optarg);
-			break;
 		case 's':
 			config.sloppyfocus = 1;
 			break;
 		case 't':
 			config.disablealttab = 1;
+			break;
+		case 'W' :
+			config.altkeysym = XK_Super_L;
+			config.modifier = Mod4Mask;
 			break;
 		default:
 			usage();

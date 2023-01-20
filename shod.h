@@ -654,7 +654,6 @@ struct Config {
 	KeyCode altkeycode;                     /* keycode of the altkeysym */
 	KeyCode tabkeycode;                     /* keycode of the tabkeysym */
 	unsigned int modifier;                  /* modifier of the altkeycode */
-	unsigned int shift;                     /* shift modifier */
 	int corner;                             /* = .borderwidth + .titlewidth */
 	int divwidth;                           /* = .borderwidth */
 };

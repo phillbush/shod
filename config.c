@@ -16,10 +16,9 @@ struct Config config = {
 	.disablehidden  = 0,            /* set to 1 to disable notification of hidden window as minimized */
 
 	/* general configuration */
-	.altkeysym      = XK_Alt_L,
-	.tabkeysym      = XK_Tab,
-	.modifier       = Mod1Mask,
-	.shift          = ShiftMask,
+	.altkeysym      = XK_Alt_L,     /* XK_Alt_L for Alt, XK_Super_L for Super (aka WinKey) */
+	.tabkeysym      = XK_Tab,       /* tab key; you should probably not change this */
+	.modifier       = Mod1Mask,     /* Mod1Mask for Alt, Mod4Mask for Super */
 	.snap           = 8,            /* proximity of container edges to perform snap attraction */
 	.font = "monospace:pixelsize=11", /* font for titles in titlebars */
 	.ndesktops      = 10,           /* number of desktops per monitor */
