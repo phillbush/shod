@@ -720,15 +720,13 @@ alttab(KeyCode alt, KeyCode tab, int shift)
 				copypixmap(ev.xexpose.window);
 			break;
 		case KeyPress:
-			if (ev.xkey.keycode == tab && isvalidstate(ev.xkey.state)) {
+			if (ev.xkey.keycode == tab) {
 				containerbacktoplace(c, 1);
 				c = containerraisetemp(c, isshiftstate(ev.xkey.state));
-			} else if (!isvalidstate(ev.xkey.state)) {
-				goto done;
 			}
 			break;
 		case KeyRelease:
-			if (ev.xkey.keycode == config.altkeycode || ev.xkey.keycode == alt || !isvalidstate(ev.xkey.state))
+			if (ev.xkey.keycode == config.altkeycode || ev.xkey.keycode == alt)
 				goto done;
 			break;
 		}
