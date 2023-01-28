@@ -164,10 +164,12 @@ initsignal(void)
 
 	/* remove zombies, we may inherit children when exec'ing shod in .xinitrc */
 	sa.sa_handler = SIG_IGN;
-	sa.sa_flags = 0;
+	sa.sa_flags = SA_NOCLDSTOP | SA_NOCLDWAIT | SA_RESTART;
 	sigemptyset(&sa.sa_mask);
 	if (sigaction(SIGCHLD, &sa, NULL) == -1)
 		err(1, "sigaction");
+	while (waitpid(-1, NULL, WNOHANG) != -1)
+		;
 
 	/* set running to 0 */
 	sa.sa_handler = siginthandler;
