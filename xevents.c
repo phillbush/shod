@@ -54,8 +54,7 @@ enum {
 	 * Constants copied from lib/Xm/MwmUtil.h on motif's source code.
 	 */
 
-	PROP_MOTIF_WM_HINTS_ELEMENTS            = 5,
-	PROP_MWM_HINTS_ELEMENTS                 = PROP_MOTIF_WM_HINTS_ELEMENTS,
+	PROP_MWM_HINTS_ELEMENTS                 = 5,
 
 	/* bit definitions for MwmHints.flags */
 	MWM_HINTS_FUNCTIONS                     = (1 << 0),
@@ -90,6 +89,28 @@ enum {
 	MWM_TEAROFF_WINDOW                      = (1 << 0),
 };
 
+/* GNUstep constants, mostly unused */
+enum {
+	/*
+	 * Constants copied from src/GNUstep.h on window-maker's source code.
+	 */
+
+	PROP_GNU_HINTS_ELEMENTS                 = 9,
+
+	/* window levels */
+	GNU_LEVEL_DESKTOP       = -1000,
+	GNU_LEVEL_NORMAL        = 0,
+	GNU_LEVEL_FLOATING      = 3,
+	GNU_LEVEL_SUBMENU       = 3,
+	GNU_LEVEL_TORNOFF       = 3,
+	GNU_LEVEL_MAINMENU      = 20,
+	GNU_LEVEL_DOCK          = 21,
+	GNU_LEVEL_STATUS        = 21,
+	GNU_LEVEL_PANEL         = 100,
+	GNU_LEVEL_POPUP         = 101,
+	GNU_LEVEL_SCREENSAVER   = 1000,
+};
+
 /* motif window manager (Mwm) hints */
 struct MwmHints {
 	unsigned long flags;
@@ -97,6 +118,19 @@ struct MwmHints {
 	unsigned long decorations;
 	long          inputMode;
 	unsigned long status;
+};
+
+/* GNUstep window manager hints */
+struct GNUHints {
+	unsigned long flags;
+	unsigned long window_style;
+	unsigned long window_level;
+	unsigned long reserved;
+	unsigned long miniaturize_pixmap;       /* pixmap for miniaturize button */
+	unsigned long close_pixmap;             /* pixmap for close button */
+	unsigned long miniaturize_mask;         /* miniaturize pixmap mask */
+	unsigned long close_mask;               /* close pixmap mask */
+	unsigned long extra_flags;
 };
 
 void (*managefuncs[TYPE_LAST])(struct Tab *, struct Monitor *, int, Window, Window, XRectangle, int, int) = {
@@ -313,26 +347,33 @@ gettextprop(Window win, Atom atom, char *buf, size_t size)
 	return Success;
 }
 
-/* get motif window manager hints property from window */
-static struct MwmHints *
-getmwmhints(Window win)
+/* get motif/GNUstep hints from window; return -1 on error */
+static int
+getextrahints(Window win, Atom prop, unsigned long nmemb, size_t size, void *hints)
 {
-	struct MwmHints *mwmhints;
+
 	unsigned long dl;
 	Atom type;
 	int di;
-	int ret;
+	int status, ret;
+	unsigned char *p;
 
-	ret = XGetWindowProperty(dpy, win, atoms[_MOTIF_WM_HINTS],
-	                         0L, PROP_MWM_HINTS_ELEMENTS,
-	                         False, atoms[_MOTIF_WM_HINTS],
-	                         &type, &di, &dl, &dl,
-	                         (unsigned char **)&mwmhints);
-	if ((ret == Success) && (type == atoms[_MOTIF_WM_HINTS]))
-		return mwmhints;
-	if (mwmhints != NULL)
-		XFree(mwmhints);
-	return NULL;
+	status = XGetWindowProperty(
+		dpy, win,
+		prop,
+		0L, nmemb,
+		False,
+		prop,
+		&type, &di, &dl, &dl,
+		&p
+	);
+	ret = -1;
+	if (status == Success && p != NULL) {
+		memcpy(hints, p, size);
+		ret = 0;
+	}
+	XFree(p);
+	return ret;
 }
 
 /* get window info based on its type */
@@ -343,7 +384,8 @@ getwintype(Window *win_ret, Window *leader, struct Tab **tab, int *state, XRecta
 	enum { CLASS = 0, INSTANCE = 1, ROLE = 2 };
 	char *rule[] = { "_", "_", "_" };
 
-	struct MwmHints *mwmhints;
+	struct MwmHints mwmhints = { 0 };
+	struct GNUHints gnuhints = { 0 };
 	XClassHint classh;
 	XWMHints *wmhints;
 	XrmValue xval;
@@ -351,7 +393,7 @@ getwintype(Window *win_ret, Window *leader, struct Tab **tab, int *state, XRecta
 	Atom prop;
 	size_t i;
 	long n;
-	int type, isdockapp, ismenu, pos;
+	int type, isdockapp, pos;
 	char *ds;
 	char buf[NAMEMAXLEN];
 	char role[NAMEMAXLEN];
@@ -458,8 +500,8 @@ getwintype(Window *win_ret, Window *leader, struct Tab **tab, int *state, XRecta
 	/* try to guess window type */
 	prop = getatomprop(win, atoms[_NET_WM_WINDOW_TYPE]);
 	wmhints = XGetWMHints(dpy, win);
-	mwmhints = getmwmhints(win);
-	ismenu = mwmhints != NULL && (mwmhints->flags & MWM_HINTS_STATUS) && (mwmhints->status & MWM_TEAROFF_WINDOW);
+	getextrahints(win, atoms[_MOTIF_WM_HINTS], PROP_MWM_HINTS_ELEMENTS, sizeof(mwmhints), &mwmhints);
+	getextrahints(win, atoms[_GNUSTEP_WM_ATTR], PROP_GNU_HINTS_ELEMENTS, sizeof(gnuhints), &gnuhints);
 	isdockapp = (wmhints && (wmhints->flags & (IconWindowHint | StateHint)) && wmhints->initial_state == WithdrawnState);
 	if (isdockapp && wmhints->icon_window != None)
 		*win_ret = wmhints->icon_window;
@@ -467,10 +509,13 @@ getwintype(Window *win_ret, Window *leader, struct Tab **tab, int *state, XRecta
 	if (*leader == None)
 		*leader = (wmhints != NULL && (wmhints->flags & WindowGroupHint)) ? wmhints->window_group : None;
 	*tab = getdialogfor(win);
-	XFree(mwmhints);
 	XFree(wmhints);
 	if (isdockapp) {
 		type = TYPE_DOCKAPP;
+	} else if (gnuhints.window_level == GNU_LEVEL_SUBMENU ||
+                   gnuhints.window_level == GNU_LEVEL_MAINMENU ||
+                   gnuhints.window_level == GNU_LEVEL_POPUP) {
+		type = TYPE_POPUP;
 	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_DESKTOP]) {
 		type = TYPE_DESKTOP;
 	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_DOCK]) {
@@ -481,10 +526,11 @@ getwintype(Window *win_ret, Window *leader, struct Tab **tab, int *state, XRecta
 		type = TYPE_PROMPT;
 	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_SPLASH]) {
 		type = TYPE_SPLASH;
-	} else if (ismenu ||
-	           prop == atoms[_NET_WM_WINDOW_TYPE_MENU] ||
+	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_MENU] ||
 	           prop == atoms[_NET_WM_WINDOW_TYPE_UTILITY] ||
-	           prop == atoms[_NET_WM_WINDOW_TYPE_TOOLBAR]) {
+	           prop == atoms[_NET_WM_WINDOW_TYPE_TOOLBAR] ||
+                   ((mwmhints.flags & MWM_HINTS_STATUS) &&
+                    (mwmhints.status & MWM_TEAROFF_WINDOW))) {
 		if (*tab != NULL)
 			*leader = (*tab)->obj.win;
 		type = TYPE_MENU;
@@ -680,9 +726,12 @@ manage(Window win, XRectangle rect, int ignoreunmap)
 	if (getmanaged(win) != NULL)
 		return;
 	type = getwintype(&win, &leader, &tab, &state, &rect);
-	if (type == TYPE_DESKTOP) {
+	if (type == TYPE_DESKTOP || type == TYPE_POPUP) {
 		/* we do not handle desktop windows */
-		XLowerWindow(dpy, win);
+		if (type == TYPE_DESKTOP)
+			XLowerWindow(dpy, win);
+		else if (type == TYPE_POPUP)
+			XRaiseWindow(dpy, win);
 		XMapWindow(dpy, win);
 		return;
 	}

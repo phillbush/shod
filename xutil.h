@@ -65,6 +65,9 @@ enum {
 	/* motif atoms */
 	_MOTIF_WM_HINTS,
 
+	/* GNUstep atoms */
+	_GNUSTEP_WM_ATTR,
+
 	/* shod atoms */
 	_SHOD_CYCLE,
 	_SHOD_GROUP_TAB,
