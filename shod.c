@@ -19,7 +19,6 @@
                         | PropertyChangeMask)
 
 static int (*xerrorxlib)(Display *, XErrorEvent *);
-volatile sig_atomic_t running = 1;
 
 /* shared variables */
 unsigned long clientmask = CWEventMask | CWColormap | CWBackPixel | CWBorderPixel;
@@ -28,7 +27,7 @@ XSetWindowAttributes clientswa = {
 	            | SubstructureRedirectMask | ButtonPressMask | FocusChangeMask
 	            | Button1MotionMask
 };
-struct WM wm = {};
+struct WM wm = { .running = 1 };
 struct Dock dock;
 
 /* show usage and exit */
@@ -96,21 +95,13 @@ xerror(Display *dpy, XErrorEvent *e)
 	exit(1);        /* unreached */
 }
 
-/* startup error handler to check if another window manager is already running. */
+/* startup error handler to check if another window manager is already running */
 static int
 xerrorstart(Display *dpy, XErrorEvent *e)
 {
 	(void)dpy;
 	(void)e;
 	errx(1, "another window manager is already running");
-}
-
-/* stop running */
-static void
-siginthandler(int signo)
-{
-	(void)signo;
-	running = 0;
 }
 
 /* read command-line options */
@@ -170,13 +161,6 @@ initsignal(void)
 		err(1, "sigaction");
 	while (waitpid(-1, NULL, WNOHANG) != -1)
 		;
-
-	/* set running to 0 */
-	sa.sa_handler = siginthandler;
-	sa.sa_flags = 0;
-	sigemptyset(&sa.sa_mask);
-	if (sigaction(SIGINT, &sa, NULL) == -1)
-		err(1, "sigaction");
 }
 
 /* initialize cursors */
@@ -241,7 +225,7 @@ initdummywindows(void)
 	}
 	swa = clientswa;
 	swa.event_mask |= KeyPressMask;
-	wm.wmcheckwin = XCreateWindow(
+	wm.checkwin = wm.focuswin = wm.dragwin = wm.restackwin = XCreateWindow(
 		dpy, root,
 		- (2 * config.borderwidth + config.titlewidth),
 		- (2 * config.borderwidth + config.titlewidth),
@@ -251,20 +235,14 @@ initdummywindows(void)
 		clientmask,
 		&swa
 	);
-	wm.wmcheckpix = XCreatePixmap(
-		dpy, wm.wmcheckwin,
-		2 * config.borderwidth + config.titlewidth,
-		2 * config.borderwidth + config.titlewidth,
-		depth
-	);
 }
 
 /* map and hide dummy windows */
 static void
 mapdummywins(void)
 {
-	XMapWindow(dpy, wm.wmcheckwin);
-	XSetInputFocus(dpy, wm.wmcheckwin, RevertToParent, CurrentTime);
+	XMapWindow(dpy, wm.focuswin);
+	XSetInputFocus(dpy, wm.focuswin, RevertToParent, CurrentTime);
 }
 
 /* run stdin on sh */
@@ -299,8 +277,7 @@ cleandummywindows(void)
 {
 	int i;
 
-	XFreePixmap(dpy, wm.wmcheckpix);
-	XDestroyWindow(dpy, wm.wmcheckwin);
+	XDestroyWindow(dpy, wm.checkwin);
 	for (i = 0; i < LAYER_LAST; i++) {
 		XDestroyWindow(dpy, wm.layers[i].frame);
 	}
@@ -389,8 +366,8 @@ main(int argc, char *argv[])
 	initatoms();
 	initroot();
 	initdummywindows();
-	inittheme();
 	initdock();
+	inittheme();
 
 	/* set up list of monitors */
 	monupdate();
@@ -414,12 +391,14 @@ main(int argc, char *argv[])
 	setmod();
 
 	/* run main event loop */
-	while (running && !XNextEvent(dpy, &ev)) {
+	while (!XNextEvent(dpy, &ev)) {
 		wm.setclientlist = 0;
 		if (wm.xrandr && ev.type - wm.xrandrev == RRScreenChangeNotify)
 			monevent(&ev);
 		else if (ev.type < LASTEvent && xevents[ev.type] != NULL)
 			(*xevents[ev.type])(&ev);
+		if (!wm.running)
+			break;
 		if (wm.setclientlist) {
 			ewmhsetclients();
 		}
@@ -428,8 +407,8 @@ main(int argc, char *argv[])
 	/* clean up */
 	cleandummywindows();
 	cleancursors();
-	cleantheme();
 	cleanwm();
+	cleantheme();
 
 	/* clear ewmh hints */
 	ewmhsetclients();

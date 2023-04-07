@@ -19,6 +19,8 @@
 .Nm shodc
 .Cm desk
 .Nm shodc
+.Cm exit
+.Nm shodc
 .Cm focus
 .Op Fl clrtbpnLRTBPN
 .Op Ar win_id
@@ -167,6 +169,12 @@ operation lists the desktops, one per line.
 If the line begins with an asterisk, the desktop is the focused one;
 If the line begins with an hyphen, the desktop has an urgent window in it.
 The number is the number of windows in the desktop.
+.Ss Exit shod
+The
+.Cm exit
+operation exits the
+.Nm shod
+window manager.
 .Ss Focus window
 The
 .Cm focus

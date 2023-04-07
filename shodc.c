@@ -55,6 +55,7 @@ usage(void)
 	(void)fprintf(stderr, "usage: shodc close [WIN_ID]\n");
 	(void)fprintf(stderr, "       shodc cycle [-s]\n");
 	(void)fprintf(stderr, "       shodc desks\n");
+	(void)fprintf(stderr, "       shodc exit\n");
 	(void)fprintf(stderr, "       shodc focus [-clrtbpnLRTBPN] [WIN_ID]\n");
 	(void)fprintf(stderr, "       shodc geom [-X|-x N] [-Y|-y N] [-W|-w N] [-H|-h N] [WIN_ID]\n");
 	(void)fprintf(stderr, "       shodc goto [-m MON_ID] DESK_ID\n");
@@ -610,6 +611,20 @@ cycle(int argc, char *argv[])
 	clientmsg(None, atoms[_SHOD_CYCLE], shift, 0, 0, 0, 0);
 }
 
+/* exit shod */
+static void
+exitshod(int argc, char *argv[])
+{
+	Window checkwin;
+
+	(void)argc;
+	(void)argv;
+	checkwin = getwinprop(root, atoms[_NET_SUPPORTING_WM_CHECK]);
+	if (checkwin != None) {
+		XDestroyWindow(dpy, checkwin);
+	}
+}
+
 /* shodc: remote controller for shod */
 int
 main(int argc, char *argv[])
@@ -638,9 +653,10 @@ main(int argc, char *argv[])
 		state(argc - 1, argv + 1);
 	else if (strcmp(argv[1], "cycle") == 0)
 		cycle(argc - 1, argv + 1);
+	else if (strcmp(argv[1], "exit") == 0)
+		exitshod(argc - 1, argv + 1);
 	else
 		usage();
-
 	XCloseDisplay(dpy);
 	return 0;
 }

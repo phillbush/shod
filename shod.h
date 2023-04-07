@@ -526,6 +526,8 @@ struct Notification {
 };
 
 struct WM {
+	int running;
+
 	/*
 	 * The window manager maintains a list of monitors and several
 	 * window-holding entities such as containers and bars.
@@ -570,20 +572,12 @@ struct WM {
 	struct Monitor *selmon;                 /* pointer to selected monitor */
 
 	/*
-	 * Shod uses a dummy window called wmcheckwin for multiple
-	 * purposes:
-	 * - It is necessary to implement EWMH's _NET_SUPPORTING_WM_CHECK property.
-	 * - It is hidden out of the screen and gets the focus when no
-	 *   window has the keyboard focus.
-	 * - When the user reorder the tiles in a container by dragging a
-	 *   title bar with the right mouse button, this window follows
-	 *   the mouse pointer to indicate that dragging is in action.
-	 *
-	 * We first draw into the `wmcheckpix` pixmap and then copy its
-	 * contents into the `wmcheckwin` when the window is damaged.
+	 * Dummy windows
 	 */
-	Window wmcheckwin;                      /* dummy window required by EWMH */
-	Pixmap wmcheckpix;
+	Window checkwin;                        /* carries _NET_SUPPORTING_WM_CHECK */
+	Window focuswin;                        /* gets focus when no container is visible */
+	Window dragwin;                         /* follows mouse while dragging */
+	Window restackwin;                      /* reordered in Z axis to save a position */
 
 	Cursor cursors[CURSOR_LAST];            /* cursors for the mouse pointer */
 	int showingdesk;                        /* whether the desktop is being shown */

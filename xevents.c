@@ -802,11 +802,11 @@ mouseretab(struct Tab *tab, int xroot, int yroot, int x, int y)
 	containermoveresize(c, 0);
 	XUnmapWindow(dpy, tab->title);
 	XMoveWindow(
-		dpy, wm.wmcheckwin,
+		dpy, wm.dragwin,
 		ev.xmotion.x_root - DNDDIFF - (2 * config.borderwidth + config.titlewidth),
 		ev.xmotion.y_root - DNDDIFF - (2 * config.borderwidth + config.titlewidth)
 	);
-	XRaiseWindow(dpy, wm.wmcheckwin);
+	XRaiseWindow(dpy, wm.dragwin);
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
 		case Expose:
@@ -815,7 +815,7 @@ mouseretab(struct Tab *tab, int xroot, int yroot, int x, int y)
 			break;
 		case MotionNotify:
 			XMoveWindow(
-				dpy, wm.wmcheckwin,
+				dpy, wm.dragwin,
 				ev.xmotion.x_root - DNDDIFF - (2 * config.borderwidth + config.titlewidth),
 				ev.xmotion.y_root - DNDDIFF - (2 * config.borderwidth + config.titlewidth)
 			);
@@ -826,7 +826,7 @@ mouseretab(struct Tab *tab, int xroot, int yroot, int x, int y)
 	}
 done:
 	XMoveWindow(
-		dpy, wm.wmcheckwin,
+		dpy, wm.dragwin,
 		- (2 * config.borderwidth + config.titlewidth),
 		- (2 * config.borderwidth + config.titlewidth)
 	);
@@ -1621,6 +1621,8 @@ xeventdestroynotify(XEvent *e)
 		if (obj->win == ev->window && (*unmanagefuncs[obj->type])(obj, 0)) {
 			wm.setclientlist = 1;
 		}
+	} else if (ev->window == wm.checkwin) {
+		wm.running = 0;
 	}
 }
 
@@ -1704,7 +1706,7 @@ xeventkeypress(XEvent *e)
 	if (!config.disablealttab && ev->keycode == config.tabkeycode) {
 		alttab(ev->state & ShiftMask);
 	}
-	if (ev->window == wm.wmcheckwin) {
+	if (ev->window == wm.checkwin) {
 		e->xkey.window = root;
 		XSendEvent(dpy, root, False, KeyPressMask, e);
 	}

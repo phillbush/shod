@@ -1611,9 +1611,9 @@ containerraisetemp(struct Container *prevc, int backward)
 		newc = prevc;
 	if (newc->ishidden)
 		XMapWindow(dpy, newc->frame);
-	/* we save the Z-axis position of the container with wm.wmcheckwin */
+	/* we save the Z-axis position of the container with wm.restackwin */
 	wins[0] = newc->frame;
-	wins[1] = wm.wmcheckwin;
+	wins[1] = wm.restackwin;
 	XRestackWindows(dpy, wins, 2);
 	XRaiseWindow(dpy, newc->frame);
 	wm.focused = newc;
@@ -1633,7 +1633,7 @@ containerbacktoplace(struct Container *c, int restack)
 	wm.focused = NULL;
 	containerdecorate(c, NULL, NULL, 1, 0);
 	if (restack) {
-		wins[0] = wm.wmcheckwin;
+		wins[0] = wm.restackwin;
 		wins[1] = c->frame;
 		XRestackWindows(dpy, wins, 2);
 	}
@@ -1675,7 +1675,7 @@ tabfocus(struct Tab *tab, int gotodesk)
 		tabhidemenus(wm.prevfocused->selcol->selrow->seltab, ADD);
 	if (tab == NULL) {
 		wm.focused = NULL;
-		XSetInputFocus(dpy, wm.wmcheckwin, RevertToParent, CurrentTime);
+		XSetInputFocus(dpy, wm.focuswin, RevertToParent, CurrentTime);
 		ewmhsetactivewindow(None);
 	} else {
 		c = tab->row->col->c;

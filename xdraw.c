@@ -98,12 +98,6 @@ getexposed(Window win, Pixmap *pix, int *pw, int *ph)
 			}
 		}
 	}
-	if (wm.wmcheckwin == win) {
-		*pix = wm.wmcheckpix;
-		*pw = 2 * config.borderwidth + config.titlewidth;
-		*ph = 2 * config.borderwidth + config.titlewidth;
-		return 1;
-	}
 	if (dock.win == win) {
 		*pix = dock.pix;
 		*pw = dock.w;
@@ -717,9 +711,17 @@ copypixmap(Window win)
 void
 inittheme(void)
 {
+	Pixmap pix;
 	int i, j;
 
-	gc = XCreateGC(dpy, wm.wmcheckwin, GCFillStyle, &(XGCValues){.fill_style = FillSolid});
+	pix = XCreatePixmap(
+		dpy,
+		wm.dragwin,
+		2 * config.borderwidth + config.titlewidth,
+		2 * config.borderwidth + config.titlewidth,
+		depth
+	);
+	gc = XCreateGC(dpy, wm.dragwin, GCFillStyle, &(XGCValues){.fill_style = FillSolid});
 	config.corner = config.borderwidth + config.titlewidth;
 	config.divwidth = config.borderwidth;
 	wm.minsize = config.corner * 2 + 10;
@@ -740,20 +742,20 @@ inittheme(void)
 		}
 	}
 	drawbackground(
-		wm.wmcheckpix,
+		pix,
 		0, 0,
 		2 * config.borderwidth + config.titlewidth,
 		2 * config.borderwidth + config.titlewidth,
 		FOCUSED
 	);
 	drawborders(
-		wm.wmcheckpix,
+		pix,
 		2 * config.borderwidth + config.titlewidth,
 		2 * config.borderwidth + config.titlewidth,
 		FOCUSED
 	);
 	drawshadow(
-		wm.wmcheckpix,
+		pix,
 		config.borderwidth,
 		config.borderwidth,
 		config.titlewidth,
@@ -761,6 +763,9 @@ inittheme(void)
 		FOCUSED,
 		0
 	);
+	XSetWindowBackgroundPixmap(dpy, wm.dragwin, pix);
+	XClearWindow(dpy, wm.dragwin);
+	XFreePixmap(dpy, pix);
 }
 
 /* free font */
