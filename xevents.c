@@ -430,15 +430,15 @@ getwintype(Window *win_ret, Window *leader, struct Tab **tab, int *state, XRecta
 	if (classh.res_class != NULL)
 		class[I_CLASS] = name[I_CLASS] = XrmStringToQuark(classh.res_class);
 	else
-		class[I_CLASS] = name[I_CLASS] = wm.resources[RES_ANY].name;
+		class[I_CLASS] = name[I_CLASS] = wm.anyresource;
 	if (classh.res_name != NULL)
 		class[I_INSTANCE] = name[I_INSTANCE] = XrmStringToQuark(classh.res_name);
 	else
-		class[I_INSTANCE] = name[I_INSTANCE] = wm.resources[RES_ANY].name;
+		class[I_INSTANCE] = name[I_INSTANCE] = wm.anyresource;
 	if (role != NULL)
 		class[I_ROLE] = name[I_ROLE] = XrmStringToQuark(role);
 	else
-		class[I_ROLE] = name[I_ROLE] = wm.resources[RES_ANY].name;
+		class[I_ROLE] = name[I_ROLE] = wm.anyresource;
 	free(role);
 	XFree(classh.res_class);
 	XFree(classh.res_name);
@@ -1773,8 +1773,6 @@ xeventpropertynotify(XEvent *e)
 		XrmDestroyDatabase(xdb);
 		setresources(str);
 		free(str);
-		cleantheme();
-		inittheme();
 		TAILQ_FOREACH(c, &wm.focusq, entry)
 			containerdecorate(c, NULL, NULL, 1, C);
 		TAILQ_FOREACH(obj, &wm.menuq, entry)

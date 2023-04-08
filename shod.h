@@ -29,7 +29,6 @@
 
 #define RESOURCES                                                                        \
 	/*                      CLASS                        NAME                      */\
-	X(RES_ANY,             "?",                         "?"                         )\
 	X(RES_TYPE,            "Type",                      "type"                      )\
 	X(RES_STATE,           "State",                     "state"                     )\
 	X(RES_DOCK_POS,        "Dockpos",                   "dockpos"                   )\
@@ -114,8 +113,9 @@ enum {
 
 enum {
 	/* color array indices */
-	COLOR_DEF    = 0,
-	COLOR_ALT    = 1,
+	COLOR_BG     = 0,
+	COLOR_BORD   = 1,
+	COLOR_FG     = 2,
 
 	COLOR_MID    = 0,
 	COLOR_LIGHT  = 1,
@@ -128,6 +128,7 @@ enum {
 	FOCUSED,
 	UNFOCUSED,
 	URGENT,
+	STYLE_OTHER,
 	STYLE_LAST
 };
 
@@ -584,6 +585,7 @@ struct WM {
 		XrmClass class;
 		XrmName name;
 	} application, resources[NRESOURCES];
+	XrmQuark anyresource;
 
 	/*
 	 * Xrandr information.
@@ -674,9 +676,7 @@ struct Config {
 
 	/* font and color names */
 	const char *font;
-	const char *foreground;
-	const char *dockcolors[2];
-	const char *bordercolors[STYLE_LAST][COLOR_LAST];
+	const char *colors[STYLE_LAST][COLOR_LAST];
 
 	/* hardcoded rules */
 	struct Rule {
@@ -792,9 +792,9 @@ void drawdock(Pixmap pix, int w, int h);
 void buttonleftdecorate(Window button, Pixmap pix, int style, int pressed);
 void buttonrightdecorate(Window button, Pixmap pix, int style, int pressed);
 void copypixmap(Window win);
-void inittheme(void);
 void cleantheme(void);
 void setresources(char *xrm);
+int settheme(void);
 
 /* window management routines */
 Managefunc managedockapp;

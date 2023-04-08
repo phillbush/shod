@@ -1,34 +1,33 @@
 #include <err.h>
+#include <stdlib.h>
 
 #include "shod.h"
 
 static GC gc;
 static struct Theme {
 	XftFont *font;
-	XftColor fg[STYLE_LAST][2];
-	unsigned long border[STYLE_LAST][COLOR_LAST];
-	unsigned long dock[2];
+	XftColor colors[STYLE_LAST][COLOR_LAST];
 } theme;
 
-/* get color from color string */
-static unsigned long
-ealloccolor(const char *s)
+static int
+alloccolor(const char *s, XftColor *color)
 {
-	XColor color;
-
-	if(!XAllocNamedColor(dpy, colormap, s, &color, &color)) {
+	if(!XftColorAllocName(dpy, visual, colormap, s, color)) {
 		warnx("could not allocate color: %s", s);
-		return BlackPixel(dpy, screen);
+		return 0;
 	}
-	return color.pixel;
+	return 1;
 }
 
-/* get XftColor from color string */
-static void
-eallocxftcolor(const char *s, XftColor *color)
+static XftFont *
+openfont(const char *s)
 {
-	if(!XftColorAllocName(dpy, visual, colormap, s, color))
-		errx(1, "could not allocate color: %s", s);
+	XftFont *font = NULL;
+
+	if ((font = XftFontOpenXlfd(dpy, screen, s)) == NULL)
+		if ((font = XftFontOpenName(dpy, screen, s)) == NULL)
+			warnx("could not open font: %s", s);
+	return font;
 }
 
 /* win was exposed, return the pixmap of its contents and the pixmap's size */
@@ -163,9 +162,12 @@ drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int p
 	unsigned int top, bot;
 	int i, x, y;
 
-	top = theme.border[style][pressed ? COLOR_DARK : COLOR_LIGHT];
-	bot = theme.border[style][pressed ? COLOR_LIGHT : COLOR_DARK];
-	color = &theme.fg[style][ismenu ? 1 : drawlines];
+	top = theme.colors[style][pressed ? COLOR_DARK : COLOR_LIGHT].pixel;
+	bot = theme.colors[style][pressed ? COLOR_LIGHT : COLOR_DARK].pixel;
+	if (ismenu || drawlines)
+		color = &theme.colors[style][COLOR_LIGHT];
+	else
+		color = &theme.colors[STYLE_OTHER][COLOR_FG];
 	draw = XftDrawCreate(dpy, pix, visual, colormap);
 	len = strlen(text);
 	XftTextExtentsUtf8(dpy, theme.font, text, len, &box);
@@ -193,21 +195,21 @@ drawborders(Pixmap pix, int w, int h, int style)
 {
 	XGCValues val;
 	XRectangle *recs;
-	unsigned long *decor;
+	XftColor *decor;
 	int partw, parth;
 	int i;
 
 	if (w <= 0 || h <= 0)
 		return;
 
-	decor = theme.border[style];
+	decor = theme.colors[style];
 	partw = w - 2 * config.borderwidth;
 	parth = h - 2 * config.borderwidth;
 
 	recs = ecalloc(config.shadowthickness * 4, sizeof(*recs));
 
 	/* draw background */
-	val.foreground = decor[COLOR_MID];
+	val.foreground = decor[COLOR_MID].pixel;
 	XChangeGC(dpy, gc, GCForeground, &val);
 	XFillRectangle(dpy, pix, gc, 0, 0, w, h);
 
@@ -218,7 +220,7 @@ drawborders(Pixmap pix, int w, int h, int style)
 		recs[i * 4 + 2] = (XRectangle){.x = w - config.borderwidth + i, .y = config.borderwidth - 1 - i, .width = 1, .height = parth + 2 * (i + 1)};
 		recs[i * 4 + 3] = (XRectangle){.x = config.borderwidth - 1 - i, .y = h - config.borderwidth + i, .width = partw + 2 * (i + 1), .height = 1};
 	}
-	val.foreground = decor[COLOR_LIGHT];
+	val.foreground = decor[COLOR_LIGHT].pixel;
 	XChangeGC(dpy, gc, GCForeground, &val);
 	XFillRectangles(dpy, pix, gc, recs, config.shadowthickness * 4);
 
@@ -229,7 +231,7 @@ drawborders(Pixmap pix, int w, int h, int style)
 		recs[i * 4 + 2] = (XRectangle){.x = config.borderwidth - 1 - i, .y = config.borderwidth - 1 - i, .width = 1,                 .height = parth + 1 + i * 2};
 		recs[i * 4 + 3] = (XRectangle){.x = config.borderwidth - 1 - i, .y = config.borderwidth - 1 - i, .width = partw + 1 + i * 2, .height = 1};
 	}
-	val.foreground = decor[COLOR_DARK];
+	val.foreground = decor[COLOR_DARK].pixel;
 	XChangeGC(dpy, gc, GCForeground, &val);
 	XFillRectangles(dpy, pix, gc, recs, config.shadowthickness * 4);
 
@@ -242,7 +244,7 @@ drawbackground(Pixmap pix, int x, int y, int w, int h, int style)
 {
 	XGCValues val;
 
-	val.foreground = theme.border[style][COLOR_MID];
+	val.foreground = theme.colors[style][COLOR_MID].pixel;
 	XChangeGC(dpy, gc, GCForeground, &val);
 	XFillRectangle(dpy, pix, gc, x, y, w, h);
 }
@@ -259,8 +261,8 @@ drawshadow(Pixmap pix, int x, int y, int w, int h, int style, int pressed)
 	if (w <= 0 || h <= 0)
 		return;
 
-	top = theme.border[style][pressed ? COLOR_DARK : COLOR_LIGHT];
-	bot = theme.border[style][pressed ? COLOR_LIGHT : COLOR_DARK];
+	top = theme.colors[style][pressed ? COLOR_DARK : COLOR_LIGHT].pixel;
+	bot = theme.colors[style][pressed ? COLOR_LIGHT : COLOR_DARK].pixel;
 	recs = ecalloc(config.shadowthickness * 2, sizeof(*recs));
 
 	/* draw light shadow */
@@ -289,10 +291,10 @@ drawframe(Pixmap pix, int isshaded, int w, int h, enum Octant o, int style)
 {
 	XRectangle *recs;
 	XGCValues val;
-	unsigned long *decor;
+	XftColor *decor;
 	int x, y, i;
 
-	decor = theme.border[style];
+	decor = theme.colors[style];
 	recs = ecalloc(config.shadowthickness * 5, sizeof(*recs));
 
 	/* top edge */
@@ -315,7 +317,7 @@ drawframe(Pixmap pix, int isshaded, int w, int h, enum Octant o, int style)
 			recs[i * 3 + 1] = (XRectangle){.x = x + 0, .y = i, .width = config.corner - 1 - i, .height = 1};
 			recs[i * 3 + 2] = (XRectangle){.x = x + config.borderwidth - 1 - i, .y = h - config.borderwidth + i, .width = config.titlewidth, .height = 1};
 		}
-		val.foreground = (o & W) ? decor[COLOR_DARK] : decor[COLOR_LIGHT];
+		val.foreground = (o & W) ? decor[COLOR_DARK].pixel : decor[COLOR_LIGHT].pixel;
 		XChangeGC(dpy, gc, GCForeground, &val);
 		XFillRectangles(dpy, pix, gc, recs, config.shadowthickness * 3);
 		for (i = 0; i < config.shadowthickness; i++) {
@@ -325,7 +327,7 @@ drawframe(Pixmap pix, int isshaded, int w, int h, enum Octant o, int style)
 			recs[i * 5 + 3] = (XRectangle){.x = x + config.corner - 1 - i,      .y = h - config.borderwidth + i, .width = 1,                         .height = config.borderwidth - i};
 			recs[i * 5 + 4] = (XRectangle){.x = x + i,                          .y = h - 1 - i,                  .width = config.corner - i,         .height = 1};
 		}
-		val.foreground = (o & W) ? decor[COLOR_LIGHT] : decor[COLOR_DARK];
+		val.foreground = (o & W) ? decor[COLOR_LIGHT].pixel : decor[COLOR_DARK].pixel;
 		XChangeGC(dpy, gc, GCForeground, &val);
 		XFillRectangles(dpy, pix, gc, recs, config.shadowthickness * 5);
 
@@ -338,7 +340,7 @@ drawframe(Pixmap pix, int isshaded, int w, int h, enum Octant o, int style)
 			recs[i * 5 + 3] = (XRectangle){.x = x + i,                     .y = h - config.borderwidth + i, .width = config.titlewidth + 1, .height = 1};
 			recs[i * 5 + 4] = (XRectangle){.x = x + i,                     .y = h - config.borderwidth + i, .width = 1,                     .height = config.borderwidth - 1 - i * 2};
 		}
-		val.foreground = (o == E) ? decor[COLOR_DARK] : decor[COLOR_LIGHT];
+		val.foreground = (o == E) ? decor[COLOR_DARK].pixel : decor[COLOR_LIGHT].pixel;
 		XChangeGC(dpy, gc, GCForeground, &val);
 		XFillRectangles(dpy, pix, gc, recs, config.shadowthickness * 5);
 		for (i = 0; i < config.shadowthickness; i++) {
@@ -346,7 +348,7 @@ drawframe(Pixmap pix, int isshaded, int w, int h, enum Octant o, int style)
 			recs[i * 3 + 1] = (XRectangle){.x = x + i,                     .y = config.borderwidth - 1 - i, .width = config.titlewidth, .height = 1};
 			recs[i * 3 + 2] = (XRectangle){.x = x + i,                     .y = h - 1 - i,               .width = config.corner - i, .height = 1};
 		}
-		val.foreground = (o == E) ? decor[COLOR_LIGHT] : decor[COLOR_DARK];
+		val.foreground = (o == E) ? decor[COLOR_LIGHT].pixel : decor[COLOR_DARK].pixel;
 		XChangeGC(dpy, gc, GCForeground, &val);
 		XFillRectangles(dpy, pix, gc, recs, config.shadowthickness * 3);
 	} else {
@@ -356,7 +358,7 @@ drawframe(Pixmap pix, int isshaded, int w, int h, enum Octant o, int style)
 			recs[i * 2 + 0] = (XRectangle){.x = x + i, .y = y + 0, .width = 1,                     .height = config.corner - 1 - i};
 			recs[i * 2 + 1] = (XRectangle){.x = x + 0, .y = y + i, .width = config.corner - 1 - i, .height = 1};
 		}
-		val.foreground = (o == NW) ? decor[COLOR_DARK] : decor[COLOR_LIGHT];
+		val.foreground = (o == NW) ? decor[COLOR_DARK].pixel : decor[COLOR_LIGHT].pixel;
 		XChangeGC(dpy, gc, GCForeground, &val);
 		XFillRectangles(dpy, pix, gc, recs, config.shadowthickness * 2);
 		for (i = 0; i < config.shadowthickness; i++) {
@@ -365,7 +367,7 @@ drawframe(Pixmap pix, int isshaded, int w, int h, enum Octant o, int style)
 			recs[i * 4 + 2] = (XRectangle){.x = x + config.corner - 1 - i,      .y = y + i,                          .width = 1,                         .height = config.borderwidth - i};
 			recs[i * 4 + 3] = (XRectangle){.x = x + i,                          .y = y + config.corner - 1 - i,      .width = config.borderwidth - i,    .height = 1};
 		}
-		val.foreground = (o == NW) ? decor[COLOR_LIGHT] : decor[COLOR_DARK];
+		val.foreground = (o == NW) ? decor[COLOR_LIGHT].pixel : decor[COLOR_DARK].pixel;
 		XChangeGC(dpy, gc, GCForeground, &val);
 		XFillRectangles(dpy, pix, gc, recs, config.shadowthickness * 4);
 
@@ -377,7 +379,7 @@ drawframe(Pixmap pix, int isshaded, int w, int h, enum Octant o, int style)
 			recs[i * 3 + 1] = (XRectangle){.x = x + 0,                          .y = y + i,                     .width = config.borderwidth - 1 - i, .height = 1};
 			recs[i * 3 + 2] = (XRectangle){.x = x + config.borderwidth - 1 - i, .y = y + config.titlewidth + i, .width = config.titlewidth,          .height = 1};
 		}
-		val.foreground = (o == SW) ? decor[COLOR_DARK] : decor[COLOR_LIGHT];
+		val.foreground = (o == SW) ? decor[COLOR_DARK].pixel : decor[COLOR_LIGHT].pixel;
 		XChangeGC(dpy, gc, GCForeground, &val);
 		XFillRectangles(dpy, pix, gc, recs, config.shadowthickness * 3);
 		for (i = 0; i < config.shadowthickness; i++) {
@@ -385,7 +387,7 @@ drawframe(Pixmap pix, int isshaded, int w, int h, enum Octant o, int style)
 			recs[i * 3 + 1] = (XRectangle){.x = x + i,                          .y = y + config.corner - 1 - i, .width = config.corner - i, .height = 1};
 			recs[i * 3 + 2] = (XRectangle){.x = x + config.corner - 1 - i,      .y = y + config.titlewidth + i, .width = 1,                 .height = config.borderwidth - i};
 		}
-		val.foreground = (o == SW) ? decor[COLOR_LIGHT] : decor[COLOR_DARK];
+		val.foreground = (o == SW) ? decor[COLOR_LIGHT].pixel : decor[COLOR_DARK].pixel;
 		XChangeGC(dpy, gc, GCForeground, &val);
 		XFillRectangles(dpy, pix, gc, recs, config.shadowthickness * 3);
 
@@ -397,7 +399,7 @@ drawframe(Pixmap pix, int isshaded, int w, int h, enum Octant o, int style)
 			recs[i * 3 + 1] = (XRectangle){.x = x + 0,                     .y = y + i,                          .width = config.corner - 1 - i, .height = 1};
 			recs[i * 3 + 2] = (XRectangle){.x = x + config.titlewidth + i, .y = y + config.borderwidth - 1 - i, .width = 1,                     .height = config.titlewidth};
 		}
-		val.foreground = (o == NE) ? decor[COLOR_DARK] : decor[COLOR_LIGHT];
+		val.foreground = (o == NE) ? decor[COLOR_DARK].pixel : decor[COLOR_LIGHT].pixel;
 		XChangeGC(dpy, gc, GCForeground, &val);
 		XFillRectangles(dpy, pix, gc, recs, config.shadowthickness * 3);
 		for (i = 0; i < config.shadowthickness; i++) {
@@ -405,7 +407,7 @@ drawframe(Pixmap pix, int isshaded, int w, int h, enum Octant o, int style)
 			recs[i * 3 + 1] = (XRectangle){.x = x + i,                     .y = y + config.borderwidth - 1 - i, .width = config.titlewidth,      .height = 1};
 			recs[i * 3 + 2] = (XRectangle){.x = x + config.titlewidth + i, .y = y + config.corner - 1 - i,      .width = config.borderwidth - i, .height = 1};
 		}
-		val.foreground = (o == NE) ? decor[COLOR_LIGHT] : decor[COLOR_DARK];
+		val.foreground = (o == NE) ? decor[COLOR_LIGHT].pixel : decor[COLOR_DARK].pixel;
 		XChangeGC(dpy, gc, GCForeground, &val);
 		XFillRectangles(dpy, pix, gc, recs, config.shadowthickness * 3);
 
@@ -418,14 +420,14 @@ drawframe(Pixmap pix, int isshaded, int w, int h, enum Octant o, int style)
 			recs[i * 4 + 2] = (XRectangle){.x = x + config.titlewidth + i, .y = y + i,                      .width = 1,                              .height = config.titlewidth + 1};
 			recs[i * 4 + 3] = (XRectangle){.x = x + i,                     .y = y + config.titlewidth + i,  .width = config.titlewidth + 1,          .height = 1};
 		}
-		val.foreground = (o == SE) ? decor[COLOR_DARK] : decor[COLOR_LIGHT];
+		val.foreground = (o == SE) ? decor[COLOR_DARK].pixel : decor[COLOR_LIGHT].pixel;
 		XChangeGC(dpy, gc, GCForeground, &val);
 		XFillRectangles(dpy, pix, gc, recs, config.shadowthickness * 4);
 		for (i = 0; i < config.shadowthickness; i++) {
 			recs[i * 2 + 0] = (XRectangle){.x = x + config.corner - 1 - i, .y = y + i,                     .width = 1,                      .height = config.corner - i};
 			recs[i * 2 + 1] = (XRectangle){.x = x + i,                     .y = y + config.corner - 1 - i, .width = config.corner - i,      .height = 1};
 		}
-		val.foreground = (o == SE) ? decor[COLOR_LIGHT] : decor[COLOR_DARK];
+		val.foreground = (o == SE) ? decor[COLOR_LIGHT].pixel : decor[COLOR_DARK].pixel;
 		XChangeGC(dpy, gc, GCForeground, &val);
 		XFillRectangles(dpy, pix, gc, recs, config.shadowthickness * 2);
 	}
@@ -449,7 +451,7 @@ drawprompt(Pixmap pix, int w, int h)
 		recs[i * 3 + 1] = (XRectangle){.x = w - config.borderwidth + i, .y = 0,                          .width = 1,                 .height = parth + config.borderwidth + i};
 		recs[i * 3 + 2] = (XRectangle){.x = config.borderwidth - 1 - i, .y = h - config.borderwidth + i, .width = partw + 2 + i * 2, .height = 1};
 	}
-	val.foreground = theme.border[FOCUSED][COLOR_LIGHT];
+	val.foreground = theme.colors[FOCUSED][COLOR_LIGHT].pixel;
 	XChangeGC(dpy, gc, GCForeground, &val);
 	XFillRectangles(dpy, pix, gc, recs, config.shadowthickness * 3);
 
@@ -459,7 +461,7 @@ drawprompt(Pixmap pix, int w, int h)
 		recs[i * 3 + 1] = (XRectangle){.x = i,                          .y = h - 1 - i, .width = w - i * 2, .height = 1};
 		recs[i * 3 + 2] = (XRectangle){.x = config.borderwidth - 1 - i, .y = i,         .width = 1,         .height = parth + config.borderwidth};
 	}
-	val.foreground = theme.border[FOCUSED][COLOR_DARK];
+	val.foreground = theme.colors[FOCUSED][COLOR_DARK].pixel;
 	XChangeGC(dpy, gc, GCForeground, &val);
 	XFillRectangles(dpy, pix, gc, recs, config.shadowthickness * 3);
 
@@ -477,11 +479,11 @@ drawdock(Pixmap pix, int w, int h)
 		return;
 	recs = ecalloc(DOCKBORDER * 3, sizeof(*recs));
 
-	val.foreground = theme.dock[COLOR_DEF];
+	val.foreground = theme.colors[STYLE_OTHER][COLOR_BG].pixel;
 	XChangeGC(dpy, gc, GCForeground, &val);
 	XFillRectangle(dpy, pix, gc, 0, 0, w, h);
 
-	val.foreground = theme.dock[COLOR_ALT];
+	val.foreground = theme.colors[STYLE_OTHER][COLOR_BORD].pixel;
 	XChangeGC(dpy, gc, GCForeground, &val);
 
 	if (config.dockgravity[0] != '\0' && (config.dockgravity[1] == 'F' || config.dockgravity[1] == 'f')) {
@@ -609,11 +611,11 @@ buttonleftdecorate(Window button, Pixmap pix, int style, int pressed)
 
 	w = config.titlewidth - 9;
 	if (pressed) {
-		top = theme.border[style][COLOR_DARK];
-		bot = theme.border[style][COLOR_LIGHT];
+		top = theme.colors[style][COLOR_DARK].pixel;
+		bot = theme.colors[style][COLOR_LIGHT].pixel;
 	} else {
-		top = theme.border[style][COLOR_LIGHT];
-		bot = theme.border[style][COLOR_DARK];
+		top = theme.colors[style][COLOR_LIGHT].pixel;
+		bot = theme.colors[style][COLOR_DARK].pixel;
 	}
 
 	/* draw background */
@@ -648,13 +650,13 @@ buttonrightdecorate(Window button, Pixmap pix, int style, int pressed)
 	int w;
 
 	w = (config.titlewidth - 11) / 2;
-	mid = theme.border[style][COLOR_MID];
+	mid = theme.colors[style][COLOR_MID].pixel;
 	if (pressed) {
-		top = theme.border[style][COLOR_DARK];
-		bot = theme.border[style][COLOR_LIGHT];
+		top = theme.colors[style][COLOR_DARK].pixel;
+		bot = theme.colors[style][COLOR_LIGHT].pixel;
 	} else {
-		top = theme.border[style][COLOR_LIGHT];
-		bot = theme.border[style][COLOR_DARK];
+		top = theme.colors[style][COLOR_LIGHT].pixel;
+		bot = theme.colors[style][COLOR_DARK].pixel;
 	}
 
 	/* draw background */
@@ -707,12 +709,10 @@ copypixmap(Window win)
 	}
 }
 
-/* initialize decoration pixmap */
 void
-inittheme(void)
+reloadtheme(void)
 {
 	Pixmap pix;
-	int i, j;
 
 	pix = XCreatePixmap(
 		dpy,
@@ -721,26 +721,9 @@ inittheme(void)
 		2 * config.borderwidth + config.titlewidth,
 		depth
 	);
-	gc = XCreateGC(dpy, wm.dragwin, GCFillStyle, &(XGCValues){.fill_style = FillSolid});
 	config.corner = config.borderwidth + config.titlewidth;
 	config.divwidth = config.borderwidth;
 	wm.minsize = config.corner * 2 + 10;
-	for (i = 0; i < STYLE_LAST; i++) {
-		for (j = 0; j < COLOR_LAST; j++) {
-			theme.border[i][j] = ealloccolor(config.bordercolors[i][j]);
-		}
-		eallocxftcolor(config.bordercolors[i][COLOR_LIGHT], &theme.fg[i][0]);
-		eallocxftcolor(config.foreground, &theme.fg[i][1]);
-	}
-	for (j = 0; j < 2; j++)
-		theme.dock[j]  = ealloccolor(config.dockcolors[j]);
-	theme.font = XftFontOpenXlfd(dpy, screen, config.font);
-	if (theme.font == NULL) {
-		theme.font = XftFontOpenName(dpy, screen, config.font);
-		if (theme.font == NULL) {
-			errx(1, "could not open font: %s", config.font);
-		}
-	}
 	drawbackground(
 		pix,
 		0, 0,
@@ -768,19 +751,36 @@ inittheme(void)
 	XFreePixmap(dpy, pix);
 }
 
+/* initialize decoration pixmap */
+int
+settheme(void)
+{
+	int i, j, error;
+
+	error = 0;
+	gc = XCreateGC(dpy, wm.dragwin, GCFillStyle, &(XGCValues){.fill_style = FillSolid});
+	for (i = 0; i < STYLE_LAST; i++)
+		for (j = 0; j < COLOR_LAST; j++)
+			if (!alloccolor(config.colors[i][j], &theme.colors[i][j]))
+				error = 1;
+	if ((theme.font = openfont(config.font)) == NULL)
+		error = 1;
+	if (error)
+		return 0;
+	reloadtheme();
+	return 1;
+}
+
 /* free font */
 void
 cleantheme(void)
 {
-	int i;
+	int i, j;
 
 	XftFontClose(dpy, theme.font);
-	for (i = 0; i < STYLE_LAST; i++) {
-		XFreeColors(dpy, colormap, theme.border[i], COLOR_LAST, 0);
-		XftColorFree(dpy, visual, colormap, &theme.fg[i][0]);
-		XftColorFree(dpy, visual, colormap, &theme.fg[i][1]);
-	}
-	XFreeColors(dpy, colormap, theme.dock, 2, 0);
+	for (i = 0; i < STYLE_LAST; i++)
+		for (j = 0; j < COLOR_LAST; j++)
+			XftColorFree(dpy, visual, colormap, &theme.colors[i][j]);
 	XFreeGC(dpy, gc);
 }
 
@@ -793,72 +793,115 @@ queryrdb(int res)
 	return getresource(xdb, class, name);
 }
 
+static void
+setcolor(char *value, int style, int ncolor)
+{
+	XftColor color;
+
+	if (!alloccolor(value, &color))
+		return;
+	XftColorFree(dpy, visual, colormap, &theme.colors[style][ncolor]);
+	theme.colors[style][ncolor] = color;
+}
+
 void
 setresources(char *xrm)
 {
+	XftFont *font;
 	long n;
 	char *value;
+	enum Resource resource;
 
+	xdb = NULL;
 	if (xrm == NULL || (xdb = XrmGetStringDatabase(xrm)) == NULL)
 		return;
-
-	if ((value = queryrdb(RES_FACE_NAME)) != NULL)
-		config.font = value;
-	if ((value = queryrdb(RES_FOREGROUND)) != NULL)
-		config.foreground = value;
-
-	if ((value = queryrdb(RES_DOCK_BACKGROUND)) != NULL)
-		config.dockcolors[COLOR_DEF] = value;
-	if ((value = queryrdb(RES_DOCK_BORDER)) != NULL)
-		config.dockcolors[COLOR_ALT] = value;
-
-	if ((value = queryrdb(RES_ACTIVE_BG)) != NULL)
-		config.bordercolors[FOCUSED][COLOR_MID] = value;
-	if ((value = queryrdb(RES_ACTIVE_TOP)) != NULL)
-		config.bordercolors[FOCUSED][COLOR_LIGHT] = value;
-	if ((value = queryrdb(RES_ACTIVE_BOT)) != NULL)
-		config.bordercolors[FOCUSED][COLOR_DARK] = value;
-
-	if ((value = queryrdb(RES_INACTIVE_BG)) != NULL)
-		config.bordercolors[UNFOCUSED][COLOR_MID] = value;
-	if ((value = queryrdb(RES_INACTIVE_TOP)) != NULL)
-		config.bordercolors[UNFOCUSED][COLOR_LIGHT] = value;
-	if ((value = queryrdb(RES_INACTIVE_BOT)) != NULL)
-		config.bordercolors[UNFOCUSED][COLOR_DARK] = value;
-
-	if ((value = queryrdb(RES_URGENT_BG)) != NULL)
-		config.bordercolors[URGENT][COLOR_MID] = value;
-	if ((value = queryrdb(RES_URGENT_TOP)) != NULL)
-		config.bordercolors[URGENT][COLOR_LIGHT] = value;
-	if ((value = queryrdb(RES_URGENT_BOT)) != NULL)
-		config.bordercolors[URGENT][COLOR_DARK] = value;
-
-	if ((value = queryrdb(RES_BORDER_WIDTH)) != NULL)
-		if ((n = strtol(value, NULL, 10)) > 0 && n < 100)
-			config.borderwidth = n;
-	if ((value = queryrdb(RES_SHADOW_WIDTH)) != NULL)
-		if ((n = strtol(value, NULL, 10)) > 0 && n < 100)
-			config.shadowthickness = n;
-	if ((value = queryrdb(RES_TITLE_WIDTH)) != NULL)
-		if ((n = strtol(value, NULL, 10)) > 0 && n < 100)
-			config.titlewidth = n;
-	if ((value = queryrdb(RES_DOCK_WIDTH)) != NULL)
-		if ((n = strtol(value, NULL, 10)) > 0)
-			config.dockwidth = n;
-	if ((value = queryrdb(RES_DOCK_SPACE)) != NULL)
-		if ((n = strtol(value, NULL, 10)) > 0)
-			config.dockspace = n;
-	if ((value = queryrdb(RES_DOCK_GRAVITY)) != NULL)
-		config.dockgravity = value;
-	if ((value = queryrdb(RES_NOTIFY_GAP)) != NULL)
-		if ((n = strtol(value, NULL, 10)) > 0)
-			config.notifgap = n;
-	if ((value = queryrdb(RES_NOTIFY_GRAVITY)) != NULL)
-		config.notifgravity = value;
-	if ((value = queryrdb(RES_NDESKTOPS)) != NULL)
-		if ((n = strtol(value, NULL, 10)) > 0 && n < 100)
-			config.ndesktops = n;
-	if ((value = queryrdb(RES_SNAP_PROXIMITY)) != NULL)
-		if ((n = strtol(value, NULL, 10)) >= 0 && n < 100)
-			config.snap = n;
+	for (resource = 0; resource < NRESOURCES; resource++) {
+		value = queryrdb(resource);
+		if (value == NULL)
+			continue;
+		switch (resource) {
+		case RES_FACE_NAME:
+			if ((font = openfont(value)) != NULL) {
+				XftFontClose(dpy, theme.font);
+				theme.font = font;
+			}
+			break;
+		case RES_FOREGROUND:
+			setcolor(value, STYLE_OTHER, COLOR_FG);
+			break;
+		case RES_DOCK_BACKGROUND:
+			setcolor(value, STYLE_OTHER, COLOR_BG);
+			break;
+		case RES_DOCK_BORDER:
+			setcolor(value, STYLE_OTHER, COLOR_BORD);
+			break;
+		case RES_ACTIVE_BG:
+			setcolor(value, FOCUSED, COLOR_MID);
+			break;
+		case RES_ACTIVE_TOP:
+			setcolor(value, FOCUSED, COLOR_LIGHT);
+			break;
+		case RES_ACTIVE_BOT:
+			setcolor(value, FOCUSED, COLOR_DARK);
+			break;
+		case RES_INACTIVE_BG:
+			setcolor(value, UNFOCUSED, COLOR_MID);
+			break;
+		case RES_INACTIVE_TOP:
+			setcolor(value, UNFOCUSED, COLOR_LIGHT);
+			break;
+		case RES_INACTIVE_BOT:
+			setcolor(value, UNFOCUSED, COLOR_DARK);
+			break;
+		case RES_URGENT_BG:
+			setcolor(value, URGENT, COLOR_MID);
+			break;
+		case RES_URGENT_TOP:
+			setcolor(value, URGENT, COLOR_LIGHT);
+			break;
+		case RES_URGENT_BOT:
+			setcolor(value, URGENT, COLOR_DARK);
+			break;
+		case RES_BORDER_WIDTH:
+			if ((n = strtol(value, NULL, 10)) > 0 && n < 100)
+				config.borderwidth = n;
+			break;
+		case RES_SHADOW_WIDTH:
+			if ((n = strtol(value, NULL, 10)) > 0 && n < 100)
+				config.shadowthickness = n;
+			break;
+		case RES_TITLE_WIDTH:
+			if ((n = strtol(value, NULL, 10)) > 0 && n < 100)
+				config.titlewidth = n;
+			break;
+		case RES_DOCK_WIDTH:
+			if ((n = strtol(value, NULL, 10)) > 0)
+				config.dockwidth = n;
+			break;
+		case RES_DOCK_SPACE:
+			if ((n = strtol(value, NULL, 10)) > 0)
+				config.dockspace = n;
+			break;
+		case RES_DOCK_GRAVITY:
+			config.dockgravity = value;
+			break;
+		case RES_NOTIFY_GAP:
+			if ((n = strtol(value, NULL, 10)) > 0)
+				config.notifgap = n;
+			break;
+		case RES_NOTIFY_GRAVITY:
+			config.notifgravity = value;
+			break;
+		case RES_NDESKTOPS:
+			if ((n = strtol(value, NULL, 10)) > 0 && n < 100)
+				config.ndesktops = n;
+			break;
+		case RES_SNAP_PROXIMITY:
+			if ((n = strtol(value, NULL, 10)) >= 0 && n < 100)
+				config.snap = n;
+			break;
+		default:
+			break;
+		}
+	}
 }

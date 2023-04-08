@@ -27,7 +27,6 @@ struct Config config = {
 	.dockwidth      = 64,           /* width of the dock (or its height, if it is horizontal) */
 	.dockspace      = 64,           /* size of each dockapp (64 for windowmaker dockapps) */
 	.dockgravity    = "E",          /* placement of the dock */
-	.dockcolors     = {"#121212", "#2E3436"},
 
 	/* notification configuration */
 	.notifgap       = 3,            /* gap, in pixels, between notifications */
@@ -35,14 +34,19 @@ struct Config config = {
 
 	/* title bar */
 	.titlewidth = 17,
-	.foreground = "#FFFFFF",
 
 	/* border */
 	.borderwidth = 6,
-	.bordercolors = {
-		[FOCUSED]   = {"#3465A4", "#729FCF", "#204A87"},
-		[UNFOCUSED] = {"#555753", "#888A85", "#2E3436"},
-		[URGENT]    = {"#CC0000", "#EF2929", "#A40000"},
+
+	/* colors */
+	.colors = {
+		/* (border)        MIDDLE      LIGHT      DARK    */
+		[FOCUSED]     = {"#3465A4",   "#729FCF", "#204A87"},
+		[UNFOCUSED]   = {"#555753",   "#888A85", "#2E3436"},
+		[URGENT]      = {"#CC0000",   "#EF2929", "#A40000"},
+
+		/* (dock, text)   BACKGROUND   BORDER     FOREGROUND */
+		[STYLE_OTHER] = {"#CC0000",   "#EF2929", "#A40000"},
 	},
 
 	/* size of 3D shadow effect, must be less than borderwidth */

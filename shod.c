@@ -198,10 +198,13 @@ initxrm(void)
 	XrmInitialize();
 	wm.application.class = XrmPermStringToQuark("Shod");
 	wm.application.name = XrmPermStringToQuark("shod");
+	wm.anyresource = XrmPermStringToQuark("?");
 	for (i = 0; i < NRESOURCES; i++) {
 		wm.resources[i].class = XrmPermStringToQuark(resourceids[i].class);
 		wm.resources[i].name = XrmPermStringToQuark(resourceids[i].name);
 	}
+	if (!settheme())
+		exit(EXIT_FAILURE);
 	setresources(XResourceManagerString(dpy));
 }
 
@@ -383,11 +386,10 @@ main(int argc, char *argv[])
 	initsignal();
 	initcursors();
 	initatoms();
-	initxrm();
 	initroot();
 	initdummywindows();
 	initdock();
-	inittheme();
+	initxrm();
 
 	/* set up list of monitors */
 	monupdate();
