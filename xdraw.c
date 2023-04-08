@@ -165,9 +165,9 @@ drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int p
 	top = theme.colors[style][pressed ? COLOR_DARK : COLOR_LIGHT].pixel;
 	bot = theme.colors[style][pressed ? COLOR_LIGHT : COLOR_DARK].pixel;
 	if (ismenu || drawlines)
-		color = &theme.colors[style][COLOR_LIGHT];
-	else
 		color = &theme.colors[STYLE_OTHER][COLOR_FG];
+	else
+		color = &theme.colors[style][COLOR_LIGHT];
 	draw = XftDrawCreate(dpy, pix, visual, colormap);
 	len = strlen(text);
 	XftTextExtentsUtf8(dpy, theme.font, text, len, &box);
