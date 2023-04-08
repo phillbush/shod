@@ -380,7 +380,7 @@ getextrahints(Window win, Atom prop, unsigned long nmemb, size_t size, void *hin
 
 /* get window info based on its type */
 static int
-getwintype(Window *win_ret, Window *leader, struct Tab **tab, int *state, XRectangle *rect)
+getwintype(Window *win_ret, Window *leader, struct Tab **tab, int *state, XRectangle *rect, int *desk)
 {
 	/* rules for identifying windows */
 	enum { I_APP, I_CLASS, I_INSTANCE, I_ROLE, I_RESOURCE, I_NULL, I_LAST };
@@ -419,6 +419,9 @@ getwintype(Window *win_ret, Window *leader, struct Tab **tab, int *state, XRecta
 			}
 			if (config.rules[i].state >= 0) {
 				*state = config.rules[i].state;
+			}
+			if (config.rules[i].desktop > 0 && config.rules[i].desktop <= config.ndesktops) {
+				*desk = config.rules[i].desktop - 1;
 			}
 		}
 	}
@@ -501,6 +504,15 @@ getwintype(Window *win_ret, Window *leader, struct Tab **tab, int *state, XRecta
 	if ((value = getresource(xdb, class, name)) != NULL) {
 		if ((n = strtol(value, NULL, 10)) >= 0 && n < INT_MAX) {
 			pos = n;
+		}
+	}
+
+	/* get desktop id from X resources */
+	class[I_RESOURCE] = wm.resources[RES_DESKTOP].class;
+	name[I_RESOURCE] = wm.resources[RES_DESKTOP].name;
+	if ((value = getresource(xdb, class, name)) != NULL) {
+		if ((n = strtol(value, NULL, 10)) > 0 && n <= config.ndesktops) {
+			*desk = n - 1;
 		}
 	}
 
@@ -733,10 +745,11 @@ manage(Window win, XRectangle rect, int ignoreunmap)
 	struct Tab *tab;
 	Window leader;
 	int state, type;
+	int desk = wm.selmon->seldesk;
 
 	if (getmanaged(win) != NULL)
 		return;
-	type = getwintype(&win, &leader, &tab, &state, &rect);
+	type = getwintype(&win, &leader, &tab, &state, &rect, &desk);
 	if (type == TYPE_DESKTOP || type == TYPE_POPUP) {
 		/* we do not handle desktop windows */
 		if (type == TYPE_DESKTOP)
@@ -747,7 +760,7 @@ manage(Window win, XRectangle rect, int ignoreunmap)
 		return;
 	}
 	preparewin(win);
-	(*managefuncs[type])(tab, wm.selmon, wm.selmon->seldesk, win, leader, rect, state, ignoreunmap);
+	(*managefuncs[type])(tab, wm.selmon, desk, win, leader, rect, state, ignoreunmap);
 }
 
 /* perform container switching (aka alt-tab) */

@@ -54,12 +54,12 @@ struct Config config = {
 
 	/* the following are hardcoded rules; use X Resources to set rules without recompiling */
 	.rules = (struct Rule []){
-		/* class        instance      role                    type              state bitmask */ 
+		/* class  instance  role                 type          state   desktop*/ 
 
 		/* Although Firefox's PictureInPicture is technically a utility (sub)window, make it a normal one */
-		{ NULL,         NULL,         "PictureInPicture",     TYPE_NORMAL,      ABOVE },
+		{ NULL,   NULL,     "PictureInPicture",  TYPE_NORMAL,  ABOVE,  0 },
 
 		/* Last rule must be all NULL! */
-		{ NULL,         NULL,         NULL,                   TYPE_NORMAL,      0 },
+		{ NULL,   NULL,     NULL,                TYPE_NORMAL,  0,      0 },
 	}
 };

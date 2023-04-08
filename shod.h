@@ -31,6 +31,7 @@
 	/*                      CLASS                        NAME                      */\
 	X(RES_TYPE,            "Type",                      "type"                      )\
 	X(RES_STATE,           "State",                     "state"                     )\
+	X(RES_DESKTOP,         "Desktop",                   "desktop"                   )\
 	X(RES_DOCK_POS,        "Dockpos",                   "dockpos"                   )\
 	X(RES_FACE_NAME,       "FaceName",                  "faceName"                  )\
 	X(RES_FOREGROUND,      "Foreground",                "foreground"                )\
@@ -688,6 +689,7 @@ struct Config {
 		/* type, state, etc to apply on matching windows */
 		int type;
 		int state;
+		int desktop;
 	} *rules;
 
 	/* the values below are computed from the values above */

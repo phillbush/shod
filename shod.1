@@ -804,6 +804,10 @@ and
 .It Ic shod.CLASS.NAME.ROLE.dockpos
 Define the position in the dock of a docked application matching the given class, name and role.
 Its value should be a number, starting from position 1.
+.It Ic shod.CLASS.NAME.ROLE.desktop
+Define the number of the desktop to send the matching application to.
+Different of other window managers, shod counts desktop from 1;
+so the first desktop is desktop 1, not the desktop 0.
 .El
 .Sh ENVIRONMENT
 The following environment variables affect the execution of

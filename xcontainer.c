@@ -1855,13 +1855,11 @@ containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle r
 	rowaddtab(row, tab, NULL);
 	containerredecorate(c, NULL, NULL, 0);
 	XMapSubwindows(dpy, c->frame);
-	if (!c->isminimized) {
-		containerplace(c, mon, desk, (state & USERPLACED));
-		containermoveresize(c, 0);
+	containerplace(c, mon, desk, (state & USERPLACED));
+	containermoveresize(c, 0);
+	if (containerisvisible(c, wm.selmon, wm.selmon->seldesk)) {
 		containerhide(c, 0);
 		tabfocus(tab, 0);
-	} else {
-		containermoveresize(c, 0);
 	}
 	/* no need to call shodgrouptab() and shodgroupcontainer(); tabfocus() already calls them */
 	ewmhsetwmdesktop(c);
