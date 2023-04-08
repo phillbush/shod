@@ -324,27 +324,27 @@ getstate(Window w)
 	return result;
 }
 
-/* get text property from window; return `Success` on success */
-static int
-gettextprop(Window win, Atom atom, char *buf, size_t size)
+static char *
+gettextprop(Window win, Atom atom)
 {
-	XTextProperty tprop;
+	XTextProperty tprop = { .value = NULL };
 	int count;
 	char **list = NULL;
+	char *s = NULL;
 
-	if (buf == NULL || size == 0)
-		return BadLength;
-	buf[0] = '\0';
-	if (!XGetTextProperty(dpy, win, &tprop, atom) || tprop.nitems == 0)
-		return BadAlloc;
-	if (XmbTextPropertyToTextList(dpy, &tprop, &list, &count) != Success ||
-	    count < 1 || list == NULL || *list == NULL)
-		return BadAlloc;
-	strncpy(buf, *list, size - 1);
-	buf[size - 1] = '\0';
+	if (!XGetTextProperty(dpy, win, &tprop, atom))
+		goto error;
+	if (tprop.nitems == 0)
+		goto error;
+	if (XmbTextPropertyToTextList(dpy, &tprop, &list, &count) != Success)
+		goto error;
+	if (count < 1 || list == NULL || *list == NULL)
+		goto error;
+	s = strdup(list[0]);
+error:
 	XFreeStringList(list);
 	XFree(tprop.value);
-	return Success;
+	return s;
 }
 
 /* get motif/GNUstep hints from window; return -1 on error */
@@ -376,27 +376,26 @@ getextrahints(Window win, Atom prop, unsigned long nmemb, size_t size, void *hin
 	return ret;
 }
 
+#define STRCMP(a, b) ((a) != NULL && (b) != NULL && strcmp((a), (b)) == 0)
+
 /* get window info based on its type */
 static int
 getwintype(Window *win_ret, Window *leader, struct Tab **tab, int *state, XRectangle *rect)
 {
 	/* rules for identifying windows */
-	enum { CLASS = 0, INSTANCE = 1, ROLE = 2 };
-	char *rule[] = { "_", "_", "_" };
-
+	enum { I_APP, I_CLASS, I_INSTANCE, I_ROLE, I_RESOURCE, I_NULL, I_LAST };
+	XrmClass class[I_LAST];
+	XrmName name[I_LAST];
 	struct MwmHints mwmhints = { 0 };
 	struct GNUHints gnuhints = { 0 };
-	XClassHint classh;
+	XClassHint classh = { .res_class = NULL, .res_name = NULL };
 	XWMHints *wmhints;
-	XrmValue xval;
 	Window win;
 	Atom prop;
 	size_t i;
 	long n;
 	int type, isdockapp, pos;
-	char *ds;
-	char buf[NAMEMAXLEN];
-	char role[NAMEMAXLEN];
+	char *role, *value;
 
 	pos = 0;
 	win = *win_ret;
@@ -405,21 +404,16 @@ getwintype(Window *win_ret, Window *leader, struct Tab **tab, int *state, XRecta
 	type = TYPE_UNKNOWN;
 	classh.res_class = NULL;
 	classh.res_name = NULL;
-	if (gettextprop(win, atoms[WM_WINDOW_ROLE], role, NAMEMAXLEN) == Success)
-		rule[ROLE] = role;
-	if (XGetClassHint(dpy, win, &classh)) {
-		rule[CLASS] = classh.res_class;
-		rule[INSTANCE] = classh.res_name;
-	}
 
-	/* get window state requested by application */
 	*state = getwinstate(win);
 
 	/* get window type (and other info) from default (hardcoded) rules */
+	role = gettextprop(win, atoms[WM_WINDOW_ROLE]);
+	XGetClassHint(dpy, win, &classh);
 	for (i = 0; config.rules[i].class != NULL || config.rules[i].instance != NULL || config.rules[i].role != NULL; i++) {
-		if ((config.rules[i].class == NULL    || strcmp(config.rules[i].class, rule[CLASS]) == 0)
-		&&  (config.rules[i].instance == NULL || strcmp(config.rules[i].instance, rule[INSTANCE]) == 0)
-		&&  (config.rules[i].role == NULL     || strcmp(config.rules[i].role, rule[ROLE]) == 0)) {
+		if ((config.rules[i].class == NULL    || STRCMP(config.rules[i].class, classh.res_class))
+		&&  (config.rules[i].instance == NULL || STRCMP(config.rules[i].instance, classh.res_name))
+		&&  (config.rules[i].role == NULL     || STRCMP(config.rules[i].role, role))) {
 			if (config.rules[i].type != TYPE_MENU && config.rules[i].type != TYPE_DIALOG) {
 				type = config.rules[i].type;
 			}
@@ -429,69 +423,86 @@ getwintype(Window *win_ret, Window *leader, struct Tab **tab, int *state, XRecta
 		}
 	}
 
-	/* get window type (and other info) from X resources */
-	if (xdb != NULL) {
-		/* check for window type */
-		(void)snprintf(buf, NAMEMAXLEN, "shod.%s.%s.%s.type", rule[CLASS], rule[INSTANCE], rule[ROLE]);
-		if (XrmGetResource(xdb, buf, "*", &ds, &xval) == True && xval.addr != NULL) {
-			if (strcasecmp(xval.addr, "DESKTOP") == 0) {
-				type = TYPE_DESKTOP;
-			} else if (strcasecmp(xval.addr, "DOCKAPP") == 0) {
-				type = TYPE_DOCKAPP;
-			} else if (strcasecmp(xval.addr, "PROMPT") == 0) {
-				type = TYPE_PROMPT;
-			} else if (strcasecmp(xval.addr, "NORMAL") == 0) {
-				type = TYPE_NORMAL;
-			}
-		}
+	/* convert strings to quarks for xrm */
+	class[I_NULL] = name[I_NULL] = NULLQUARK;
+	class[I_APP] = wm.application.class;
+	name[I_APP] = wm.application.name;
+	if (classh.res_class != NULL)
+		class[I_CLASS] = name[I_CLASS] = XrmStringToQuark(classh.res_class);
+	else
+		class[I_CLASS] = name[I_CLASS] = wm.resources[RES_ANY].name;
+	if (classh.res_name != NULL)
+		class[I_INSTANCE] = name[I_INSTANCE] = XrmStringToQuark(classh.res_name);
+	else
+		class[I_INSTANCE] = name[I_INSTANCE] = wm.resources[RES_ANY].name;
+	if (role != NULL)
+		class[I_ROLE] = name[I_ROLE] = XrmStringToQuark(role);
+	else
+		class[I_ROLE] = name[I_ROLE] = wm.resources[RES_ANY].name;
+	free(role);
+	XFree(classh.res_class);
+	XFree(classh.res_name);
 
-		/* check for window state */
-		(void)snprintf(buf, NAMEMAXLEN, "shod.%s.%s.%s.state", rule[CLASS], rule[INSTANCE], rule[ROLE]);
-		if (XrmGetResource(xdb, buf, "*", &ds, &xval) == True && xval.addr != NULL) {
-			*state = 0;
-			if (strcasestr(xval.addr, "above") != NULL) {
-				*state |= ABOVE;
-			}
-			if (strcasestr(xval.addr, "below") != NULL) {
-				*state |= BELOW;
-			}
-			if (strcasestr(xval.addr, "fullscreen") != NULL) {
-				*state |= FULLSCREEN;
-			}
-			if (strcasestr(xval.addr, "maximized") != NULL) {
-				*state |= MAXIMIZED;
-			}
-			if (strcasestr(xval.addr, "minimized") != NULL) {
-				*state |= MINIMIZED;
-			}
-			if (strcasestr(xval.addr, "shaded") != NULL) {
-				*state |= SHADED;
-			}
-			if (strcasestr(xval.addr, "sticky") != NULL) {
-				*state |= STICKY;
-			}
-			if (strcasestr(xval.addr, "extend") != NULL) {
-				*state |= EXTEND;
-			}
-			if (strcasestr(xval.addr, "shrunk") != NULL) {
-				*state |= SHRUNK;
-			}
-			if (strcasestr(xval.addr, "resized") != NULL) {
-				*state |= RESIZED;
-			}
-		}
-
-		/* check for dockapp position */
-		(void)snprintf(buf, NAMEMAXLEN, "shod.%s.%s.%s.dockpos", rule[CLASS], rule[INSTANCE], rule[ROLE]);
-		if (XrmGetResource(xdb, buf, "*", &ds, &xval) == True) {
-			if ((n = strtol(xval.addr, NULL, 10)) >= 0 && n < INT_MAX) {
-				pos = n;
-			}
+	/* get window type from X resources */
+	class[I_RESOURCE] = wm.resources[RES_TYPE].class;
+	name[I_RESOURCE] = wm.resources[RES_TYPE].name;
+	if ((value = getresource(xdb, class, name)) != NULL) {
+		if (strcasecmp(value, "DESKTOP") == 0) {
+			type = TYPE_DESKTOP;
+		} else if (strcasecmp(value, "DOCKAPP") == 0) {
+			type = TYPE_DOCKAPP;
+		} else if (strcasecmp(value, "PROMPT") == 0) {
+			type = TYPE_PROMPT;
+		} else if (strcasecmp(value, "NORMAL") == 0) {
+			type = TYPE_NORMAL;
 		}
 	}
 
-	XFree(classh.res_class);
-	XFree(classh.res_name);
+	/* get window state from X resources */
+	class[I_RESOURCE] = wm.resources[RES_STATE].class;
+	name[I_RESOURCE] = wm.resources[RES_STATE].name;
+	if ((value = getresource(xdb, class, name)) != NULL) {
+		*state = 0;
+		if (strcasestr(value, "above") != NULL) {
+			*state |= ABOVE;
+		}
+		if (strcasestr(value, "below") != NULL) {
+			*state |= BELOW;
+		}
+		if (strcasestr(value, "fullscreen") != NULL) {
+			*state |= FULLSCREEN;
+		}
+		if (strcasestr(value, "maximized") != NULL) {
+			*state |= MAXIMIZED;
+		}
+		if (strcasestr(value, "minimized") != NULL) {
+			*state |= MINIMIZED;
+		}
+		if (strcasestr(value, "shaded") != NULL) {
+			*state |= SHADED;
+		}
+		if (strcasestr(value, "sticky") != NULL) {
+			*state |= STICKY;
+		}
+		if (strcasestr(value, "extend") != NULL) {
+			*state |= EXTEND;
+		}
+		if (strcasestr(value, "shrunk") != NULL) {
+			*state |= SHRUNK;
+		}
+		if (strcasestr(value, "resized") != NULL) {
+			*state |= RESIZED;
+		}
+	}
+
+	/* get dockapp position from X resources */
+	class[I_RESOURCE] = wm.resources[RES_DOCK_POS].class;
+	name[I_RESOURCE] = wm.resources[RES_DOCK_POS].name;
+	if ((value = getresource(xdb, class, name)) != NULL) {
+		if ((n = strtol(value, NULL, 10)) >= 0 && n < INT_MAX) {
+			pos = n;
+		}
+	}
 
 	/* we already got the type of the window, return */
 	if (type != TYPE_UNKNOWN)
@@ -1749,19 +1760,19 @@ static void
 xeventpropertynotify(XEvent *e)
 {
 	XPropertyEvent *ev;
-	XTextProperty prop;
 	struct Container *c;
 	struct Object *obj;
 	struct Tab *tab;
 	struct Menu *menu;
+	char *str;
 
 	ev = &e->xproperty;
 	if (ev->window == root && ev->atom == XA_RESOURCE_MANAGER) {
-		if (!XGetTextProperty(dpy, root, &prop, XA_RESOURCE_MANAGER))
+		if ((str = gettextprop(root, XA_RESOURCE_MANAGER)) == NULL)
 			return;
 		XrmDestroyDatabase(xdb);
-		setresources(prop.value);
-		XFree(prop.value);
+		setresources(str);
+		free(str);
 		cleantheme();
 		inittheme();
 		TAILQ_FOREACH(c, &wm.focusq, entry)

@@ -102,3 +102,4 @@ void initatoms(void);
 void initatom(int atomenum);
 void xinit(void);
 void xinitvisual(void);
+char *getresource(XrmDatabase xdb, XrmClass *class, XrmName *name);

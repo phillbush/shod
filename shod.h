@@ -27,6 +27,43 @@
 		}                                               \
 	}
 
+#define RESOURCES                                                                        \
+	/*                      CLASS                        NAME                      */\
+	X(RES_ANY,             "?",                         "?"                         )\
+	X(RES_TYPE,            "Type",                      "type"                      )\
+	X(RES_STATE,           "State",                     "state"                     )\
+	X(RES_DOCK_POS,        "Dockpos",                   "dockpos"                   )\
+	X(RES_FACE_NAME,       "FaceName",                  "faceName"                  )\
+	X(RES_FOREGROUND,      "Foreground",                "foreground"                )\
+	X(RES_DOCK_BACKGROUND, "DockBackground",            "dockBackground"            )\
+	X(RES_DOCK_BORDER,     "DockBorder",                "dockBorder"                )\
+	X(RES_ACTIVE_BG,       "ActiveBackground",          "activeBackground"          )\
+	X(RES_ACTIVE_TOP,      "ActiveTopShadowColor",      "activeTopShadowColor"      )\
+	X(RES_ACTIVE_BOT,      "ActiveBottomShadowColor",   "activeBottomShadowColor"   )\
+	X(RES_INACTIVE_BG,     "InactiveBackground",        "inactiveBackground"        )\
+	X(RES_INACTIVE_TOP,    "InactiveTopShadowColor",    "inactiveTopShadowColor"    )\
+	X(RES_INACTIVE_BOT,    "InactiveBottomShadowColor", "inactiveBottomShadowColor" )\
+	X(RES_URGENT_BG,       "UrgentBackground",          "urgentBackground"          )\
+	X(RES_URGENT_TOP,      "UrgentTopShadowColor",      "urgentTopShadowColor"      )\
+	X(RES_URGENT_BOT,      "UrgentBottomShadowColor",   "urgentBottomShadowColor"   )\
+	X(RES_BORDER_WIDTH,    "BorderWidth",               "borderWidth"               )\
+	X(RES_SHADOW_WIDTH,    "ShadowThickness",           "shadowThickness"           )\
+	X(RES_TITLE_WIDTH,     "TitleWidth",                "titleWidth"                )\
+	X(RES_DOCK_WIDTH,      "DockWidth",                 "dockWidth"                 )\
+	X(RES_DOCK_SPACE,      "DockSpace",                 "dockSpace"                 )\
+	X(RES_DOCK_GRAVITY,    "DockGravity",               "dockGravity"               )\
+	X(RES_NOTIFY_GAP,      "NotifGap",                  "notifGap"                  )\
+	X(RES_NOTIFY_GRAVITY,  "NotifGravity",              "notifGravity"              )\
+	X(RES_NDESKTOPS,       "NumOfDesktops",             "numOfDesktops"             )\
+	X(RES_SNAP_PROXIMITY,  "SnapProximity",             "snapProximity"             )
+
+enum Resource {
+#define X(res, class, name) res,
+	RESOURCES
+	NRESOURCES
+#undef  X
+};
+
 enum {
 	/* border array indices */
 	BORDER_N,
@@ -539,6 +576,14 @@ struct WM {
 	struct Queue menuq;                     /* queue of menus */
 	struct ContainerQueue focusq;           /* queue of containers ordered by focus history */
 	int nclients;                           /* total number of container windows */
+
+	/*
+	 * Resources
+	 */
+	struct {
+		XrmClass class;
+		XrmName name;
+	} application, resources[NRESOURCES];
 
 	/*
 	 * Xrandr information.

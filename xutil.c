@@ -112,6 +112,19 @@ estrndup(const char *s, size_t maxlen)
 	return p;
 }
 
+char *
+getresource(XrmDatabase xdb, XrmClass *class, XrmName *name)
+{
+	XrmRepresentation tmp;
+	XrmValue xval;
+
+	if (xdb == NULL)
+		return NULL;
+	if (XrmQGetResource(xdb, name, class, &tmp, &xval))
+		return xval.addr;
+	return NULL;
+}
+
 unsigned long
 getwinsprop(Window win, Atom prop, Window **wins)
 {

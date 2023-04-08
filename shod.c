@@ -183,6 +183,28 @@ initcursors(void)
 	wm.cursors[CURSOR_PIRATE] = XCreateFontCursor(dpy, XC_pirate);
 }
 
+static void
+initxrm(void)
+{
+	static struct {
+		const char *class, *name;
+	} resourceids[NRESOURCES] = {
+#define X(res, s1, s2) [res] = { .class = s1, .name = s2, },
+		RESOURCES
+#undef  X
+	};
+	int i;
+
+	XrmInitialize();
+	wm.application.class = XrmPermStringToQuark("Shod");
+	wm.application.name = XrmPermStringToQuark("shod");
+	for (i = 0; i < NRESOURCES; i++) {
+		wm.resources[i].class = XrmPermStringToQuark(resourceids[i].class);
+		wm.resources[i].name = XrmPermStringToQuark(resourceids[i].name);
+	}
+	setresources(XResourceManagerString(dpy));
+}
+
 /* set up root window */
 static void
 initroot(void)
@@ -324,7 +346,7 @@ int
 main(int argc, char *argv[])
 {
 	XEvent ev;
-	char *filename, *wmname, *xrm;
+	char *filename, *wmname;
 
 	if (!setlocale(LC_ALL, "") || !XSupportsLocale())
 		warnx("warning: no locale support");
@@ -332,9 +354,6 @@ main(int argc, char *argv[])
 	checkotherwm();
 	moninit();
 	xinitvisual();
-	XrmInitialize();
-	xrm = XResourceManagerString(dpy);
-	setresources(xrm);
 	clientswa.colormap = colormap;
 	clientswa.border_pixel = BlackPixel(dpy, screen);
 	clientswa.background_pixel = BlackPixel(dpy, screen);
@@ -364,6 +383,7 @@ main(int argc, char *argv[])
 	initsignal();
 	initcursors();
 	initatoms();
+	initxrm();
 	initroot();
 	initdummywindows();
 	initdock();

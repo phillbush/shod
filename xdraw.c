@@ -784,73 +784,81 @@ cleantheme(void)
 	XFreeGC(dpy, gc);
 }
 
+static char *
+queryrdb(int res)
+{
+	XrmClass class[] = { wm.application.class, wm.resources[res].class, NULLQUARK };
+	XrmName name[] = { wm.application.name, wm.resources[res].name, NULLQUARK };
+
+	return getresource(xdb, class, name);
+}
+
 void
 setresources(char *xrm)
 {
 	long n;
-	char *type;
-	XrmValue xval;
+	char *value;
 
 	if (xrm == NULL || (xdb = XrmGetStringDatabase(xrm)) == NULL)
 		return;
 
-	if (XrmGetResource(xdb, "shod.faceName", "*", &type, &xval) == True)
-		config.font = xval.addr;
-	if (XrmGetResource(xdb, "shod.foreground", "*", &type, &xval) == True)
-		config.foreground = xval.addr;
+	if ((value = queryrdb(RES_FACE_NAME)) != NULL)
+		config.font = value;
+	if ((value = queryrdb(RES_FOREGROUND)) != NULL)
+		config.foreground = value;
 
-	if (XrmGetResource(xdb, "shod.dockBackground", "*", &type, &xval) == True)
-		config.dockcolors[COLOR_DEF] = xval.addr;
-	if (XrmGetResource(xdb, "shod.dockBorder", "*", &type, &xval) == True)
-		config.dockcolors[COLOR_ALT] = xval.addr;
+	if ((value = queryrdb(RES_DOCK_BACKGROUND)) != NULL)
+		config.dockcolors[COLOR_DEF] = value;
+	if ((value = queryrdb(RES_DOCK_BORDER)) != NULL)
+		config.dockcolors[COLOR_ALT] = value;
 
-	if (XrmGetResource(xdb, "shod.activeBackground", "*", &type, &xval) == True)
-		config.bordercolors[FOCUSED][COLOR_MID] = xval.addr;
-	if (XrmGetResource(xdb, "shod.activeTopShadowColor", "*", &type, &xval) == True)
-		config.bordercolors[FOCUSED][COLOR_LIGHT] = xval.addr;
-	if (XrmGetResource(xdb, "shod.activeBottomShadowColor", "*", &type, &xval) == True)
-		config.bordercolors[FOCUSED][COLOR_DARK] = xval.addr;
+	if ((value = queryrdb(RES_ACTIVE_BG)) != NULL)
+		config.bordercolors[FOCUSED][COLOR_MID] = value;
+	if ((value = queryrdb(RES_ACTIVE_TOP)) != NULL)
+		config.bordercolors[FOCUSED][COLOR_LIGHT] = value;
+	if ((value = queryrdb(RES_ACTIVE_BOT)) != NULL)
+		config.bordercolors[FOCUSED][COLOR_DARK] = value;
 
-	if (XrmGetResource(xdb, "shod.inactiveBackground", "*", &type, &xval) == True)
-		config.bordercolors[UNFOCUSED][COLOR_MID] = xval.addr;
-	if (XrmGetResource(xdb, "shod.inactiveTopShadowColor", "*", &type, &xval) == True)
-		config.bordercolors[UNFOCUSED][COLOR_LIGHT] = xval.addr;
-	if (XrmGetResource(xdb, "shod.inactiveBottomShadowColor", "*", &type, &xval) == True)
-		config.bordercolors[UNFOCUSED][COLOR_DARK] = xval.addr;
+	if ((value = queryrdb(RES_INACTIVE_BG)) != NULL)
+		config.bordercolors[UNFOCUSED][COLOR_MID] = value;
+	if ((value = queryrdb(RES_INACTIVE_TOP)) != NULL)
+		config.bordercolors[UNFOCUSED][COLOR_LIGHT] = value;
+	if ((value = queryrdb(RES_INACTIVE_BOT)) != NULL)
+		config.bordercolors[UNFOCUSED][COLOR_DARK] = value;
 
-	if (XrmGetResource(xdb, "shod.urgentBackground", "*", &type, &xval) == True)
-		config.bordercolors[URGENT][COLOR_MID] = xval.addr;
-	if (XrmGetResource(xdb, "shod.urgentTopShadowColor", "*", &type, &xval) == True)
-		config.bordercolors[URGENT][COLOR_LIGHT] = xval.addr;
-	if (XrmGetResource(xdb, "shod.urgentBottomShadowColor", "*", &type, &xval) == True)
-		config.bordercolors[URGENT][COLOR_DARK] = xval.addr;
+	if ((value = queryrdb(RES_URGENT_BG)) != NULL)
+		config.bordercolors[URGENT][COLOR_MID] = value;
+	if ((value = queryrdb(RES_URGENT_TOP)) != NULL)
+		config.bordercolors[URGENT][COLOR_LIGHT] = value;
+	if ((value = queryrdb(RES_URGENT_BOT)) != NULL)
+		config.bordercolors[URGENT][COLOR_DARK] = value;
 
-	if (XrmGetResource(xdb, "shod.borderWidth", "*", &type, &xval) == True)
-		if ((n = strtol(xval.addr, NULL, 10)) > 0 && n < 100)
+	if ((value = queryrdb(RES_BORDER_WIDTH)) != NULL)
+		if ((n = strtol(value, NULL, 10)) > 0 && n < 100)
 			config.borderwidth = n;
-	if (XrmGetResource(xdb, "shod.shadowThickness", "*", &type, &xval) == True)
-		if ((n = strtol(xval.addr, NULL, 10)) > 0 && n < 100)
+	if ((value = queryrdb(RES_SHADOW_WIDTH)) != NULL)
+		if ((n = strtol(value, NULL, 10)) > 0 && n < 100)
 			config.shadowthickness = n;
-	if (XrmGetResource(xdb, "shod.titleWidth", "*", &type, &xval) == True)
-		if ((n = strtol(xval.addr, NULL, 10)) > 0 && n < 100)
+	if ((value = queryrdb(RES_TITLE_WIDTH)) != NULL)
+		if ((n = strtol(value, NULL, 10)) > 0 && n < 100)
 			config.titlewidth = n;
-	if (XrmGetResource(xdb, "shod.dockWidth", "*", &type, &xval) == True)
-		if ((n = strtol(xval.addr, NULL, 10)) > 0)
+	if ((value = queryrdb(RES_DOCK_WIDTH)) != NULL)
+		if ((n = strtol(value, NULL, 10)) > 0)
 			config.dockwidth = n;
-	if (XrmGetResource(xdb, "shod.dockSpace", "*", &type, &xval) == True)
-		if ((n = strtol(xval.addr, NULL, 10)) > 0)
+	if ((value = queryrdb(RES_DOCK_SPACE)) != NULL)
+		if ((n = strtol(value, NULL, 10)) > 0)
 			config.dockspace = n;
-	if (XrmGetResource(xdb, "shod.dockGravity", "*", &type, &xval) == True)
-		config.dockgravity = xval.addr;
-	if (XrmGetResource(xdb, "shod.notifGap", "*", &type, &xval) == True)
-		if ((n = strtol(xval.addr, NULL, 10)) > 0)
+	if ((value = queryrdb(RES_DOCK_GRAVITY)) != NULL)
+		config.dockgravity = value;
+	if ((value = queryrdb(RES_NOTIFY_GAP)) != NULL)
+		if ((n = strtol(value, NULL, 10)) > 0)
 			config.notifgap = n;
-	if (XrmGetResource(xdb, "shod.notifGravity", "*", &type, &xval) == True)
-		config.notifgravity = xval.addr;
-	if (XrmGetResource(xdb, "shod.numOfDesktops", "*", &type, &xval) == True)
-		if ((n = strtol(xval.addr, NULL, 10)) > 0 && n < 100)
+	if ((value = queryrdb(RES_NOTIFY_GRAVITY)) != NULL)
+		config.notifgravity = value;
+	if ((value = queryrdb(RES_NDESKTOPS)) != NULL)
+		if ((n = strtol(value, NULL, 10)) > 0 && n < 100)
 			config.ndesktops = n;
-	if (XrmGetResource(xdb, "shod.snapProximity", "*", &type, &xval) == True)
-		if ((n = strtol(xval.addr, NULL, 10)) >= 0 && n < 100)
+	if ((value = queryrdb(RES_SNAP_PROXIMITY)) != NULL)
+		if ((n = strtol(value, NULL, 10)) >= 0 && n < 100)
 			config.snap = n;
 }
