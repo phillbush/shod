@@ -15,7 +15,7 @@
 #define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
 #define ISDUMMY(c)              ((c)->ncols == 0)
 
-#define TITLEWIDTH(c)   (((c)->isfullscreen && (c)->ncols == 1 && TAILQ_FIRST(&(c)->colq)->nrows == 1) ? 0 : config.titlewidth)
+#define TITLEWIDTH(c)   ((c)->isfullscreen ? 0 : config.titlewidth)
 
 #define TAB_FOREACH_BEGIN(c, tab) {                             \
 	struct Column *col;                                     \

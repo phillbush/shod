@@ -230,6 +230,17 @@ colcalcrows(struct Column *col, int recalcfact, int recursive)
 
 	c = col->c;
 
+	if (col->c->isfullscreen) {
+		TAILQ_FOREACH(row, &col->rowq, entry) {
+			row->y = -config.titlewidth;
+			row->h = col->c->h + config.titlewidth;
+			if (recursive) {
+				rowcalctabs(row);
+			}
+		}
+		return;
+	}
+
 	/* check if rows sum up the height of the container */
 	content = c->h - col->nrows * config.titlewidth - (col->nrows - 1) * config.divwidth - 2 * c->b;
 	sumh = 0;
@@ -250,14 +261,8 @@ colcalcrows(struct Column *col, int recalcfact, int recursive)
 	if (sumh != content)
 		recalc = 1;
 
-	if (col->c->isfullscreen && col->c->ncols == 1 && col->nrows == 1) {
-		h = col->c->h + config.titlewidth;
-		y = -config.titlewidth;
-		recalc = 1;
-	} else {
-		h = col->c->h - 2 * c->b - (col->nrows - 1) * config.divwidth;
-		y = c->b;
-	}
+	h = col->c->h - 2 * c->b - (col->nrows - 1) * config.divwidth;
+	y = c->b;
 	i = 0;
 	TAILQ_FOREACH(row, &col->rowq, entry) {
 		if (recalc)
@@ -1066,6 +1071,14 @@ containercalccols(struct Container *c, int recalcfact, int recursive)
 		c->w = c->mon->mw;
 		c->h = c->mon->mh;
 		c->b = 0;
+		TAILQ_FOREACH(col, &c->colq, entry) {
+			col->x = 0;
+			col->w = c->w;
+			if (recursive) {
+				colcalcrows(col, recalcfact, 1);
+			}
+		}
+		return;
 	} else if (c->ismaximized) {
 		c->x = c->mon->wx;
 		c->y = c->mon->wy;
@@ -1689,6 +1702,7 @@ tabfocus(struct Tab *tab, int gotodesk)
 			deskupdate(c->mon, c->issticky ? c->mon->seldesk : c->desk);
 		if (tab->row->fact == 0.0)
 			rowstack(tab->row->col, tab->row);
+		XRaiseWindow(dpy, tab->row->frame);
 		XRaiseWindow(dpy, tab->frame);
 		if (c->isshaded || tab->row->isunmapped) {
 			XSetInputFocus(dpy, tab->row->bar, RevertToParent, CurrentTime);
