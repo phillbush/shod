@@ -409,12 +409,15 @@ dockreset(void)
 	while ((obj = TAILQ_FIRST(&dappq)) != NULL) {
 		TAILQ_REMOVE(&dappq, obj, entry);
 		win = obj->win;
-		getwintype(&win, &dummyw, &dummyt, &state, &rect, &desk);
 		dapp = (struct Dockapp *)obj;
-		if (rect.x > 0)
-			dapp->dockpos = rect.x;
-		if (state != 0)
-			dapp->state = state;
+		if (getwintype(&win, &dummyw, &dummyt, &state, &rect, &desk) == TYPE_DOCKAPP) {
+			if (rect.x > 0) {
+				dapp->dockpos = rect.x;
+			}
+			if (state != 0) {
+				dapp->state = state;
+			}
+		}
 		dockappinsert(dapp);
 	}
 	dockupdate();
