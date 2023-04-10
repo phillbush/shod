@@ -193,7 +193,9 @@ initxrm(void)
 		RESOURCES
 #undef  X
 	};
+	long n;
 	int i;
+	char *value;
 
 	XrmInitialize();
 	wm.application.class = XrmPermStringToQuark("Shod");
@@ -206,6 +208,24 @@ initxrm(void)
 	if (!settheme())
 		exit(EXIT_FAILURE);
 	setresources(XResourceManagerString(dpy));
+	if (xdb != NULL) {
+		value = getresource(
+			xdb,
+			(XrmClass[]){
+				wm.application.class,
+				wm.resources[RES_NDESKTOPS].class,
+				NULLQUARK,
+			},
+			(XrmName[]){
+				wm.application.name,
+				wm.resources[RES_NDESKTOPS].name,
+				NULLQUARK,
+			}
+		);
+		if (value != NULL && (n = strtol(value, NULL, 10)) > 0 && n < 100) {
+			config.ndesktops = n;
+		}
+	}
 }
 
 /* set up root window */

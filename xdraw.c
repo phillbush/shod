@@ -892,10 +892,6 @@ setresources(char *xrm)
 		case RES_NOTIFY_GRAVITY:
 			config.notifgravity = value;
 			break;
-		case RES_NDESKTOPS:
-			if ((n = strtol(value, NULL, 10)) > 0 && n < 100)
-				config.ndesktops = n;
-			break;
 		case RES_SNAP_PROXIMITY:
 			if ((n = strtol(value, NULL, 10)) >= 0 && n < 100)
 				config.snap = n;

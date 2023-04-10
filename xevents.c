@@ -1780,6 +1780,8 @@ xeventpropertynotify(XEvent *e)
 	char *str;
 
 	ev = &e->xproperty;
+	if (ev->state != PropertyNewValue)
+		return;
 	if (ev->window == root && ev->atom == XA_RESOURCE_MANAGER) {
 		if ((str = gettextprop(root, XA_RESOURCE_MANAGER)) == NULL)
 			return;
@@ -1795,8 +1797,6 @@ xeventpropertynotify(XEvent *e)
 		dockreset();
 		return;
 	}
-	if (ev->state == PropertyDelete)
-		return;
 	obj = getmanaged(ev->window);
 	if (obj == NULL)
 		return;
