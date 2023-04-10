@@ -753,6 +753,7 @@ void splashhide(struct Splash *splash, int hide);
 void splashrise(struct Splash *splash);
 void dockupdate(void);
 void dockdecorate(void);
+void dockreset(void);
 
 /* monitor routines */
 struct Monitor *getmon(int x, int y);
@@ -818,6 +819,7 @@ Unmanagefunc unmanagebar;
 void setmod(void);
 void scan(void);
 void deskupdate(struct Monitor *mon, int desk);
+int getwintype(Window *win_ret, Window *leader, struct Tab **tab, int *state, XRectangle *rect, int *desk);
 
 /* function tables */
 extern void (*managefuncs[])(struct Tab *, struct Monitor *, int, Window, Window, XRectangle, int, int);

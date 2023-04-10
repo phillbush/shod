@@ -43,25 +43,11 @@ dockappconfigure(struct Dockapp *dapp, unsigned int valuemask, XWindowChanges *w
 	}
 }
 
-/* create dockapp */
 static void
-dockappnew(Window win, int w, int h, int dockpos, int state, int ignoreunmap)
+dockappinsert(struct Dockapp *dapp)
 {
-	struct Dockapp *dapp;
 	struct Object *prev;
 
-	dapp = emalloc(sizeof(*dapp));
-	*dapp = (struct Dockapp){
-		.obj.type = TYPE_DOCKAPP,
-		.obj.win = win,
-		.x = 0,
-		.y = 0,
-		.w = 0,
-		.h = 0,
-		.ignoreunmap = ignoreunmap,
-		.dockpos = dockpos,
-		.state = state,
-	};
 	TAILQ_FOREACH_REVERSE(prev, &dock.dappq, Queue, entry)
 		if (((struct Dockapp *)prev)->dockpos <= dapp->dockpos)
 			break;
@@ -74,10 +60,31 @@ dockappnew(Window win, int w, int h, int dockpos, int state, int ignoreunmap)
 		dapp,
 		CWWidth | CWHeight,
 		&(XWindowChanges){
-			.width = w,
-			.height = h,
+			.width = dapp->w,
+			.height = dapp->h,
 		}
 	);
+}
+
+/* create dockapp */
+static void
+dockappnew(Window win, int w, int h, int dockpos, int state, int ignoreunmap)
+{
+	struct Dockapp *dapp;
+
+	dapp = emalloc(sizeof(*dapp));
+	*dapp = (struct Dockapp){
+		.obj.type = TYPE_DOCKAPP,
+		.obj.win = win,
+		.x = 0,
+		.y = 0,
+		.w = w,
+		.h = h,
+		.ignoreunmap = ignoreunmap,
+		.dockpos = dockpos,
+		.state = state,
+	};
+	dockappinsert(dapp);
 }
 
 /* compute dockapp position given its width or height */
@@ -88,7 +95,7 @@ dockapppos(int pos)
 }
 
 /* update dock position; create it, if necessary */
-void
+static void
 dockupdateresizeable(void)
 {
 	struct Monitor *mon;
@@ -207,7 +214,7 @@ dockupdateresizeable(void)
 }
 
 /* update dock position; create it, if necessary */
-void
+static void
 dockupdatefull(void)
 {
 	struct Object *p;
@@ -379,4 +386,37 @@ unmanagedockapp(struct Object *obj, int ignoreunmap)
 	dockupdate();
 	monupdatearea();
 	return 0;
+}
+
+void
+dockreset(void)
+{
+	struct Queue dappq;
+	struct Object *obj;
+	struct Dockapp *dapp;
+	Window win, dummyw;
+	struct Tab *dummyt;
+	XRectangle rect;
+	int state, desk;
+
+	if (TAILQ_EMPTY(&dock.dappq))
+		return;
+	TAILQ_INIT(&dappq);
+	while ((obj = TAILQ_FIRST(&dock.dappq)) != NULL) {
+		TAILQ_REMOVE(&dock.dappq, obj, entry);
+		TAILQ_INSERT_TAIL(&dappq, obj, entry);
+	}
+	while ((obj = TAILQ_FIRST(&dappq)) != NULL) {
+		TAILQ_REMOVE(&dappq, obj, entry);
+		win = obj->win;
+		getwintype(&win, &dummyw, &dummyt, &state, &rect, &desk);
+		dapp = (struct Dockapp *)obj;
+		if (rect.x > 0)
+			dapp->dockpos = rect.x;
+		if (state != 0)
+			dapp->state = state;
+		dockappinsert(dapp);
+	}
+	dockupdate();
+	dockdecorate();
 }

@@ -379,7 +379,7 @@ getextrahints(Window win, Atom prop, unsigned long nmemb, size_t size, void *hin
 #define STRCMP(a, b) ((a) != NULL && (b) != NULL && strcmp((a), (b)) == 0)
 
 /* get window info based on its type */
-static int
+int
 getwintype(Window *win_ret, Window *leader, struct Tab **tab, int *state, XRectangle *rect, int *desk)
 {
 	/* rules for identifying windows */
@@ -1792,7 +1792,7 @@ xeventpropertynotify(XEvent *e)
 			menudecorate((struct Menu *)obj, 0);
 		TAILQ_FOREACH(obj, &wm.notifq, entry)
 			notifdecorate((struct Notification *)obj);
-		dockdecorate();
+		dockreset();
 		return;
 	}
 	if (ev->state == PropertyDelete)
