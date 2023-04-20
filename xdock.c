@@ -9,7 +9,7 @@ dockdecorate(void)
 	dock.pw = dock.w;
 	dock.ph = dock.h;
 	drawdock(dock.pix, dock.w, dock.h);
-	drawcommit(dock.pix, dock.win, dock.w, dock.h);
+	drawcommit(dock.pix, dock.win);
 }
 
 /* configure dockapp window */

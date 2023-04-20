@@ -43,7 +43,7 @@ notifdecorate(struct Notification *n)
 
 	drawborders(n->pix, n->w, n->h, FOCUSED);
 
-	drawcommit(n->pix, n->frame, n->w, n->h);
+	drawcommit(n->pix, n->frame);
 }
 
 /* place notifications */

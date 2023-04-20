@@ -4,8 +4,8 @@
 
 #include <X11/XKBlib.h>
 
-#define MOUSEEVENTMASK          (ButtonReleaseMask | PointerMotionMask | ExposureMask)
-#define ALTTABMASK              (KeyPressMask | KeyReleaseMask | ExposureMask)
+#define MOUSEEVENTMASK          (ButtonReleaseMask | PointerMotionMask)
+#define ALTTABMASK              (KeyPressMask | KeyReleaseMask)
 #define DOUBLECLICK     250     /* time in miliseconds of a double click */
 #define BETWEEN(a, b, c)        ((a) <= (b) && (b) < (c))
 
@@ -781,10 +781,6 @@ alttab(int shift)
 	c = containerraisetemp(c, shift);
 	while (!XMaskEvent(dpy, ALTTABMASK, &ev)) {
 		switch (ev.type) {
-		case Expose:
-			if (ev.xexpose.count == 0)
-				copypixmap(ev.xexpose.window);
-			break;
 		case KeyPress:
 			if (ev.xkey.keycode == config.tabkeycode && isvalidstate(ev.xkey.state)) {
 				containerbacktoplace(c, 1);
@@ -833,10 +829,6 @@ mouseretab(struct Tab *tab, int xroot, int yroot, int x, int y)
 	XRaiseWindow(dpy, wm.dragwin);
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
-		case Expose:
-			if (ev.xexpose.count == 0)
-				copypixmap(ev.xexpose.window);
-			break;
 		case MotionNotify:
 			XMoveWindow(
 				dpy, wm.dragwin,
@@ -974,10 +966,6 @@ mouseresize(int type, void *obj, int xroot, int yroot, enum Octant o)
 	lasttime = 0;
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
-		case Expose:
-			if (ev.xexpose.count == 0)
-				copypixmap(ev.xexpose.window);
-			break;
 		case ButtonRelease:
 			goto done;
 			break;
@@ -1075,10 +1063,6 @@ mousemove(Window win, int type, void *p, int xroot, int yroot, enum Octant o)
 		goto done;
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
-		case Expose:
-			if (ev.xexpose.count == 0)
-				copypixmap(ev.xexpose.window);
-			break;
 		case ButtonRelease:
 			goto done;
 			break;
@@ -1141,10 +1125,6 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 		goto done;
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
-		case Expose:
-			if (ev.xexpose.count == 0)
-				copypixmap(ev.xexpose.window);
-			break;
 		case ButtonRelease:
 			goto done;
 			break;
@@ -1675,18 +1655,6 @@ xevententernotify(XEvent *e)
 	}
 }
 
-/* redraw window decoration */
-static void
-xeventexpose(XEvent *e)
-{
-	XExposeEvent *ev;
-
-	ev = &e->xexpose;
-	if (ev->count == 0) {
-		copypixmap(ev->window);
-	}
-}
-
 /* handle focusin event */
 static void
 xeventfocusin(XEvent *e)
@@ -1910,7 +1878,6 @@ void (*xevents[LASTEvent])(XEvent *) = {
 	[ConfigureRequest] = xeventconfigurerequest,
 	[DestroyNotify]    = xeventdestroynotify,
 	[EnterNotify]      = xevententernotify,
-	[Expose]           = xeventexpose,
 	[FocusIn]          = xeventfocusin,
 	[KeyPress]         = xeventkeypress,
 	[MapRequest]       = xeventmaprequest,

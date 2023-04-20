@@ -528,7 +528,7 @@ dialogdecorate(struct Dialog *d)
 	d->ph = fullh;
 
 	drawborders(d->pix, fullw, fullh, tabgetstyle(d->tab));
-	drawcommit(d->pix, d->frame, fullw, fullh);
+	drawcommit(d->pix, d->frame);
 }
 
 /* get focused fullscreen window in given monitor and desktop */
@@ -1025,7 +1025,7 @@ containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, in
 
 			/* draw background of titlebar pixmap */
 			drawbackground(row->pixbar, 0, 0, col->w, config.titlewidth, style);
-			drawcommit(row->pixbar, row->bar, col->w, config.titlewidth);
+			drawcommit(row->pixbar, row->bar);
 
 			/* draw buttons */
 			buttonleftdecorate(row->bl, row->pixbl, style, 0);
@@ -1043,7 +1043,7 @@ containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, in
 		}
 	}
 
-	drawcommit(c->pix, c->frame, c->w, c->h);
+	drawcommit(c->pix, c->frame);
 }
 
 /* check if container needs to be redecorated and redecorate it */
@@ -1772,8 +1772,8 @@ tabdecorate(struct Tab *t, int pressed)
 	/* draw frame background */
 	drawbackground(t->pix, 0, 0, t->winw, t->winh, style);
 
-	drawcommit(t->pixtitle, t->title, t->w, config.titlewidth);
-	drawcommit(t->pix, t->frame, t->winw, t->winh);
+	drawcommit(t->pixtitle, t->title);
+	drawcommit(t->pix, t->frame);
 }
 
 /* update tab urgency */

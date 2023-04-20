@@ -117,8 +117,8 @@ menudecorate(struct Menu *menu, int titlepressed)
 	if (menu->name != NULL)
 		drawtitle(menu->pixtitlebar, menu->name, menu->tw, 0, FOCUSED, 0, 1);
 	buttonrightdecorate(menu->button, menu->pixbutton, FOCUSED, 0);
-	drawcommit(menu->pix, menu->frame, menu->pw, menu->ph);
-	drawcommit(menu->pixtitlebar, menu->titlebar, menu->tw, menu->th);
+	drawcommit(menu->pix, menu->frame);
+	drawcommit(menu->pixtitlebar, menu->titlebar);
 }
 
 void

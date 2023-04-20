@@ -33,7 +33,6 @@ promptvalidevent(Display *dpy, XEvent *ev, XPointer arg)
 		if (ev->xconfigurerequest.window == win)
 			return True;
 		break;
-	case Expose:
 	case ButtonPress:
 		return True;
 	}
@@ -49,7 +48,7 @@ promptdecorate(Window frame, Pixmap *pix, int w, int h)
 	*pix = XCreatePixmap(dpy, frame, w, h, depth);
 	drawbackground(*pix, 0, 0, w, h, FOCUSED);
 	drawprompt(*pix, w, h);
-	drawcommit(*pix, frame, w, h);
+	drawcommit(*pix, frame);
 }
 
 /* map prompt, give it focus, wait for it to close, then revert focus to previously focused window */
@@ -79,15 +78,6 @@ manageprompt(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window 
 	promptdecorate(frame, &pix, fw, fh);
 	while (!XIfEvent(dpy, &ev, promptvalidevent, (XPointer)&win)) {
 		switch (ev.type) {
-		case Expose:
-			if (ev.xexpose.count == 0) {
-				if (ev.xexpose.window == frame) {
-					drawcommit(pix, frame, w, h);
-				} else {
-					copypixmap(ev.xexpose.window);
-				}
-			}
-			break;
 		case DestroyNotify:
 		case UnmapNotify:
 			goto done;

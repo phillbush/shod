@@ -23,7 +23,7 @@ static int (*xerrorxlib)(Display *, XErrorEvent *);
 /* shared variables */
 unsigned long clientmask = CWEventMask | CWColormap | CWBackPixel | CWBorderPixel;
 XSetWindowAttributes clientswa = {
-	.event_mask = SubstructureNotifyMask | ExposureMask | ButtonReleaseMask
+	.event_mask = SubstructureNotifyMask | ButtonReleaseMask
 	            | SubstructureRedirectMask | ButtonPressMask | FocusChangeMask
 	            | Button1MotionMask
 };
@@ -247,7 +247,7 @@ initdock(void)
 
 	TAILQ_INIT(&dock.dappq);
 	dock.pix = None;
-	swa.event_mask = SubstructureNotifyMask | SubstructureRedirectMask | ExposureMask;
+	swa.event_mask = SubstructureNotifyMask | SubstructureRedirectMask;
 	swa.background_pixel = BlackPixel(dpy, screen);
 	swa.border_pixel = BlackPixel(dpy, screen);
 	swa.colormap = colormap;

@@ -30,112 +30,6 @@ openfont(const char *s)
 	return font;
 }
 
-/* win was exposed, return the pixmap of its contents and the pixmap's size */
-static int
-getexposed(Window win, Pixmap *pix, int *pw, int *ph)
-{
-	struct Object *n, *t, *d, *m;
-	struct Container *c;
-	struct Column *col;
-	struct Row *row;
-	struct Tab *tab;
-	struct Dialog *dial;
-	struct Menu *menu;
-	struct Notification *notif;
-
-	TAILQ_FOREACH(c, &wm.focusq, entry) {
-		if (c->frame == win) {
-			*pix = c->pix;
-			*pw = c->pw;
-			*ph = c->ph;
-			return 1;
-		}
-		TAILQ_FOREACH(col, &(c)->colq, entry) {
-			TAILQ_FOREACH(row, &col->rowq, entry) {
-				if (row->bar == win) {
-					*pix = row->pixbar;
-					*pw = row->pw;
-					*ph = config.titlewidth;
-					return 1;
-				}
-				if (row->bl == win) {
-					*pix = row->pixbl;
-					*pw = config.titlewidth;
-					*ph = config.titlewidth;
-					return 1;
-				}
-				if (row->br == win) {
-					*pix = row->pixbr;
-					*pw = config.titlewidth;
-					*ph = config.titlewidth;
-					return 1;
-				}
-				TAILQ_FOREACH(t, &row->tabq, entry) {
-					tab = (struct Tab *)t;
-					if (tab->frame == win) {
-						*pix = tab->pix;
-						*pw = tab->pw;
-						*ph = tab->ph;
-						return 1;
-					}
-					if (tab->title == win) {
-						*pix = tab->pixtitle;
-						*pw = tab->ptw;
-						*ph = config.titlewidth;
-						return 1;
-					}
-					TAILQ_FOREACH(d, &tab->dialq, entry) {
-						dial = (struct Dialog *)d;
-						if (dial->frame == win) {
-							*pix = dial->pix;
-							*pw = dial->pw;
-							*ph = dial->ph;
-							return 1;
-						}
-					}
-				}
-			}
-		}
-	}
-	if (dock.win == win) {
-		*pix = dock.pix;
-		*pw = dock.w;
-		*ph = dock.h;
-		return 1;
-	}
-	TAILQ_FOREACH(m, &wm.menuq, entry) {
-		menu = (struct Menu *)m;
-		if (menu->frame == win) {
-			*pix = menu->pix;
-			*pw = menu->pw;
-			*ph = menu->ph;
-			return 1;
-		}
-		if (menu->titlebar == win) {
-			*pix = menu->pixtitlebar;
-			*pw = menu->tw;
-			*ph = menu->th;
-			return 1;
-		}
-		if (menu->button == win) {
-			*pix = menu->pixbutton;
-			*pw = config.titlewidth;
-			*ph = config.titlewidth;
-			return 1;
-		}
-	}
-	TAILQ_FOREACH(n, &wm.notifq, entry) {
-		notif = (struct Notification *)n;
-		if (notif->frame == win) {
-			*pix = notif->frame;
-			*pw = notif->pw;
-			*ph = notif->ph;
-			return 1;
-		}
-	}
-	return 0;
-}
-
 void
 pixmapnew(Pixmap *pix, Window win, int w, int h)
 {
@@ -145,9 +39,10 @@ pixmapnew(Pixmap *pix, Window win, int w, int h)
 }
 
 void
-drawcommit(Pixmap pix, Window win, int w, int h)
+drawcommit(Pixmap pix, Window win)
 {
-	XCopyArea(dpy, pix, win, gc, 0, 0, w, h, 0, 0);
+	XSetWindowBackgroundPixmap(dpy, win, pix);
+	XClearWindow(dpy, win);
 }
 
 /* draw text into drawable */
@@ -637,7 +532,7 @@ buttonleftdecorate(Window button, Pixmap pix, int style, int pressed)
 		XFillRectangles(dpy, pix, gc, recs, 2);
 	}
 
-	drawcommit(pix, button, config.titlewidth, config.titlewidth);
+	drawcommit(pix, button);
 }
 
 /* draw title bar buttons */
@@ -694,19 +589,7 @@ buttonrightdecorate(Window button, Pixmap pix, int style, int pressed)
 		XDrawLines(dpy, pix, gc, pts, 9, CoordModePrevious);
 	}
 
-	drawcommit(pix, button, config.titlewidth, config.titlewidth);
-}
-
-/* copy pixmap into exposed window */
-void
-copypixmap(Window win)
-{
-	Pixmap pix;
-	int pw, ph;
-
-	if (getexposed(win, &pix, &pw, &ph)) {
-		drawcommit(pix, win, pw, ph);
-	}
+	drawcommit(pix, button);
 }
 
 void

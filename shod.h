@@ -784,7 +784,7 @@ void winclose(Window win);
 
 /* decoration routines */
 void pixmapnew(Pixmap *pix, Window win, int w, int h);
-void drawcommit(Pixmap pix, Window win, int w, int h);
+void drawcommit(Pixmap pix, Window win);
 void drawborders(Pixmap pix, int w, int h, int style);
 void drawbackground(Pixmap pix, int x, int y, int w, int h, int style);
 void drawframe(Pixmap pix, int isshaded, int w, int h, enum Octant o, int style);
@@ -794,7 +794,6 @@ void drawprompt(Pixmap pix, int w, int h);
 void drawdock(Pixmap pix, int w, int h);
 void buttonleftdecorate(Window button, Pixmap pix, int style, int pressed);
 void buttonrightdecorate(Window button, Pixmap pix, int style, int pressed);
-void copypixmap(Window win);
 void cleantheme(void);
 void setresources(char *xrm);
 int settheme(void);
