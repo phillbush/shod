@@ -1011,7 +1011,7 @@ mouseresize(int type, void *obj, int xroot, int yroot, enum Octant o)
 					menumoveresize(menu);
 					menudecorate(menu, 0);
 				} else {
-					containercalccols(c, 0);
+					containercalccols(c);
 					containermoveresize(c, 0);
 					containerredecorate(c, NULL, NULL, o);
 				}
@@ -1027,7 +1027,7 @@ done:
 		menumoveresize(menu);
 		menudecorate(menu, 0);
 	} else {
-		containercalccols(c, 0);
+		containercalccols(c);
 		containermoveresize(c, 1);
 		containerdecorate(c, NULL, NULL, 0, 0);
 	}
@@ -1102,13 +1102,14 @@ done:
 
 /* resize tiles by dragging division with mouse */
 static void
-mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroot, int yroot)
+mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xprev, int yprev)
 {
 	struct Row *row;
 	XEvent ev;
 	Cursor curs;
 	Time lasttime;
-	int x, y;
+	double fact;
+	int ignore, len, x, y;
 
 	if (cdiv != NULL && TAILQ_NEXT(cdiv, entry) != NULL)
 		curs = wm.cursors[CURSOR_H];
@@ -1127,51 +1128,70 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 			goto done;
 			break;
 		case MotionNotify:
-			x = ev.xmotion.x_root - xroot;
-			y = ev.xmotion.y_root - yroot;
-			if (cdiv != NULL) {
-				if (x < 0 && cdiv->w + x >= wm.minsize) {
-					cdiv->w += x;
-					TAILQ_NEXT(cdiv, entry)->w -= x;
-				} else if (x > 0 && TAILQ_NEXT(cdiv, entry)->w - x >= wm.minsize) {
-					TAILQ_NEXT(cdiv, entry)->w -= x;
-					cdiv->w += x;
+			x = ev.xmotion.x - xprev;
+			y = ev.xmotion.y - yprev;
+			ignore = 0;
+			len = 0;
+			if (cdiv != NULL &&
+			    ((x < 0 && ev.xmotion.x < TAILQ_NEXT(cdiv, entry)->x) ||
+			     (x > 0 && ev.xmotion.x > TAILQ_NEXT(cdiv, entry)->x))) {
+				len = cdiv->c->w;
+				len -= 2 * cdiv->c->b;
+				len -= (cdiv->c->ncols - 1) * config.divwidth;
+				fact = (double)x / (double)len;
+				if ((cdiv->fact + fact) * len >= wm.minsize &&
+				    (TAILQ_NEXT(cdiv, entry)->fact - fact) *
+				    len >= wm.minsize) {
+					cdiv->fact += fact;
+					TAILQ_NEXT(cdiv, entry)->fact -= fact;
 				}
 			}
-			for (row = rdiv; row != NULL && TAILQ_NEXT(row, entry) != NULL; ) {
-				if (y < 0) {
-					if (row->h + y < config.titlewidth) {
-						row = TAILQ_PREV(row, RowQueue, entry);
-						ev.xmotion.y_root -= y;
-						continue;
-					}
-					row->h += y;
-					TAILQ_NEXT(row, entry)->h -= y;
+			if (rdiv != NULL) {
+				len = rdiv->col->c->h;
+				len -= 2 * rdiv->col->c->b;
+				len -= (rdiv->col->nrows - 1) * config.divwidth;
+			}
+			for (row = rdiv; row != NULL && y < 0 &&
+			     ev.xmotion.y < TAILQ_NEXT(row, entry)->y;
+			     row = TAILQ_PREV(row, RowQueue, entry)) {
+				fact = (double)y / (double)len;
+				if (row->fact + fact < 0.0) {
+					ignore = 1;
+					continue;
 				}
-				if (y > 0) {
-					if (TAILQ_NEXT(row, entry)->h - y < config.titlewidth) {
-						row = TAILQ_NEXT(row, entry);
-						ev.xmotion.y_root -= y;
-						continue;
-					}
-					TAILQ_NEXT(row, entry)->h -= y;
-					row->h += y;
+				row->fact += fact;
+				TAILQ_NEXT(rdiv, entry)->fact -= fact;
+				if (ignore) {
+					break;
 				}
-				break;
+			}
+			for (row = rdiv; row != NULL && y > 0 &&
+			     ev.xmotion.y > TAILQ_NEXT(rdiv, entry)->y;
+			     row = TAILQ_NEXT(row, entry)) {
+				fact = (double)y / (double)len;
+				if (rdiv == row || row->fact - fact < 0.0) {
+					ignore = 1;
+					continue;
+				}
+				rdiv->fact += fact;
+				row->fact -= fact;
+				if (ignore) {
+					break;
+				}
 			}
 			if (ev.xmotion.time - lasttime > RESIZETIME) {
-				containercalccols(c, 1);
+				containercalccols(c);
 				containermoveresize(c, 0);
 				containerdecorate(c, cdiv, rdiv, 0, 0);
 				lasttime = ev.xmotion.time;
 			}
-			xroot = ev.xmotion.x_root;
-			yroot = ev.xmotion.y_root;
+			xprev = ev.xmotion.x;
+			yprev = ev.xmotion.y;
 			break;
 		}
 	}
 done:
-	containercalccols(c, 1);
+	containercalccols(c);
 	containermoveresize(c, 0);
 	tabfocus(c->selcol->selrow->seltab, 0);
 	XUngrabPointer(dpy, CurrentTime);
@@ -1301,7 +1321,7 @@ xeventbuttonpress(XEvent *e)
 		} else if (ev->window == c->frame && ev->button == Button1 && o == C) {
 			getdivisions(c, &cdiv, &rdiv, x, y);
 			if (cdiv != NULL || rdiv != NULL) {
-				mouseretile(c, cdiv, rdiv, ev->x_root, ev->y_root);
+				mouseretile(c, cdiv, rdiv, ev->x, ev->y);
 			}
 		} else if (!c->isfullscreen && !c->isminimized && !c->ismaximized) {
 			if (isvalidstate(ev->state) && ev->button == Button1) {

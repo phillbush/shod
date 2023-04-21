@@ -436,7 +436,7 @@ coldetach(struct Column *col)
 	}
 	c->ncols--;
 	TAILQ_REMOVE(&c->colq, col, entry);
-	containercalccols(col->c, 1);
+	containercalccols(col->c);
 }
 
 /* delete column */
@@ -630,7 +630,7 @@ containeraddcol(struct Container *c, struct Column *col, struct Column *prev)
 	else
 		TAILQ_INSERT_AFTER(&c->colq, prev, col, entry);
 	XReparentWindow(dpy, col->div, c->frame, 0, 0);
-	containercalccols(c, 1);
+	containercalccols(c);
 	if (oldc != NULL && oldc->ncols == 0) {
 		containerdel(oldc);
 	}
@@ -675,7 +675,7 @@ containerfullscreen(struct Container *c, int fullscreen)
 		containerraise(c, 0, c->abovebelow);
 	else
 		return;
-	containercalccols(c, 0);
+	containercalccols(c);
 	containermoveresize(c, 1);
 	containerredecorate(c, NULL, NULL, 0);
 	ewmhsetstate(c);
@@ -691,7 +691,7 @@ containermaximize(struct Container *c, int maximize)
 		c->ismaximized = 0;
 	else
 		return;
-	containercalccols(c, 0);
+	containercalccols(c);
 	containermoveresize(c, 1);
 	containerredecorate(c, NULL, NULL, 0);
 }
@@ -742,7 +742,7 @@ containershade(struct Container *c, int shade)
 	} else {
 		return;
 	}
-	containercalccols(c, 0);
+	containercalccols(c);
 	containermoveresize(c, 1);
 	containerredecorate(c, NULL, NULL, 0);
 	if (c == wm.focused) {
@@ -1058,7 +1058,7 @@ containerredecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, 
 
 /* calculate position and width of columns of a container */
 void
-containercalccols(struct Container *c, int recalcfact)
+containercalccols(struct Container *c)
 {
 	struct Column *col;
 	int i, x, w;
@@ -1075,7 +1075,7 @@ containercalccols(struct Container *c, int recalcfact)
 		TAILQ_FOREACH(col, &c->colq, entry) {
 			col->x = 0;
 			col->w = c->w;
-			colcalcrows(col, recalcfact);
+			colcalcrows(col, 0);
 		}
 		return;
 	} else if (c->ismaximized) {
@@ -1100,15 +1100,13 @@ containercalccols(struct Container *c, int recalcfact)
 	sumw = 0;
 	recalc = 0;
 	TAILQ_FOREACH(col, &c->colq, entry) {
-		if (!recalcfact) {
-			if (TAILQ_NEXT(col, entry) == NULL) {
-				col->w = content - sumw;
-			} else {
-				col->w = col->fact * content;
-			}
-			if (col->w == 0) {
-				recalc = 1;
-			}
+		if (TAILQ_NEXT(col, entry) == NULL) {
+			col->w = content - sumw;
+		} else {
+			col->w = col->fact * content;
+		}
+		if (col->w == 0) {
+			recalc = 1;
 		}
 		sumw += col->w;
 	}
@@ -1123,11 +1121,11 @@ containercalccols(struct Container *c, int recalcfact)
 			c->h = max(c->h, col->nrows * config.titlewidth);
 		if (recalc)
 			col->w = max(1, ((i + 1) * w / c->ncols) - (i * w / c->ncols));
-		if (recalc || recalcfact)
+		if (recalc)
 			col->fact = (double)col->w/(double)c->w;
 		col->x = x;
 		x += col->w + config.divwidth;
-		colcalcrows(col, recalcfact);
+		colcalcrows(col, 0);
 		i++;
 	}
 	if (containerisshaded(c)) {
@@ -1272,7 +1270,7 @@ containerconfigure(struct Container *c, unsigned int valuemask, XWindowChanges *
 		c->nw = wc->width;
 	if ((valuemask & CWHeight) && wc->height >= wm.minsize)
 		c->nh = wc->height;
-	containercalccols(c, 0);
+	containercalccols(c);
 	containermoveresize(c, 1);
 	containerredecorate(c, NULL, NULL, 0);
 }
@@ -1432,7 +1430,7 @@ containerplace(struct Container *c, struct Monitor *mon, int desk, int userplace
 	subh = subh * mon->wh / DIV;
 	c->nx = min(mon->wx + mon->ww - c->nw, max(mon->wx, mon->wx + subx + subw / 2 - c->nw / 2));
 	c->ny = min(mon->wy + mon->wh - c->nh, max(mon->wy, mon->wy + suby + subh / 2 - c->nh / 2));
-	containercalccols(c, 0);
+	containercalccols(c);
 }
 
 /* check whether container is sticky or is on given desktop */
@@ -1525,7 +1523,7 @@ found:
 	}
 	rowaddtab(row, det, tab);
 	if (ncol != NULL)
-		containercalccols(c, 1);
+		containercalccols(c);
 	else if (nrow != NULL)
 		colcalcrows(col, 1);
 	else
@@ -1564,7 +1562,7 @@ containerdelrow(struct Row *row)
 		recalc = 0;
 	}
 	if (recalc) {
-		containercalccols(c, 1);
+		containercalccols(c);
 		containermoveresize(c, 0);
 		shodgrouptab(c);
 		shodgroupcontainer(c);
@@ -1967,7 +1965,7 @@ unmanagecontainer(struct Object *obj, int ignoreunmap)
 		}
 	}
 	if (moveresize) {
-		containercalccols(c, 1);
+		containercalccols(c);
 		containermoveresize(c, 0);
 		containerredecorate(c, NULL, NULL, 0);
 		shodgrouptab(c);

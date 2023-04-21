@@ -712,7 +712,7 @@ void containerdel(struct Container *c);
 void containermoveresize(struct Container *c, int checkstack);
 void containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, int recursive, enum Octant o);
 void containerredecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, enum Octant o);
-void containercalccols(struct Container *c, int recalcfact);
+void containercalccols(struct Container *c);
 void containersetstate(struct Tab *, Atom *, unsigned long);
 void containerincrmove(struct Container *c, int x, int y);
 void containerraise(struct Container *c, int isfullscreen, int layer);

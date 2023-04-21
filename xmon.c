@@ -221,7 +221,7 @@ monupdatearea(void)
 	}
 	TAILQ_FOREACH(c, &wm.focusq, entry) {
 		if (c->ismaximized) {
-			containercalccols(c, 0);
+			containercalccols(c);
 			containermoveresize(c, 0);
 			containerredecorate(c, NULL, NULL, 0);
 		}
