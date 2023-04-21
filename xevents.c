@@ -1011,7 +1011,7 @@ mouseresize(int type, void *obj, int xroot, int yroot, enum Octant o)
 					menumoveresize(menu);
 					menudecorate(menu, 0);
 				} else {
-					containercalccols(c, 0, 1);
+					containercalccols(c, 0);
 					containermoveresize(c, 0);
 					containerredecorate(c, NULL, NULL, o);
 				}
@@ -1027,7 +1027,7 @@ done:
 		menumoveresize(menu);
 		menudecorate(menu, 0);
 	} else {
-		containercalccols(c, 0, 1);
+		containercalccols(c, 0);
 		containermoveresize(c, 1);
 		containerdecorate(c, NULL, NULL, 0, 0);
 	}
@@ -1109,7 +1109,6 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 	Cursor curs;
 	Time lasttime;
 	int x, y;
-	int update;
 
 	if (cdiv != NULL && TAILQ_NEXT(cdiv, entry) != NULL)
 		curs = wm.cursors[CURSOR_H];
@@ -1118,7 +1117,6 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 	else
 		return;
 	x = y = 0;
-	update = 0;
 	lasttime = 0;
 	containerdecorate(c, cdiv, rdiv, 0, 0);
 	if (XGrabPointer(dpy, c->frame, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, curs, CurrentTime) != GrabSuccess)
@@ -1135,15 +1133,9 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 				if (x < 0 && cdiv->w + x >= wm.minsize) {
 					cdiv->w += x;
 					TAILQ_NEXT(cdiv, entry)->w -= x;
-					if (ev.xmotion.time - lasttime > RESIZETIME) {
-						update = 1;
-					}
 				} else if (x > 0 && TAILQ_NEXT(cdiv, entry)->w - x >= wm.minsize) {
 					TAILQ_NEXT(cdiv, entry)->w -= x;
 					cdiv->w += x;
-					if (ev.xmotion.time - lasttime > RESIZETIME) {
-						update = 1;
-					}
 				}
 			}
 			for (row = rdiv; row != NULL && TAILQ_NEXT(row, entry) != NULL; ) {
@@ -1155,9 +1147,6 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 					}
 					row->h += y;
 					TAILQ_NEXT(row, entry)->h -= y;
-					if (ev.xmotion.time - lasttime > RESIZETIME) {
-						update = 1;
-					}
 				}
 				if (y > 0) {
 					if (TAILQ_NEXT(row, entry)->h - y < config.titlewidth) {
@@ -1167,18 +1156,14 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 					}
 					TAILQ_NEXT(row, entry)->h -= y;
 					row->h += y;
-					if (ev.xmotion.time - lasttime > RESIZETIME) {
-						update = 1;
-					}
 				}
 				break;
 			}
-			if (update) {
-				containercalccols(c, 1, 1);
+			if (ev.xmotion.time - lasttime > RESIZETIME) {
+				containercalccols(c, 1);
 				containermoveresize(c, 0);
 				containerdecorate(c, cdiv, rdiv, 0, 0);
 				lasttime = ev.xmotion.time;
-				update = 0;
 			}
 			xroot = ev.xmotion.x_root;
 			yroot = ev.xmotion.y_root;
@@ -1186,7 +1171,7 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xroo
 		}
 	}
 done:
-	containercalccols(c, 1, 1);
+	containercalccols(c, 1);
 	containermoveresize(c, 0);
 	tabfocus(c->selcol->selrow->seltab, 0);
 	XUngrabPointer(dpy, CurrentTime);

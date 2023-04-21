@@ -201,6 +201,8 @@ rowcalctabs(struct Row *row)
 	struct Tab *t;
 	int i, x;
 
+	if (TAILQ_EMPTY(&row->tabq))
+		return;
 	x = config.titlewidth;
 	i = 0;
 	TAILQ_FOREACH(p, &row->tabq, entry) {
@@ -220,7 +222,7 @@ rowcalctabs(struct Row *row)
 
 /* calculate position and height of rows of a column */
 static void
-colcalcrows(struct Column *col, int recalcfact, int recursive)
+colcalcrows(struct Column *col, int recalcfact)
 {
 	struct Container *c;
 	struct Row *row;
@@ -230,13 +232,13 @@ colcalcrows(struct Column *col, int recalcfact, int recursive)
 
 	c = col->c;
 
+	if (TAILQ_EMPTY(&col->rowq))
+		return;
 	if (col->c->isfullscreen) {
 		TAILQ_FOREACH(row, &col->rowq, entry) {
 			row->y = -config.titlewidth;
 			row->h = col->c->h + config.titlewidth;
-			if (recursive) {
-				rowcalctabs(row);
-			}
+			rowcalctabs(row);
 		}
 		return;
 	}
@@ -271,8 +273,7 @@ colcalcrows(struct Column *col, int recalcfact, int recursive)
 			row->fact = (double)(row->h - config.titlewidth) / (double)(content);
 		row->y = y;
 		y += row->h + config.divwidth;
-		if (recursive)
-			rowcalctabs(row);
+		rowcalctabs(row);
 		i++;
 	}
 }
@@ -380,7 +381,7 @@ rowdetach(struct Row *row, int recalc)
 	col->nrows--;
 	TAILQ_REMOVE(&col->rowq, row, entry);
 	if (recalc) {
-		colcalcrows(row->col, 1, 0);
+		colcalcrows(row->col, 1);
 	}
 }
 
@@ -435,7 +436,7 @@ coldetach(struct Column *col)
 	}
 	c->ncols--;
 	TAILQ_REMOVE(&c->colq, col, entry);
-	containercalccols(col->c, 1, 0);
+	containercalccols(col->c, 1);
 }
 
 /* delete column */
@@ -467,7 +468,7 @@ coladdrow(struct Column *col, struct Row *row, struct Row *prev)
 		TAILQ_INSERT_HEAD(&col->rowq, row, entry);
 	else
 		TAILQ_INSERT_AFTER(&col->rowq, prev, row, entry);
-	colcalcrows(col, 1, 0);    /* set row->y, row->h, etc */
+	colcalcrows(col, 1);    /* set row->y, row->h, etc */
 	XReparentWindow(dpy, row->div, c->frame, col->x + col->w, c->b);
 	XReparentWindow(dpy, row->bar, c->frame, col->x, row->y);
 	XReparentWindow(dpy, row->frame, c->frame, col->x, row->y);
@@ -629,7 +630,7 @@ containeraddcol(struct Container *c, struct Column *col, struct Column *prev)
 	else
 		TAILQ_INSERT_AFTER(&c->colq, prev, col, entry);
 	XReparentWindow(dpy, col->div, c->frame, 0, 0);
-	containercalccols(c, 1, 0);
+	containercalccols(c, 1);
 	if (oldc != NULL && oldc->ncols == 0) {
 		containerdel(oldc);
 	}
@@ -674,7 +675,7 @@ containerfullscreen(struct Container *c, int fullscreen)
 		containerraise(c, 0, c->abovebelow);
 	else
 		return;
-	containercalccols(c, 0, 1);
+	containercalccols(c, 0);
 	containermoveresize(c, 1);
 	containerredecorate(c, NULL, NULL, 0);
 	ewmhsetstate(c);
@@ -690,7 +691,7 @@ containermaximize(struct Container *c, int maximize)
 		c->ismaximized = 0;
 	else
 		return;
-	containercalccols(c, 0, 1);
+	containercalccols(c, 0);
 	containermoveresize(c, 1);
 	containerredecorate(c, NULL, NULL, 0);
 }
@@ -741,7 +742,7 @@ containershade(struct Container *c, int shade)
 	} else {
 		return;
 	}
-	containercalccols(c, 0, 1);
+	containercalccols(c, 0);
 	containermoveresize(c, 1);
 	containerredecorate(c, NULL, NULL, 0);
 	if (c == wm.focused) {
@@ -1057,7 +1058,7 @@ containerredecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, 
 
 /* calculate position and width of columns of a container */
 void
-containercalccols(struct Container *c, int recalcfact, int recursive)
+containercalccols(struct Container *c, int recalcfact)
 {
 	struct Column *col;
 	int i, x, w;
@@ -1074,9 +1075,7 @@ containercalccols(struct Container *c, int recalcfact, int recursive)
 		TAILQ_FOREACH(col, &c->colq, entry) {
 			col->x = 0;
 			col->w = c->w;
-			if (recursive) {
-				colcalcrows(col, recalcfact, 1);
-			}
+			colcalcrows(col, recalcfact);
 		}
 		return;
 	} else if (c->ismaximized) {
@@ -1128,8 +1127,7 @@ containercalccols(struct Container *c, int recalcfact, int recursive)
 			col->fact = (double)col->w/(double)c->w;
 		col->x = x;
 		x += col->w + config.divwidth;
-		if (recursive)
-			colcalcrows(col, recalcfact, 1);
+		colcalcrows(col, recalcfact);
 		i++;
 	}
 	if (containerisshaded(c)) {
@@ -1274,7 +1272,7 @@ containerconfigure(struct Container *c, unsigned int valuemask, XWindowChanges *
 		c->nw = wc->width;
 	if ((valuemask & CWHeight) && wc->height >= wm.minsize)
 		c->nh = wc->height;
-	containercalccols(c, 0, 1);
+	containercalccols(c, 0);
 	containermoveresize(c, 1);
 	containerredecorate(c, NULL, NULL, 0);
 }
@@ -1434,7 +1432,7 @@ containerplace(struct Container *c, struct Monitor *mon, int desk, int userplace
 	subh = subh * mon->wh / DIV;
 	c->nx = min(mon->wx + mon->ww - c->nw, max(mon->wx, mon->wx + subx + subw / 2 - c->nw / 2));
 	c->ny = min(mon->wy + mon->wh - c->nh, max(mon->wy, mon->wy + suby + subh / 2 - c->nh / 2));
-	containercalccols(c, 0, 1);
+	containercalccols(c, 0);
 }
 
 /* check whether container is sticky or is on given desktop */
@@ -1527,9 +1525,9 @@ found:
 	}
 	rowaddtab(row, det, tab);
 	if (ncol != NULL)
-		containercalccols(c, 1, 1);
+		containercalccols(c, 1);
 	else if (nrow != NULL)
-		colcalcrows(col, 1, 1);
+		colcalcrows(col, 1);
 	else
 		rowcalctabs(row);
 	tabfocus(det, 0);
@@ -1566,7 +1564,7 @@ containerdelrow(struct Row *row)
 		recalc = 0;
 	}
 	if (recalc) {
-		containercalccols(c, 1, 1);
+		containercalccols(c, 1);
 		containermoveresize(c, 0);
 		shodgrouptab(c);
 		shodgroupcontainer(c);
@@ -1811,7 +1809,7 @@ rowstack(struct Column *col, struct Row *row)
 			r->fact = 0.0;
 		}
 	}
-	colcalcrows(col, 0, 1);
+	colcalcrows(col, 0);
 	containermoveresize(col->c, 0);
 }
 
@@ -1969,7 +1967,7 @@ unmanagecontainer(struct Object *obj, int ignoreunmap)
 		}
 	}
 	if (moveresize) {
-		containercalccols(c, 1, 1);
+		containercalccols(c, 1);
 		containermoveresize(c, 0);
 		containerredecorate(c, NULL, NULL, 0);
 		shodgrouptab(c);
