@@ -1206,7 +1206,7 @@ containerincrmove(struct Container *c, int x, int y)
 	if (!c->issticky) {
 		monto = getmon(c->nx + c->nw / 2, c->ny + c->nh / 2);
 		if (monto != NULL && monto != c->mon) {
-			(void)containersendtodesk(c, monto, monto->seldesk);
+			c->mon = monto;
 			if (wm.focused == c) {
 				deskupdate(monto, monto->seldesk);
 			}
