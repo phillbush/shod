@@ -680,13 +680,7 @@ containerminimize(struct Container *c, int minimize, int focus)
 			}
 		}
 	} else if (minimize != ADD && c->isminimized) {
-		c->isminimized = 0;
-		(void)containersendtodesk(c, wm.selmon, wm.selmon->seldesk);
-		containermoveresize(c, 1);
-		containerhide(c, 0);
 		tabfocus(c->selcol->selrow->seltab, 0);
-	} else {
-		return;
 	}
 }
 
@@ -1679,7 +1673,10 @@ tabfocus(struct Tab *tab, int gotodesk)
 			tabclearurgency(tab);
 		containeraddfocus(c);
 		containerdecorate(c, NULL, NULL, 1, 0);
-		containerminimize(c, 0, 0);
+		c->isminimized = 0;
+		(void)containersendtodesk(c, wm.selmon, wm.selmon->seldesk);
+		containermoveresize(c, 1);
+		containerhide(c, 0);
 		containerraise(c, c->isfullscreen, c->abovebelow);
 		shodgrouptab(c);
 		shodgroupcontainer(c);

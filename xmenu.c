@@ -231,9 +231,9 @@ menuupdate(void)
 
 	TAILQ_FOREACH(obj, &wm.menuq, entry) {
 		menu = ((struct Menu *)obj);
-		if (menu->leader == None || wm.showingdesk)
+		if (menu->leader == None)
 			continue;
-		if (wm.focused != NULL && istabformenu(wm.focused->selcol->selrow->seltab, menu)) {
+		if (!wm.showingdesk && wm.focused != NULL && istabformenu(wm.focused->selcol->selrow->seltab, menu)) {
 			XMapWindow(dpy, menu->frame);
 			icccmwmstate(obj->win, NormalState);
 		} else {
