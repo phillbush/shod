@@ -679,6 +679,7 @@ deskshow(int show)
 		splashhide((struct Splash *)obj, show);
 	wm.showingdesk = show;
 	ewmhsetshowingdesktop(show);
+	menuupdate();
 }
 
 /* update desktop */
@@ -700,9 +701,9 @@ deskupdate(struct Monitor *mon, int desk)
 			if (c->mon != mon)
 				continue;
 			if (!c->isminimized && c->desk == desk) {
-				containerhide(c, 0);
+				containerhide(c, REMOVE);
 			} else if (!c->issticky && c->desk == mon->seldesk) {
-				containerhide(c, 1);
+				containerhide(c, ADD);
 			}
 		}
 		TAILQ_FOREACH(obj, &wm.splashq, entry) {
@@ -710,9 +711,9 @@ deskupdate(struct Monitor *mon, int desk)
 			if (splash->mon != mon)
 				continue;
 			if (splash->desk == desk) {
-				splashhide(splash, 0);
+				splashhide(splash, REMOVE);
 			} else if (splash->desk == mon->seldesk) {
-				splashhide(splash, 1);
+				splashhide(splash, ADD);
 			}
 		}
 	}

@@ -214,3 +214,31 @@ unmanagemenu(struct Object *obj, int ignoreunmap)
 	free(menu);
 	return 1;
 }
+
+/* check if given tab accepts given menu */
+int
+istabformenu(struct Tab *tab, struct Menu *menu)
+{
+	return (menu->leader == tab->obj.win || menu->leader == tab->leader);
+}
+
+/* map menus for current focused tab */
+void
+menuupdate(void)
+{
+	struct Object *obj;
+	struct Menu *menu;
+
+	TAILQ_FOREACH(obj, &wm.menuq, entry) {
+		menu = ((struct Menu *)obj);
+		if (menu->leader == None || wm.showingdesk)
+			continue;
+		if (wm.focused != NULL && istabformenu(wm.focused->selcol->selrow->seltab, menu)) {
+			XMapWindow(dpy, menu->frame);
+			icccmwmstate(obj->win, NormalState);
+		} else {
+			XUnmapWindow(dpy, ((struct Menu *)obj)->frame);
+			icccmwmstate(obj->win, IconicState);
+		}
+	}
+}

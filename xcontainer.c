@@ -162,36 +162,6 @@ dialognew(Window win, int maxw, int maxh, int ignoreunmap)
 	return dial;
 }
 
-/* check if given tab accepts given menu */
-static int
-istabformenu(struct Tab *tab, struct Menu *menu)
-{
-	return (menu->leader == tab->obj.win || menu->leader == tab->leader);
-}
-
-/* map menus */
-static void
-tabhidemenus(struct Tab *tab, int hide)
-{
-	struct Object *obj;
-	struct Menu *menu;
-
-	if (tab == NULL)
-		return;
-	TAILQ_FOREACH(obj, &wm.menuq, entry) {
-		menu = ((struct Menu *)obj);
-		if (!istabformenu(tab, menu))
-			continue;
-		if (hide) {
-			XUnmapWindow(dpy, ((struct Menu *)obj)->frame);
-			icccmwmstate(obj->win, IconicState);
-		} else {
-			XMapWindow(dpy, menu->frame);
-			icccmwmstate(obj->win, NormalState);
-		}
-	}
-}
-
 /* calculate position and width of tabs of a row */
 static void
 rowcalctabs(struct Row *row)
@@ -310,7 +280,6 @@ tabdel(struct Tab *tab)
 {
 	struct Dialog *dial;
 
-	tabhidemenus(tab, ADD);
 	while ((dial = (struct Dialog *)TAILQ_FIRST(&tab->dialq)) != NULL) {
 		XDestroyWindow(dpy, dial->obj.win);
 		unmanagedialog((struct Object *)dial, 0);
@@ -602,10 +571,8 @@ containerhide(struct Container *c, int hide)
 	c->ishidden = hide;
 	if (hide) {
 		XUnmapWindow(dpy, c->frame);
-		tabhidemenus(c->selcol->selrow->seltab, ADD);
 	} else {
 		XMapWindow(dpy, c->frame);
-		tabhidemenus(c->selcol->selrow->seltab, REMOVE);
 	}
 	TAB_FOREACH_BEGIN(c, t) {
 		icccmwmstate(t->win, (hide ? IconicState : NormalState));
@@ -1680,8 +1647,6 @@ tabfocus(struct Tab *tab, int gotodesk)
 	struct Dialog *dial;
 
 	wm.prevfocused = wm.focused;
-	if (wm.prevfocused != NULL && tab != wm.prevfocused->selcol->selrow->seltab)
-		tabhidemenus(wm.prevfocused->selcol->selrow->seltab, ADD);
 	if (tab == NULL) {
 		wm.focused = NULL;
 		XSetInputFocus(dpy, wm.focuswin, RevertToParent, CurrentTime);
@@ -1712,7 +1677,6 @@ tabfocus(struct Tab *tab, int gotodesk)
 		ewmhsetactivewindow(tab->obj.win);
 		if (tab->isurgent)
 			tabclearurgency(tab);
-		tabhidemenus(tab, REMOVE);
 		containeraddfocus(c);
 		containerdecorate(c, NULL, NULL, 1, 0);
 		containerminimize(c, 0, 0);
@@ -1725,6 +1689,7 @@ tabfocus(struct Tab *tab, int gotodesk)
 		containerdecorate(wm.prevfocused, NULL, NULL, 1, 0);
 		ewmhsetstate(wm.prevfocused);
 	}
+	menuupdate();
 }
 
 /* decorate tab */

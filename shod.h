@@ -744,6 +744,8 @@ void menudecorate(struct Menu *menu, int titlepressed);
 void menufocusraise(struct Menu *menu);
 void menuraise(struct Menu *menu);
 void menuplace(struct Monitor *mon, struct Menu *menu);
+void menuupdate(void);
+int istabformenu(struct Tab *tab, struct Menu *menu);
 
 /* other object routines */
 void dockappconfigure(struct Dockapp *dapp, unsigned int valuemask, XWindowChanges *wc);
