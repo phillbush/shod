@@ -244,7 +244,7 @@ colcalcrows(struct Column *col, int recalcfact)
 	}
 
 	/* check if rows sum up the height of the container */
-	content = c->h - col->nrows * config.titlewidth - (col->nrows - 1) * config.divwidth - 2 * c->b;
+	content = columncontentheight(col);
 	sumh = 0;
 	recalc = 0;
 	TAILQ_FOREACH(row, &col->rowq, entry) {
@@ -1096,7 +1096,7 @@ containercalccols(struct Container *c)
 	}
 
 	/* check if columns sum up the width of the container */
-	content = c->w - (c->ncols - 1) * config.divwidth - 2 * c->b;
+	content = containercontentwidth(c);
 	sumw = 0;
 	recalc = 0;
 	TAILQ_FOREACH(col, &c->colq, entry) {
@@ -1996,4 +1996,19 @@ unmanagedialog(struct Object *obj, int ignoreunmap)
 	XDestroyWindow(dpy, dial->frame);
 	free(dial);
 	return 1;
+}
+
+/* get height of column without borders, divisors, title bars, etc */
+int
+columncontentheight(struct Column *col)
+{
+	return col->c->h - col->nrows * config.titlewidth
+	       - (col->nrows - 1) * config.divwidth - 2 * col->c->b;
+}
+
+/* get width of container without borders, divisors, etc */
+int
+containercontentwidth(struct Container *c)
+{
+	return c->w - (c->ncols - 1) * config.divwidth - 2 * c->b;
 }

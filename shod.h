@@ -731,6 +731,8 @@ void dialogmoveresize(struct Dialog *dial);
 int tabattach(struct Container *c, struct Tab *t, int x, int y);
 int containerisshaded(struct Container *c);
 int containerisvisible(struct Container *c, struct Monitor *mon, int desk);
+int columncontentheight(struct Column *col);
+int containercontentwidth(struct Container *c);
 
 /* menu */
 void menufocus(struct Menu *menu);

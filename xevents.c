@@ -1135,9 +1135,7 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xpre
 			if (cdiv != NULL &&
 			    ((x < 0 && ev.xmotion.x < TAILQ_NEXT(cdiv, entry)->x) ||
 			     (x > 0 && ev.xmotion.x > TAILQ_NEXT(cdiv, entry)->x))) {
-				len = cdiv->c->w;
-				len -= 2 * cdiv->c->b;
-				len -= (cdiv->c->ncols - 1) * config.divwidth;
+				len = containercontentwidth(cdiv->c);
 				fact = (double)x / (double)len;
 				if ((cdiv->fact + fact) * len >= wm.minsize &&
 				    (TAILQ_NEXT(cdiv, entry)->fact - fact) *
@@ -1146,11 +1144,8 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xpre
 					TAILQ_NEXT(cdiv, entry)->fact -= fact;
 				}
 			}
-			if (rdiv != NULL) {
-				len = rdiv->col->c->h;
-				len -= 2 * rdiv->col->c->b;
-				len -= (rdiv->col->nrows - 1) * config.divwidth;
-			}
+			if (rdiv != NULL)
+				len = columncontentheight(rdiv->col);
 			for (row = rdiv; row != NULL && y < 0 &&
 			     ev.xmotion.y < TAILQ_NEXT(row, entry)->y;
 			     row = TAILQ_PREV(row, RowQueue, entry)) {
