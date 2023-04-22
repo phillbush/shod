@@ -49,6 +49,7 @@ Screenshots:
 See the images in the demos/ directory.
 
 Changelog:
+• 2.6.0 (2023-04-22): Added auto tabbing, resource reloading, shodc exit.
 • 2.5.0 (2022-09-22): Added dockapp state, rio-like hiding, alttab, -d, -t.
 • 2.4.0 (2022-02-11): Added window rules, dockapp ordering, -s, -m;
 • 2.3.0 (2022-02-11): Added tornoff menu.
