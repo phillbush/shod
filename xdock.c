@@ -341,6 +341,10 @@ dockupdate(void)
 {
 	Window wins[2];
 
+	if (TAILQ_EMPTY(&dock.dappq)) {
+		XUnmapWindow(dpy, dock.win);
+		return;
+	}
 	if (config.dockgravity[0] != '\0' && (config.dockgravity[1] == 'F' || config.dockgravity[1] == 'f')) {
 		dockupdatefull();
 	} else {
@@ -399,8 +403,10 @@ dockreset(void)
 	XRectangle rect;
 	int state, desk;
 
-	if (TAILQ_EMPTY(&dock.dappq))
+	if (TAILQ_EMPTY(&dock.dappq)) {
+		XUnmapWindow(dpy, dock.win);
 		return;
+	}
 	TAILQ_INIT(&dappq);
 	while ((obj = TAILQ_FIRST(&dock.dappq)) != NULL) {
 		TAILQ_REMOVE(&dock.dappq, obj, entry);
@@ -421,5 +427,4 @@ dockreset(void)
 		dockappinsert(dapp);
 	}
 	dockupdate();
-	dockdecorate();
 }
