@@ -46,7 +46,7 @@ struct Config config = {
 		[URGENT]      = {"#CC0000",   "#EF2929", "#A40000"},
 
 		/* (dock, text)   BACKGROUND   BORDER     FOREGROUND */
-		[STYLE_OTHER] = {"#CC0000",   "#EF2929", "#A40000"},
+		[STYLE_OTHER] = {"#121212",   "#2E3436", "#FFFFFF"},
 	},
 
 	/* size of 3D shadow effect, must be less than borderwidth */
