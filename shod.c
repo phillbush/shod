@@ -34,7 +34,7 @@ struct Dock dock;
 static void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: shod [-AcdhstW] [file]\n");
+	(void)fprintf(stderr, "usage: shod [-AcdhSstW] [file]\n");
 	exit(1);
 }
 
@@ -110,7 +110,7 @@ getoptions(int argc, char *argv[])
 {
 	int c;
 
-	while ((c = getopt(argc, argv, "AcdhstW")) != -1) {
+	while ((c = getopt(argc, argv, "AcdhSstW")) != -1) {
 		switch (c) {
 		case 'A' :
 			config.altkeysym = XK_Alt_L;
@@ -124,6 +124,9 @@ getoptions(int argc, char *argv[])
 			break;
 		case 'h':
 			config.disablehidden = 1;
+			break;
+		case 'S':
+			config.sloppytiles = 1;
 			break;
 		case 's':
 			config.sloppyfocus = 1;
@@ -391,7 +394,7 @@ main(int argc, char *argv[])
 	filename = getoptions(argc, argv);
 
 	/* check sloppy focus */
-	if (config.sloppyfocus)
+	if (config.sloppyfocus || config.sloppytiles)
 		clientswa.event_mask |= EnterWindowMask;
 
 	/* initialize queues */

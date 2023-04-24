@@ -7,7 +7,7 @@
 .Nd mouse-focused window manager
 .Sh SYNOPSIS
 .Nm shod
-.Op Fl AcdhstW
+.Op Fl AcdhSstW
 .Op Ar file
 .Pp
 .Nm shodc
@@ -116,8 +116,10 @@ By default, windows whose containers are obscured by other containers are set as
 hidden (aka minimized).
 This default behavior emulates the way Plan9's rio lists obscured windows as hidden.
 With this option set, only manually minimized containers are set as hidden.
+.It Fl S
+Use sloppy focus rather than click-to-focus between windows in the same container.
 .It Fl s
-Use sloppy focus rather than click-to-focus.
+Use sloppy focus rather than click-to-focus between containers.
 .It Fl t
 Disable container cycling (aka
 .Dq "alt-tab" ) .

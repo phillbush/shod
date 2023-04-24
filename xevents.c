@@ -1498,6 +1498,7 @@ xeventclientmessage(XEvent *e)
 			break;
 		default:
 			tabfocus(tab, 1);
+			containerraise(c, c->isfullscreen, c->abovebelow);
 			break;
 		}
 	} else if (ev->message_type == atoms[_NET_CLOSE_WINDOW]) {
@@ -1635,25 +1636,27 @@ xeventdestroynotify(XEvent *e)
 static void
 xevententernotify(XEvent *e)
 {
+	struct Tab *tab;
 	struct Object *obj;
 
-	if (!config.sloppyfocus)
+	if (!config.sloppyfocus && !config.sloppytiles)
 		return;
 	while (XCheckTypedEvent(dpy, EnterNotify, e))
 		;
 	if ((obj = getmanaged(e->xcrossing.window)) == NULL)
 		return;
-	switch (obj->type) {
-	case TYPE_MENU:
-		menufocus((struct Menu *)obj);
-		break;
-	case TYPE_DIALOG:
-		tabfocus(((struct Dialog *)obj)->tab, 1);
-		break;
-	case TYPE_NORMAL:
-		tabfocus((struct Tab *)obj, 1);
-		break;
-	}
+	if (obj->type == TYPE_DIALOG)
+		tab = ((struct Dialog *)obj)->tab;
+	else if (obj->type == TYPE_NORMAL)
+		tab = (struct Tab *)obj;
+	else return;
+	if (!config.sloppytiles && tab->row->col->c == wm.focused)
+		return;
+	if (!config.sloppyfocus && tab->row->col->c != wm.focused)
+		return;
+	if (config.sloppyfocus && tab->row->col->c != wm.focused)
+		tab = tab->row->col->c->selcol->selrow->seltab;
+	tabfocus(tab, 1);
 }
 
 /* handle focusin event */

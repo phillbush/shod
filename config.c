@@ -10,7 +10,8 @@ struct Config config = {
 
 	/* 0-or-1 flags */
 	.floatdialog    = 0,            /* set to 1 to use floating dialog windows */
-	.sloppyfocus    = 0,            /* set to 1 to use sloppy focus */
+	.sloppyfocus    = 0,            /* set to 1 to use sloppy container focus */
+	.sloppytiles    = 0,            /* set to 1 to use sloppy window focus */
 	.honorconfig    = 0,            /* set to 1 to honor configure requests */
 	.disablealttab  = 0,            /* set to 1 to disable alt-tab */
 	.disablehidden  = 0,            /* set to 1 to disable notification of hidden window as minimized */

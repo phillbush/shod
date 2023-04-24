@@ -675,12 +675,16 @@ containerminimize(struct Container *c, int minimize, int focus)
 		if (focus) {
 			if ((tofocus = getnextfocused(c->mon, c->desk)) != NULL) {
 				tabfocus(tofocus->selcol->selrow->seltab, 0);
+				containerraise(c, c->isfullscreen, c->abovebelow);
 			} else {
 				tabfocus(NULL, 0);
 			}
 		}
 	} else if (minimize != ADD && c->isminimized) {
+		(void)containersendtodesk(c, wm.selmon, wm.selmon->seldesk);
+		containermoveresize(c, 1);
 		tabfocus(c->selcol->selrow->seltab, 0);
+		containerraise(c, c->isfullscreen, c->abovebelow);
 	}
 }
 
@@ -1490,6 +1494,7 @@ found:
 	else
 		rowcalctabs(row);
 	tabfocus(det, 0);
+	containerraise(c, c->isfullscreen, c->abovebelow);
 	XMapSubwindows(dpy, c->frame);
 	/* no need to call shodgrouptab() and shodgroupcontainer(); tabfocus() already calls them */
 	ewmhsetdesktop(det->obj.win, c->desk);
@@ -1674,10 +1679,7 @@ tabfocus(struct Tab *tab, int gotodesk)
 		containeraddfocus(c);
 		containerdecorate(c, NULL, NULL, 1, 0);
 		c->isminimized = 0;
-		(void)containersendtodesk(c, wm.selmon, wm.selmon->seldesk);
-		containermoveresize(c, 1);
 		containerhide(c, 0);
-		containerraise(c, c->isfullscreen, c->abovebelow);
 		shodgrouptab(c);
 		shodgroupcontainer(c);
 		ewmhsetstate(c);
@@ -1830,6 +1832,7 @@ containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle r
 	containerplace(c, mon, desk, (state & USERPLACED));
 	containermoveresize(c, 0);
 	if (containerisvisible(c, wm.selmon, wm.selmon->seldesk)) {
+		containerraise(c, c->isfullscreen, c->abovebelow);
 		containerhide(c, 0);
 		tabfocus(tab, 0);
 	}

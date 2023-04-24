@@ -663,6 +663,7 @@ struct Config {
 	int floatdialog;                        /* whether -d is passed */
 	int honorconfig;                        /* whether -c is passed */
 	int sloppyfocus;                        /* whether -s is passed */
+	int sloppytiles;                        /* whether -S is passed */
 	int ndesktops;                          /* number of desktops */
 	int notifgap;                           /* gap between notifications */
 	int dockwidth, dockspace;               /* dock geometry */
