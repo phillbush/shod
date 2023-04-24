@@ -159,7 +159,7 @@ initsignal(void)
 	sigemptyset(&sa.sa_mask);
 	if (sigaction(SIGCHLD, &sa, NULL) == -1)
 		err(1, "sigaction");
-	while (waitpid(-1, NULL, WNOHANG) != -1)
+	while (waitpid(-1, NULL, WNOHANG) > 0)
 		;
 }
 
