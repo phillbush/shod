@@ -274,6 +274,21 @@ tabnew(Window win, Window leader, int ignoreunmap)
 	return tab;
 }
 
+/* remove tab from row's tab queue */
+static void
+tabremove(struct Row *row, struct Tab *tab)
+{
+	if (row->seltab == tab) {
+		row->seltab = (struct Tab *)TAILQ_PREV((struct Object *)tab, Queue, entry);
+		if (row->seltab == NULL) {
+			row->seltab = (struct Tab *)TAILQ_NEXT((struct Object *)tab, entry);
+		}
+	}
+	row->ntabs--;
+	TAILQ_REMOVE(&row->tabq, (struct Object *)tab, entry);
+	tab->row = NULL;
+}
+
 /* delete tab */
 static void
 tabdel(struct Tab *tab)
@@ -284,7 +299,7 @@ tabdel(struct Tab *tab)
 		XDestroyWindow(dpy, dial->obj.win);
 		unmanagedialog((struct Object *)dial, 0);
 	}
-	tabdetach(tab, 0, 0);
+	tabremove(tab->row, tab);
 	if (tab->pixtitle != None)
 		XFreePixmap(dpy, tab->pixtitle);
 	if (tab->pix != None)
@@ -1617,24 +1632,16 @@ containerbacktoplace(struct Container *c, int restack)
 	XFlush(dpy);
 }
 
-/* detach tab from row */
+/* detach tab from row, placing it at x,y */
 void
 tabdetach(struct Tab *tab, int x, int y)
 {
 	struct Row *row;
 
 	row = tab->row;
-	if (row->seltab == tab) {
-		row->seltab = (struct Tab *)TAILQ_PREV((struct Object *)tab, Queue, entry);
-		if (row->seltab == NULL) {
-			row->seltab = (struct Tab *)TAILQ_NEXT((struct Object *)tab, entry);
-		}
-	}
-	row->ntabs--;
+	tabremove(row, tab);
 	tab->ignoreunmap = IGNOREUNMAP;
 	XReparentWindow(dpy, tab->title, root, x, y);
-	TAILQ_REMOVE(&row->tabq, (struct Object *)tab, entry);
-	tab->row = NULL;
 	rowcalctabs(row);
 }
 

@@ -802,6 +802,7 @@ done:
 	containerbacktoplace(c, 1);
 	wm.focused = prevfocused;
 	tabfocus(c->selcol->selrow->seltab, 0);
+	containerraise(c, c->isfullscreen, c->abovebelow);
 }
 
 /* detach tab from window with mouse */
