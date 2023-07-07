@@ -184,7 +184,9 @@ managemenu(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window le
 	menuplace(mon, menu);           /* this will set menu->mon for us */
 	menudecorate(menu, 0);
 	menuraise(menu);
-	XMapWindow(dpy, menu->frame);
+	if (istabformenu(wm.focused->selcol->selrow->seltab, menu)) {
+		XMapWindow(dpy, menu->frame);
+	}
 }
 
 /* delete menu; return whether menu was deleted */
