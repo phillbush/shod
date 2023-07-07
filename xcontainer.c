@@ -1681,8 +1681,7 @@ tabfocus(struct Tab *tab, int gotodesk)
 			XSetInputFocus(dpy, tab->obj.win, RevertToParent, CurrentTime);
 		}
 		ewmhsetactivewindow(tab->obj.win);
-		if (tab->isurgent)
-			tabclearurgency(tab);
+		tabclearurgency(tab);
 		containeraddfocus(c);
 		containerdecorate(c, NULL, NULL, 1, 0);
 		c->isminimized = 0;
@@ -1750,10 +1749,10 @@ tabupdateurgency(struct Tab *t, int isurgent)
 	int prev;
 
 	prev = t->isurgent;
-	t->isurgent = isurgent;
-	if (t->isurgent && t->row->col->c == wm.focused && t == t->row->seltab) {
-		tabclearurgency(t);
-	}
+	if (t == wm.focused->selcol->selrow->seltab)
+		t->isurgent = False;
+	else
+		t->isurgent = isurgent;
 	if (prev != t->isurgent) {
 		tabdecorate(t, 0);
 	}
