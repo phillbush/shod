@@ -1749,7 +1749,7 @@ tabupdateurgency(struct Tab *t, int isurgent)
 	int prev;
 
 	prev = t->isurgent;
-	if (t == wm.focused->selcol->selrow->seltab)
+	if (wm.focused != NULL && t == wm.focused->selcol->selrow->seltab)
 		t->isurgent = False;
 	else
 		t->isurgent = isurgent;
