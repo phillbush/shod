@@ -779,6 +779,14 @@ setresources(char *xrm)
 			if ((n = strtol(value, NULL, 10)) >= 0 && n < 100)
 				config.snap = n;
 			break;
+		case RES_MOVE_TIME:
+			if ((n = strtol(value, NULL, 10)) > 0)
+				config.movetime = n;
+			break;
+		case RES_RESIZE_TIME:
+			if ((n = strtol(value, NULL, 10)) > 0)
+				config.resizetime = n;
+			break;
 		default:
 			break;
 		}

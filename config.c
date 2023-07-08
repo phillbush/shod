@@ -23,6 +23,8 @@ struct Config config = {
 	.snap           = 8,            /* proximity of container edges to perform snap attraction */
 	.font = "monospace:pixelsize=11", /* font for titles in titlebars */
 	.ndesktops      = 10,           /* number of desktops per monitor */
+	.movetime       = 32,           /* time (ms) to redraw containers during moving */
+	.resizetime     = 64,           /* time (ms) to redraw containers during resizing */
 
 	/* dock configuration */
 	.dockwidth      = 64,           /* width of the dock (or its height, if it is horizontal) */
