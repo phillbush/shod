@@ -1008,7 +1008,7 @@ mouseresize(int type, void *obj, int xroot, int yroot, enum Octant o)
 					*nh += dy;
 				}
 			}
-			if (ev.xmotion.time - lasttime > config.resizetime) {
+			if (ev.xmotion.time - lasttime > (unsigned)config.resizetime) {
 				if (type == FLOAT_MENU) {
 					menumoveresize(menu);
 					menudecorate(menu, 0);
@@ -1070,7 +1070,7 @@ mousemove(Window win, int type, void *p, int xroot, int yroot, enum Octant o)
 			break;
 		case MotionNotify:
 			moved = 1;
-			if (ev.xmotion.time - lasttime > config.movetime) {
+			if (ev.xmotion.time - lasttime > (unsigned)config.movetime) {
 				x = ev.xmotion.x_root - xroot;
 				y = ev.xmotion.y_root - yroot;
 				if (type == FLOAT_MENU) {
@@ -1176,7 +1176,7 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xpre
 					break;
 				}
 			}
-			if (ev.xmotion.time - lasttime > config.resizetime) {
+			if (ev.xmotion.time - lasttime > (unsigned)config.resizetime) {
 				containercalccols(c);
 				containermoveresize(c, 0);
 				containerdecorate(c, cdiv, rdiv, 0, 0);
