@@ -71,6 +71,18 @@ menuconfigure(struct Menu *menu, unsigned int valuemask, XWindowChanges *wc)
 	menudecorate(menu, 0);
 }
 
+static void
+menunotify(struct Menu *menu)
+{
+	winnotify(
+		menu->obj.win,
+		menu->x + config.borderwidth,
+		menu->y + config.borderwidth + config.titlewidth,
+		menu->w - config.borderwidth * 2,
+		menu->h - config.borderwidth * 2 - config.titlewidth
+	);
+}
+
 void
 menuincrmove(struct Menu *menu, int x, int y)
 {
@@ -78,6 +90,7 @@ menuincrmove(struct Menu *menu, int x, int y)
 	menu->y += y;
 	//snaptoedge(&menu->x, &menu->y, menu->w, menu->h);
 	XMoveWindow(dpy, menu->frame, menu->x, menu->y);
+	menunotify(menu);
 }
 
 /* commit menu geometry */
@@ -89,6 +102,7 @@ menumoveresize(struct Menu *menu)
 	XResizeWindow(dpy, menu->titlebar, max(1, menu->w - 2 * config.borderwidth - config.titlewidth), config.titlewidth);
 	XResizeWindow(dpy, menu->obj.win, menu->w - 2 * config.borderwidth, menu->h - 2 * config.borderwidth - config.titlewidth);
 	menu->mon = getmon(menu->x, menu->y);
+	menunotify(menu);
 }
 
 /* decorate menu */
