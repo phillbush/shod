@@ -8,8 +8,6 @@
 #define IGNOREUNMAP             6       /* number of unmap notifies to ignore while scanning existing clients */
 #define NAMEMAXLEN              256     /* maximum length of window's name */
 #define DROPPIXELS              30      /* number of pixels from the border where a tab can be dropped in */
-#define RESIZETIME              64      /* time to redraw containers during resizing */
-#define MOVETIME                32      /* time to redraw containers during moving */
 #define DOCKBORDER              1
 #define LEN(x)                  (sizeof(x) / sizeof((x)[0]))
 #define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
@@ -55,7 +53,9 @@
 	X(RES_NOTIFY_GAP,      "NotifGap",                  "notifGap"                  )\
 	X(RES_NOTIFY_GRAVITY,  "NotifGravity",              "notifGravity"              )\
 	X(RES_NDESKTOPS,       "NumOfDesktops",             "numOfDesktops"             )\
-	X(RES_SNAP_PROXIMITY,  "SnapProximity",             "snapProximity"             )
+	X(RES_SNAP_PROXIMITY,  "SnapProximity",             "snapProximity"             )\
+	X(RES_MOVE_TIME,       "MoveTime",                  "moveTime"                  )\
+	X(RES_RESIZE_TIME,     "ResizeTime",                "resizeTime"                )
 
 enum Resource {
 #define X(res, class, name) res,
@@ -671,6 +671,8 @@ struct Config {
 	int borderwidth;                        /* width of the border frame */
 	int titlewidth;                         /* height of the title bar */
 	int shadowthickness;                    /* thickness of the 3D shadows */
+	int movetime;                           /* time (ms) to redraw containers during moving */
+	int resizetime;                         /* time (ms) to redraw containers during resizing */
 
 	/* gravities (N for north, NE for northeast, etc) */
 	const char *notifgravity;
