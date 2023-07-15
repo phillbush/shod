@@ -825,8 +825,8 @@ mouseretab(struct Tab *tab, int xroot, int yroot, int x, int y)
 	XUnmapWindow(dpy, tab->title);
 	XMoveWindow(
 		dpy, wm.dragwin,
-		ev.xmotion.x_root - DNDDIFF - (2 * config.borderwidth + config.titlewidth),
-		ev.xmotion.y_root - DNDDIFF - (2 * config.borderwidth + config.titlewidth)
+		xroot - DNDDIFF - (2 * config.borderwidth + config.titlewidth),
+		yroot - DNDDIFF - (2 * config.borderwidth + config.titlewidth)
 	);
 	XRaiseWindow(dpy, wm.dragwin);
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
@@ -1057,7 +1057,6 @@ mousemove(Window win, int type, void *p, int xroot, int yroot, enum Octant o)
 		containerdecorate(c, NULL, NULL, 0, o);
 		frame = c->frame;
 	}
-	x = y = 0;
 	lasttime = 0;
 	if (win != None)
 		XDefineCursor(dpy, win, wm.cursors[CURSOR_MOVE]);
@@ -1119,7 +1118,6 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xpre
 		curs = wm.cursors[CURSOR_V];
 	else
 		return;
-	x = y = 0;
 	lasttime = 0;
 	containerdecorate(c, cdiv, rdiv, 0, 0);
 	if (XGrabPointer(dpy, c->frame, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, curs, CurrentTime) != GrabSuccess)
@@ -1286,7 +1284,7 @@ xeventbuttonpress(XEvent *e)
 			o = getquadrant(menu->w, menu->h, x, y);
 			mouseresize(FLOAT_MENU, menu, ev->x_root, ev->y_root, o);
 		}
-	} else if (tab != NULL) {
+	} else if (tab != NULL && c != NULL) {
 		if (!XTranslateCoordinates(dpy, ev->window, c->frame, ev->x, ev->y, &x, &y, &dw))
 			goto done;
 		if (ev->window == tab->title && ev->button == Button1) {

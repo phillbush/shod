@@ -65,7 +65,7 @@ drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int p
 		color = &theme.colors[style][COLOR_LIGHT];
 	draw = XftDrawCreate(dpy, pix, visual, colormap);
 	len = strlen(text);
-	XftTextExtentsUtf8(dpy, theme.font, text, len, &box);
+	XftTextExtentsUtf8(dpy, theme.font, (FcChar8 *)text, len, &box);
 	x = max(0, (w - box.width) / 2 + box.x);
 	y = (config.titlewidth - box.height) / 2 + box.y;
 	for (i = 3; drawlines && i < config.titlewidth - 3; i += 3) {
@@ -80,7 +80,7 @@ drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int p
 		XFillRectangle(dpy, pix, gc, 4, i, x - 8, 1);
 		XFillRectangle(dpy, pix, gc, w - x + 2, i, x - 6, 1);
 	}
-	XftDrawStringUtf8(draw, color, theme.font, x, y, text, len);
+	XftDrawStringUtf8(draw, color, theme.font, x, y, (FcChar8 *)text, len);
 	XftDrawDestroy(draw);
 }
 

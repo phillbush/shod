@@ -397,7 +397,7 @@ colnew(void)
 	struct Column *col;
 
 	col = emalloc(sizeof(*col));
-	*col = (struct Column){ };
+	*col = (struct Column){ 0 };
 	TAILQ_INIT(&col->rowq);
 	col->div = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
 	                         CopyFromParent, InputOnly, CopyFromParent, CWCursor,
@@ -1391,11 +1391,11 @@ containerplace(struct Container *c, struct Monitor *mon, int desk, int userplace
 			for (h = 1; i+h < DIV && grid[i + h][j] == lowest; h++) {
 				for (k = 0; k < w && grid[i + h][j + k] == lowest; k++)
 					;
-				if (k < w)
+				if (k < w) {
+					h--;
 					break;
+				}
 			}
-			if (k < w)
-				h--;
 			if (w * h > subw * subh) {
 				subw = w;
 				subh = h;

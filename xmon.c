@@ -107,12 +107,14 @@ next:
 	/* delete monitors that do not exist anymore */
 	delselmon = 0;
 	while ((mon = TAILQ_FIRST(&wm.monq)) != NULL) {
-		if (mon == wm.selmon)
+		if (mon == wm.selmon) {
 			delselmon = 1;
+			wm.selmon = NULL;
+		}
 		mondel(mon);
 	}
 	if (delselmon) {
-		wm.selmon = TAILQ_FIRST(&wm.monq);
+		wm.selmon = TAILQ_FIRST(&monq);
 	}
 
 	/* commit new list of monitor */

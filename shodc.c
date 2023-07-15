@@ -330,7 +330,7 @@ longlist(Window win)
 	Atom *as;
 	int x, y;
 	unsigned int w, h, b, du;
-	int desk;
+	long desk;
 	unsigned long i, natoms, l;
 	char state[] = "--------";
 	char *name;
@@ -402,13 +402,13 @@ longlist(Window win)
 		XFree(as);
 	}
 	l = getcardprop(win, atoms[_NET_WM_DESKTOP]);
-	desk = (l ==  0xFFFFFFFF) ? -1 : l;
+	desk = (l ==  0xFFFFFFFF) ? -1 : (long)l;
 
 	name = getwinname(win);
 	XGetGeometry(dpy, win, &dw, &x, &y, &w, &h, &b, &du);
 	XTranslateCoordinates(dpy, win, root, x, y, &x, &y, &dw);
 
-	printf("%s\t%d\t%dx%d%+d%+d\t0x%08lx\t0x%08lx\t0x%08lx\t%s\n", state, desk, w, h, x, y, container, tab, win, name);
+	printf("%s\t%ld\t%dx%d%+d%+d\t0x%08lx\t0x%08lx\t0x%08lx\t%s\n", state, desk, w, h, x, y, container, tab, win, name);
 	free(name);
 }
 
@@ -483,9 +483,7 @@ list(int argc, char *argv[])
 			break;
 		}
 	}
-	argc -= optind;
-	argv += optind;
-	if (argc > 1)
+	if (argc - optind > 1)
 		usage();
 	nwins = getwins(&wins, sflag);
 	for (i = 0; i < nwins; i++) {
