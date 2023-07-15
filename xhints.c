@@ -62,7 +62,7 @@ ewmhinit(const char *wmname)
 	XChangeProperty(dpy, root, atoms[_NET_SUPPORTING_WM_CHECK], XA_WINDOW, 32, PropModeReplace, (unsigned char *)&wm.checkwin, 1);
 
 	/* set properties that the window manager supports */
-	XChangeProperty(dpy, root, atoms[_NET_SUPPORTED], XA_ATOM, 32, PropModeReplace, (unsigned char *)atoms, ATOM_LAST);
+	XChangeProperty(dpy, root, atoms[_NET_SUPPORTED], XA_ATOM, 32, PropModeReplace, (unsigned char *)atoms, NATOMS);
 	XDeleteProperty(dpy, root, atoms[_NET_CLIENT_LIST]);
 
 	/* set number of desktops */
