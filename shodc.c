@@ -535,7 +535,7 @@ state(int argc, char *argv[])
 
 	action = TOGGLE;
 	state1 = state2 = None;
-	while ((c = getopt(argc, argv, "ATRabfMmsy")) != -1) {
+	while ((c = getopt(argc, argv, "ATRabfMmsSy")) != -1) {
 		switch (c) {
 		case 'A':
 			action = ADD;
@@ -564,6 +564,10 @@ state(int argc, char *argv[])
 			break;
 		case 'm':
 			state1 = atoms[_NET_WM_STATE_HIDDEN];
+			state2 = None;
+			break;
+		case 'S':
+			state1 = atoms[_SHOD_WM_STATE_STRETCHED];
 			state2 = None;
 			break;
 		case 's':

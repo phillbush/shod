@@ -1290,6 +1290,11 @@ containersetstate(struct Tab *tab, Atom *props, unsigned long set)
 	if (props[0] == atoms[_NET_WM_STATE_DEMANDS_ATTENTION] ||
 	    props[1] == atoms[_NET_WM_STATE_DEMANDS_ATTENTION])
 		tabupdateurgency(tab, set == ADD || (set == TOGGLE && !tab->isurgent));
+	if (props[0] == atoms[_SHOD_WM_STATE_STRETCHED] ||
+	    props[1] == atoms[_SHOD_WM_STATE_STRETCHED]) {
+		rowstretch(tab->row->col, tab->row);
+		tabfocus(tab->row->seltab, 0);
+	}
 	ewmhsetstate(c);
 }
 
@@ -1668,7 +1673,7 @@ tabfocus(struct Tab *tab, int gotodesk)
 		if (gotodesk)
 			deskupdate(c->mon, c->issticky ? c->mon->seldesk : c->desk);
 		if (tab->row->fact == 0.0)
-			rowstack(tab->row->col, tab->row);
+			rowstretch(tab->row->col, tab->row);
 		XRaiseWindow(dpy, tab->row->frame);
 		XRaiseWindow(dpy, tab->frame);
 		if (c->isshaded || tab->row->isunmapped) {
@@ -1758,9 +1763,9 @@ tabupdateurgency(struct Tab *t, int isurgent)
 	}
 }
 
-/* stack rows */
+/* stretch row */
 void
-rowstack(struct Column *col, struct Row *row)
+rowstretch(struct Column *col, struct Row *row)
 {
 	struct Row *r;
 	double fact;

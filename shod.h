@@ -674,6 +674,8 @@ struct Config {
 	int movetime;                           /* time (ms) to redraw containers during moving */
 	int resizetime;                         /* time (ms) to redraw containers during resizing */
 
+	char *menucmd;                          /* command to spawn when clicking the menu button */
+
 	/* gravities (N for north, NE for northeast, etc) */
 	const char *notifgravity;
 	const char *dockgravity;
@@ -728,7 +730,7 @@ void tabdetach(struct Tab *tab, int x, int y);
 void tabfocus(struct Tab *tab, int gotodesk);
 void tabdecorate(struct Tab *t, int pressed);
 void tabupdateurgency(struct Tab *t, int isurgent);
-void rowstack(struct Column *col, struct Row *row);
+void rowstretch(struct Column *col, struct Row *row);
 void dialogconfigure(struct Dialog *d, unsigned int valuemask, XWindowChanges *wc);
 void dialogmoveresize(struct Dialog *dial);
 int tabattach(struct Container *c, struct Tab *t, int x, int y);

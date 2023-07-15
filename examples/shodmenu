@@ -1,0 +1,39 @@
+#!/bin/sh
+
+IFS=
+
+run() {
+	set -m
+	while read -r line
+	do case "$line" in
+	(state:*)
+		state="${line#"state:"}"
+		shodc state "-$state" "$WINDOWID"
+		;;
+	(sendto:*)
+		desk="${line#"sendto:"}"
+		shodc sendto "$desk" "$WINDOWID"
+		;;
+	(close)
+		shodc close "$WINDOWID"
+		;;
+	esac done &
+}
+
+exec xmenu -fp "$WINDOWPOS" -t "$WINDOWID" "$@" "Window Control" <<EOF | run
+Stick			state:y
+Shade			state:s
+Minimize		state:m
+Maximize		state:M
+Fullscreen		state:f
+Above			state:a
+Below			state:b
+Send To
+	Desktop 1	sendto:1
+	Desktop 2	sendto:2
+	Desktop 3	sendto:3
+	Desktop 4	sendto:4
+	Desktop 5	sendto:5
+
+Close			close
+EOF

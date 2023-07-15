@@ -1,4 +1,5 @@
 #include <err.h>
+#include <spawn.h>
 
 #include "shod.h"
 
@@ -1045,9 +1046,8 @@ mousemove(Window win, int type, void *p, int xroot, int yroot, enum Octant o)
 	Window frame;
 	XEvent ev;
 	Time lasttime;
-	int moved, x, y;
+	int x, y, maximize;
 
-	moved = 0;
 	if (type == FLOAT_MENU) {
 		menu = (struct Menu *)p;
 		menudecorate(menu, o);
@@ -1062,36 +1062,51 @@ mousemove(Window win, int type, void *p, int xroot, int yroot, enum Octant o)
 		XDefineCursor(dpy, win, wm.cursors[CURSOR_MOVE]);
 	else if (XGrabPointer(dpy, frame, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, wm.cursors[CURSOR_MOVE], CurrentTime) != GrabSuccess)
 		goto done;
+	maximize = 0;
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
 		case ButtonRelease:
 			goto done;
 			break;
 		case MotionNotify:
-			moved = 1;
-			if (ev.xmotion.time - lasttime > (unsigned)config.movetime) {
-				x = ev.xmotion.x_root - xroot;
-				y = ev.xmotion.y_root - yroot;
-				if (type == FLOAT_MENU) {
-					menuincrmove(menu, x, y);
-				} else {
-					containerincrmove(c, x, y);
-				}
-				lasttime = ev.xmotion.time;
-				xroot = ev.xmotion.x_root;
-				yroot = ev.xmotion.y_root;
+			if (ev.xmotion.time - lasttime <= (unsigned)config.movetime)
+				break;
+			x = ev.xmotion.x_root - xroot;
+			y = ev.xmotion.y_root - yroot;
+			if (type == FLOAT_MENU)
+				menuincrmove(menu, x, y);
+			else if (maximize < 0)
+				containerincrmove(c, 0, 0);
+			else
+				containerincrmove(c, x, y);
+			lasttime = ev.xmotion.time;
+			xroot = ev.xmotion.x_root;
+			yroot = ev.xmotion.y_root;
+			if (type == FLOAT_MENU)
+				break;
+			if ((maximize > 0 && ev.xmotion.y_root <= 0) ||
+			    (maximize < 0 && ev.xmotion.y_root > 0) ||
+			    maximize == 0) {
+				containersetstate(
+					c->selcol->selrow->seltab,
+					(Atom []){
+						atoms[_NET_WM_STATE_MAXIMIZED_VERT],
+						atoms[_NET_WM_STATE_MAXIMIZED_HORZ],
+					},
+					ev.xmotion.y_root <= 0 ? ADD : REMOVE
+				);
 			}
+			if (ev.xmotion.y_root <= 0)
+				maximize = -1;
+			else
+				maximize = 1;
 			break;
 		}
 	}
 done:
 	if (type == FLOAT_MENU) {
-		if (!moved)
-			menumoveresize(menu);
 		menudecorate(menu, 0);
 	} else {
-		if (!moved)
-			containermoveresize(c, 1);
 		containerdecorate(c, NULL, NULL, 0, 0);
 	}
 	if (win != None) {
@@ -1289,14 +1304,8 @@ xeventbuttonpress(XEvent *e)
 			goto done;
 		if (ev->window == tab->title && ev->button == Button1) {
 			if (lastc == c && ev->time - lasttime < DOUBLECLICK) {
-				containersetstate(
-					tab,
-					(Atom []){
-						atoms[_NET_WM_STATE_MAXIMIZED_VERT],
-						atoms[_NET_WM_STATE_MAXIMIZED_HORZ],
-					},
-					TOGGLE
-				);
+				rowstretch(tab->row->col, tab->row);
+				tabfocus(tab->row->seltab, 0);
 				lasttime = 0;
 				lastc = NULL;
 				goto done;
@@ -1305,7 +1314,19 @@ xeventbuttonpress(XEvent *e)
 			lasttime = ev->time;
 		}
 		o = getframehandle(c->w, c->h, x, y);
-		if (ev->window == tab->title && ev->button == Button3) {
+		if (ev->window == tab->title && ev->button == Button4) {
+			containersetstate(
+				tab,
+				(Atom [2]){ atoms[_NET_WM_STATE_SHADED], None },
+				ADD
+			);
+		} if (ev->window == tab->title && ev->button == Button5) {
+			containersetstate(
+				tab,
+				(Atom [2]){ atoms[_NET_WM_STATE_SHADED], None },
+				REMOVE
+			);
+		} else if (ev->window == tab->title && ev->button == Button3) {
 			mouseretab(tab, ev->x_root, ev->y_root, ev->x, ev->y);
 		} else if (ev->window == tab->row->bl && ev->button == Button1) {
 			wm.presswin = ev->window;
@@ -1318,13 +1339,14 @@ xeventbuttonpress(XEvent *e)
 			if (cdiv != NULL || rdiv != NULL) {
 				mouseretile(c, cdiv, rdiv, ev->x, ev->y);
 			}
-		} else if (!c->isfullscreen && !c->isminimized && !c->ismaximized) {
+		} else if (!c->isfullscreen && !c->isminimized) {
 			if (isvalidstate(ev->state) && ev->button == Button1) {
 				mousemove(None, FLOAT_CONTAINER, c, ev->x_root, ev->y_root, 0);
 			} else if (ev->window == c->frame && ev->button == Button3) {
 				mousemove(None, FLOAT_CONTAINER, c, ev->x_root, ev->y_root, o);
-			} else if ((isvalidstate(ev->state) && ev->button == Button3) ||
-		           	   (o != C && ev->window == c->frame && ev->button == Button1)) {
+			} else if (!c->ismaximized &&
+			           ((isvalidstate(ev->state) && ev->button == Button3) ||
+			           (o != C && ev->window == c->frame && ev->button == Button1))) {
 				if (o == C)
 					o = getquadrant(c->w, c->h, x, y);
 				mouseresize(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, o);
@@ -1351,7 +1373,9 @@ xeventbuttonrelease(XEvent *e)
 	Window win, button;
 	Pixmap pix;
 	int perform;
+	char buf[16];
 	enum { PRESS_CLOSE, PRESS_STACK } action;
+	extern char **environ;
 
 	ev = &e->xbutton;
 	wm.presswin = None;
@@ -1400,8 +1424,29 @@ xeventbuttonrelease(XEvent *e)
 		buttonrightdecorate(button, pix, FOCUSED, 0);
 		break;
 	case PRESS_STACK:
-		rowstack(row->col, row);
-		tabfocus(row->seltab, 0);
+		(void)snprintf(
+			buf,
+			sizeof(buf),
+			"%lu",
+			(unsigned long)row->seltab->obj.win
+		);
+		(void)setenv("WINDOWID", buf, 1);
+		(void)snprintf(
+			buf,
+			sizeof(buf),
+			"%+d%+d",
+			row->col->c->x + row->col->x,
+			row->col->c->y + row->y + config.titlewidth
+		);
+		(void)setenv("WINDOWPOS", buf, 1);
+		(void)posix_spawnp(
+			NULL,
+			config.menucmd,
+			NULL,
+			NULL,
+			(char *[]){ config.menucmd, NULL },
+			environ
+		);
 		buttonleftdecorate(button, pix, FOCUSED, 0);
 		break;
 	}

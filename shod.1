@@ -10,6 +10,8 @@
 .Op Fl AcdhSstW
 .Op Ar file
 .Pp
+.Nm shodmenu
+.Pp
 .Nm shodc
 .Cm close
 .Op Ar win_id
@@ -137,6 +139,26 @@ as the modifier for mouse operations.
 This option is incompatible with
 .Fl A .
 .El
+.Pp
+.Nm shodmenu
+is the command called by
+.Nm shod
+when the user interacts with the menu button (the button at the top far left of a title bar).
+This command should be a script written by the user;
+and usually invokes a menu program like
+.Xr xmenu 1 .
+Before calling
+.Nm shodmenu ,
+the environment variables
+.Ev WINDOWID
+and
+.Ev WINDOWPOS
+(containing the id and position of the window whose menu button was activated, respectively)
+are set.
+An example
+.Nm shodmenu
+script is distributed with
+.Nm shod .
 .Pp
 .Nm shodc
 is the remote controller for
@@ -513,10 +535,14 @@ Dragging a tab with the third mouse button detaches the tab from the container.
 A detached tab, while being dragged, can be reattached into another container
 (or the same container) by dropping it on the title bar, border or divisor;
 or can be made into a new container by dropping it elsewhere.
-Double-clicking a tab toggles maximization of its container.
+Double-clicking a tab (un)stretches its row.
+Scrolling a tab up shades its container.
+Scrolling a down up unshades its container.
+.Pp
+Moving a container to the top of the screen maximizes it.
 .Pp
 Each title bar has a left button.
-Clicking on the left title-bar button with the first mouse button restackes the column
+Clicking on the left title-bar button with the first mouse button stretches the column
 by maximizing its rows (and minimizing the other rows in the same column),
 or undoes this state.
 .Pp
@@ -835,6 +861,26 @@ on.
 The shell to run with
 .Xr exec 3 .
 .El
+.Pp
+The following environment variables are set by
+.Nm shod
+and can affect the execution of the
+.Nm shodmenu
+script.
+.Bl -tag -width Ds
+.It Ev WINDOWID
+A string containing the id number, in decimal ASCII characters,
+of the client window on the tab where the menu button (the left title bar button) is pressed.
+.It Ev WINDOWPOS
+The position, in
+.Qq Ic "+X+Y"
+format (parseable by
+.Xr XParseGeometry 3 )
+of the client window on the tab where the menu button is pressed.
+.El
+.Sh SEE ALSO
+.Xr xmenu 1 ,
+.Xr X 7
 .Sh BUGS
 .Xr XSizeHints 3
 are ignored.

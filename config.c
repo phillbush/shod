@@ -8,6 +8,9 @@ struct Config config = {
 	 * and the color of the dark 3D shadow.
 	 */
 
+	/* command to spawn when clicking the menu button */
+	.menucmd        = "shodmenu",
+
 	/* 0-or-1 flags */
 	.floatdialog    = 0,            /* set to 1 to use floating dialog windows */
 	.sloppyfocus    = 0,            /* set to 1 to use sloppy container focus */

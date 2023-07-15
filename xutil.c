@@ -1,4 +1,6 @@
 #include <err.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -179,10 +181,18 @@ initatoms(void)
 void
 xinit(void)
 {
+	int fd;
+
 	if ((dpy = XOpenDisplay(NULL)) == NULL)
 		errx(1, "could not open display");
 	screen = DefaultScreen(dpy);
 	root = RootWindow(dpy, screen);
+	fd = XConnectionNumber(dpy);
+	while (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1) {
+		if (errno == EINTR)
+			continue;
+		err(EXIT_FAILURE, "fcntl");
+	}
 }
 
 void
