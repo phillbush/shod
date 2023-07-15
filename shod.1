@@ -182,10 +182,12 @@ The
 .Cm focus
 operation focus a window whose ID is provided as argument.
 If an option is provided, focus a window relative to the window provided as argument.
-.Pp the options are as follows:
+.Pp
+The options are as follows:
 .Bl -tag -width Ds
 .It Fl c
-Cycle focus. This option only makes sense when using
+Cycle focus.
+This option only makes sense when using
 .Fl n ,
 .Fl p ,
 .Fl N ,
@@ -338,7 +340,7 @@ indicates that the window's container is above others.
 An
 .Dq Sy b
 indicates that the window's container is below others.
-.It Sy u/a/U
+.It
 An
 .Dq Sy u
 indicates that the window has the urgency hint set.
@@ -499,7 +501,8 @@ A non-fullscreen, non-maximized container can be moved by the following methods:
 .It
 By dragging the container border with the third mouse button.
 .It
-By dragging a title bar with the first mouse button. Or
+By dragging a title bar with the first mouse button.
+Or
 .It
 By pressing the modifier key and dragging any part of the container with the first mouse button.
 .El
@@ -526,8 +529,11 @@ Containers can be cycled using the modifier key set with either the
 or
 .Fl W
 command-line option
-.No ( Cm Alt_L
-by default) followed by the
+.Po
+.Cm Alt_L
+by default
+.Pc
+followed by the
 .Cm Tab
 key.
 The
@@ -650,7 +656,6 @@ or a status bar that shows information about the system.
 .Pp
 .Nm shod
 does not change the size nor the position of bar windows.
-.Pp
 .Ss Dockapps
 Windows that initiate in the
 .Ic WithdrawnState
@@ -664,14 +669,14 @@ inside an icon or a dock rather than a container.
 .Pp
 Dockapps can have one of three possible states: spaced, shrunk, or extended.
 The state of a dockapp can be set with the
-.Ic "shod.CLASS.NAME.ROLE.state"
+.Ic "CLASS.NAME.ROLE.state"
 X resource.
 .Pp
 A
 .Dq Em "spaced"
 dockapp is centered on a slot whose size is multiple of, by default, 64 pixels
 (this value can be changed with the
-.Ic "shod.dockSpace"
+.Ic "dockSpace"
 X resource).
 So for example, by default, if a dockapp has 58 pixels, it is centered on a slot of 64 pixels (64 * 1);
 but if a dockapp has 100 pixels, it is centered on a slot of 128 pixels (64 * 2).
@@ -695,21 +700,26 @@ dockapp is resized to fit the width of the dock
 .Sh RESOURCES
 .Nm shod
 understands the following X resources.
+They must be prefixed with either the
+.Qq Ic Shod
+class, or the
+.Qq Ic shod
+instance.
 .Bl -tag -width Ds
-.It Ic "shod.borderWidth"
+.It Ic "borderWidth"
 The width of the borders and divisions.
-.It Ic "shod.activeBackground" Ns , Ic "shod.activeTopShadowColor" Ns , and Ic "shod.activeBottomShadowColor"
+.It Ic "activeBackground" , "activeTopShadowColor" , Ic "activeBottomShadowColor"
 The body color, light shadow color, and dark shadow color for the 3D effect
 of the borders and title bars of active windows.
-.It Ic "shod.dockBackground" Ns , and Ic "shod.dockBorder"
+.It Ic "dockBackground" , Ic "dockBorder"
 The background color and border color for the dock.
-.It Ic "shod.dockGravity"
+.It Ic "dockGravity"
 The placement of the dock described with up to two uppercase letters.
 The first letter
-.Ns ( Cm "E" Ns , Cm "N" Ns , Cm "W" Ns " or" Cm "S" Ns )
+.Pq Cm E , N , W , S
 defines in which edge of the monitor (East, North, West or South) to allign the dock.
 The optional second letter
-.Ns ( Cm "E" Ns , Cm "N" Ns , Cm "W" Ns , Cm "S" Ns , Cm "C" Ns " or" Cm "F" Ns )
+.Pq Cm E , N , W , S , C , F
 defines in which corner of that edge of the monitor to allign the dock; an
 .Cm "C"
 means that the dock should centered on that edge; an
@@ -722,47 +732,47 @@ a horizontal dock will be placed in the north edge of the monitor, alligned to t
 And for a value of
 .Cm EF ,
 a vertical dock will be placed in the east edge of the monitor, stretched to the full hight of the monitor.
-.It Ic "shod.dockSpace"
+.It Ic "dockSpace"
 The multiplier for the height (for vertical docks) or width (for horizontal docks)
 in pixels of the slot dockapps are placed in.
 See the section
 .Sx "Dockapps"
 above for more information.
-.It Ic "shod.dockWidth"
+.It Ic "dockWidth"
 The width (for vertical docks) or height (for horizontal docks)
 of the dock in pixels.
 Defaults to 64 (the size of most dockapps).
-.It Ic "shod.inactiveBackground" Ns , Ic "shod.inactiveTopShadowColor" Ns , and Ic "shod.inactiveBottomShadowColor"
+.It Ic "inactiveBackground" , "inactiveTopShadowColor" , "inactiveBottomShadowColor"
 The body color, light shadow color, and dark shadow color for the 3D effect
 of the borders and title bars of inactive windows.
-.It Ic "shod.numOfDesktops"
+.It Ic "numOfDesktops"
 The number of desktops for each monitor.
 The default is 10 desktops for each monitor.
-.It Ic "shod.notifGap"
+.It Ic "notifGap"
 The gap in pixels between notifications.
-.It Ic "shod.notifGravity"
+.It Ic "notifGravity"
 The placement of the dock in uppercase abbreviated points of the compass.
 For example, a value of
 .Cm NE
 will place notifications on the northeast edge of the screen.
-.It Ic "shod.shadowThickness"
+.It Ic "shadowThickness"
 Thickness of the 3D shadow effect.
 Must be less than the border width.
-.It Ic "shod.snapProximity"
+.It Ic "snapProximity"
 The proximity of edges of a container in pixels
 for the snap attraction to occur when moving the container.
 If set to zero, no snap attraction occurs.
 The default is 8 pixels.
-.It Ic "shod.faceName"
+.It Ic "faceName"
 The font of the text in the title bar.
-.It Ic "shod.foreground"
+.It Ic "foreground"
 The color of the text in the title bar.
-.It Ic "shod.titleWidth"
+.It Ic "titleWidth"
 The width of the title bar.
-.It Ic "shod.urgentBackground" Ns , Ic "shod.urgentTopShadowColor" Ns , and Ic "shod.urgentBottomShadowColor"
+.It Ic "urgentBackground" , "urgentTopShadowColor" , "urgentBottomShadowColor"
 The body color, light shadow color, and dark shadow color for the 3D effect
 of the borders and title bars of urgent windows.
-.It Ic "shod.moveTime" Ns \ and Ic "shod.resizeTime"
+.It Ic "moveTime" , "resizeTime"
 The time in miliseconds to redraw containers during moving and resizing
 .El
 .Ss Window-dependent resources
@@ -773,10 +783,10 @@ Replace
 with the class of the window,
 .Ar NAME
 with the name of the instance of the window, and 
-.AR ROLE
+.Ar ROLE
 with the role of the window.
 .Bl -tag -width Ds
-.It Ic shod.CLASS.NAME.ROLE.type
+.It Ic CLASS.NAME.ROLE.type
 Define the type of a window matching the given class, name and role.
 Possible values are
 .Cm NORMAL
@@ -787,7 +797,7 @@ Possible values are
 (for docked applications), or
 .Cm PROMPT
 (for prompt windows).
-.It Ic shod.CLASS.NAME.ROLE.state
+.It Ic CLASS.NAME.ROLE.state
 Define the initial state of a window matching the given class, name and role.
 Its value should be a comma-separated list of states.
 Possible states for normal windows are
@@ -805,10 +815,10 @@ and
 .Cm resized ,
 and
 .Cm shrunk .
-.It Ic shod.CLASS.NAME.ROLE.dockpos
+.It Ic CLASS.NAME.ROLE.dockpos
 Define the position in the dock of a docked application matching the given class, name and role.
 Its value should be a number, starting from position 1.
-.It Ic shod.CLASS.NAME.ROLE.desktop
+.It Ic CLASS.NAME.ROLE.desktop
 Define the number of the desktop to send the matching application to.
 Different of other window managers, shod counts desktop from 1;
 so the first desktop is desktop 1, not the desktop 0.
