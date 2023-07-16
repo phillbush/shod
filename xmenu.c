@@ -202,6 +202,7 @@ managemenu(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window le
 	    (wm.focused != NULL &&
 	     istabformenu(wm.focused->selcol->selrow->seltab, menu))) {
 		XMapWindow(dpy, menu->frame);
+		menufocus(menu);
 	}
 }
 
