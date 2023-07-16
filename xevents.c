@@ -1642,20 +1642,18 @@ xeventconfigurerequest(XEvent *e)
 	wc.sibling = ev->above;
 	wc.stack_mode = ev->detail;
 	obj = getmanaged(ev->window);
-	if (obj == NULL) {
+	if (obj == NULL)
 		XConfigureWindow(dpy, ev->window, ev->value_mask, &wc);
-	} else if (obj->type == TYPE_DIALOG) {
+	if (!config.honorconfig)
+		return;
+	if (obj->type == TYPE_DIALOG) {
 		dialogconfigure((struct Dialog *)obj, ev->value_mask, &wc);
 	} else if (obj->type == TYPE_MENU) {
 		menuconfigure((struct Menu *)obj, ev->value_mask, &wc);
 	} else if (obj->type == TYPE_DOCKAPP) {
 		dockappconfigure((struct Dockapp *)obj, ev->value_mask, &wc);
 	} else if (obj->type == TYPE_NORMAL) {
-		if (config.honorconfig) {
-			containerconfigure(((struct Tab *)obj)->row->col->c, ev->value_mask, &wc);
-		} else {
-			containermoveresize(((struct Tab *)obj)->row->col->c, 1);
-		}
+		containerconfigure(((struct Tab *)obj)->row->col->c, ev->value_mask, &wc);
 	}
 }
 
