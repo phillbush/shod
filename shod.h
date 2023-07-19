@@ -719,7 +719,7 @@ void containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdi
 void containerredecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, enum Octant o);
 void containercalccols(struct Container *c);
 void containersetstate(struct Tab *, Atom *, unsigned long);
-void containerincrmove(struct Container *c, int x, int y);
+void containermove(struct Container *c, int x, int y, int relative);
 void containerraise(struct Container *c, int isfullscreen, int layer);
 void containerconfigure(struct Container *c, unsigned int valuemask, XWindowChanges *wc);
 void containersendtodeskandfocus(struct Container *c, struct Monitor *mon, unsigned long desk);

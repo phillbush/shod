@@ -1165,7 +1165,7 @@ containersendtodeskandfocus(struct Container *c, struct Monitor *mon, unsigned l
 
 /* move container x pixels to the right and y pixels down */
 void
-containerincrmove(struct Container *c, int x, int y)
+containermove(struct Container *c, int x, int y, int relative)
 {
 	struct Monitor *monto;
 	struct Object *t;
@@ -1173,8 +1173,13 @@ containerincrmove(struct Container *c, int x, int y)
 
 	if (c == NULL || c->isminimized || c->ismaximized || c->isfullscreen)
 		return;
-	c->nx += x;
-	c->ny += y;
+	if (relative) {
+		c->nx += x;
+		c->ny += y;
+	} else {
+		c->nx = x;
+		c->ny = y;
+	}
 	c->x = c->nx;
 	c->y = c->ny;
 	snaptoedge(&c->x, &c->y, c->w, c->h);

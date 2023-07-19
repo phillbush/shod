@@ -1046,8 +1046,10 @@ mousemove(Window win, int type, void *p, int xroot, int yroot, enum Octant o)
 	Window frame;
 	XEvent ev;
 	Time lasttime;
-	int x, y, maximize;
+	int x, y, unmaximize, origyroot;
 
+	origyroot = yroot;
+	unmaximize = 0;
 	if (type == FLOAT_MENU) {
 		menu = (struct Menu *)p;
 		menudecorate(menu, o);
@@ -1062,7 +1064,6 @@ mousemove(Window win, int type, void *p, int xroot, int yroot, enum Octant o)
 		XDefineCursor(dpy, win, wm.cursors[CURSOR_MOVE]);
 	else if (XGrabPointer(dpy, frame, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, wm.cursors[CURSOR_MOVE], CurrentTime) != GrabSuccess)
 		goto done;
-	maximize = 0;
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
 		case ButtonRelease:
@@ -1075,31 +1076,35 @@ mousemove(Window win, int type, void *p, int xroot, int yroot, enum Octant o)
 			y = ev.xmotion.y_root - yroot;
 			if (type == FLOAT_MENU)
 				menuincrmove(menu, x, y);
-			else if (maximize < 0)
-				containerincrmove(c, 0, 0);
-			else
-				containerincrmove(c, x, y);
-			lasttime = ev.xmotion.time;
-			xroot = ev.xmotion.x_root;
-			yroot = ev.xmotion.y_root;
-			if (type == FLOAT_MENU)
-				break;
-			if ((maximize > 0 && ev.xmotion.y_root <= 0) ||
-			    (maximize < 0 && ev.xmotion.y_root > 0) ||
-			    maximize == 0) {
+			else if (c->ismaximized && ev.xmotion.y_root > 0 && unmaximize) {
 				containersetstate(
 					c->selcol->selrow->seltab,
 					(Atom []){
 						atoms[_NET_WM_STATE_MAXIMIZED_VERT],
 						atoms[_NET_WM_STATE_MAXIMIZED_HORZ],
 					},
-					ev.xmotion.y_root <= 0 ? ADD : REMOVE
+					REMOVE
 				);
+				containermove(c, c->nx, 0, 0);
+			} else if (!c->ismaximized && ev.xmotion.y_root <= 0) {
+				containersetstate(
+					c->selcol->selrow->seltab,
+					(Atom []){
+						atoms[_NET_WM_STATE_MAXIMIZED_VERT],
+						atoms[_NET_WM_STATE_MAXIMIZED_HORZ],
+					},
+					ADD
+				);
+			} else if (!c->ismaximized) {
+				containermove(c, x, y, 1);
 			}
-			if (ev.xmotion.y_root <= 0)
-				maximize = -1;
-			else
-				maximize = 1;
+			if (ev.xmotion.y_root < origyroot - config.titlewidth)
+				unmaximize = 1;
+			if (ev.xmotion.y_root > origyroot + config.titlewidth)
+				unmaximize = 1;
+			lasttime = ev.xmotion.time;
+			xroot = ev.xmotion.x_root;
+			yroot = ev.xmotion.y_root;
 			break;
 		}
 	}
