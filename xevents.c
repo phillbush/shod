@@ -1085,7 +1085,11 @@ mousemove(Window win, int type, void *p, int xroot, int yroot, enum Octant o)
 					},
 					REMOVE
 				);
-				containermove(c, c->nx, 0, 0);
+				containermove(
+					c,
+					ev.xmotion.x_root - c->nw / 2,
+					0, 0
+				);
 			} else if (!c->ismaximized && ev.xmotion.y_root <= 0) {
 				containersetstate(
 					c->selcol->selrow->seltab,
