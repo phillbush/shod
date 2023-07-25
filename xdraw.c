@@ -629,6 +629,12 @@ reloadtheme(void)
 		FOCUSED,
 		0
 	);
+	XResizeWindow(
+		dpy,
+		wm.dragwin,
+		2 * config.borderwidth + config.titlewidth,
+		2 * config.borderwidth + config.titlewidth
+	);
 	XSetWindowBackgroundPixmap(dpy, wm.dragwin, pix);
 	XClearWindow(dpy, wm.dragwin);
 	XFreePixmap(dpy, pix);
