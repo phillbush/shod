@@ -592,7 +592,7 @@ buttonrightdecorate(Window button, Pixmap pix, int style, int pressed)
 	drawcommit(pix, button);
 }
 
-void
+static void
 reloadtheme(void)
 {
 	Pixmap pix;
@@ -791,4 +791,5 @@ setresources(char *xrm)
 			break;
 		}
 	}
+	reloadtheme();
 }
