@@ -98,6 +98,10 @@ enum {
 
 	PROP_GNU_HINTS_ELEMENTS                 = 9,
 
+	/* flags */
+	GNU_FLAG_WINDOWSTYLE    = (1<<0),
+	GNU_FLAG_WINDOWLEVEL    = (1<<1),
+
 	/* window levels */
 	GNU_LEVEL_DESKTOP       = -1000,
 	GNU_LEVEL_NORMAL        = 0,
@@ -110,6 +114,14 @@ enum {
 	GNU_LEVEL_PANEL         = 100,
 	GNU_LEVEL_POPUP         = 101,
 	GNU_LEVEL_SCREENSAVER   = 1000,
+
+	/* window style */
+	GNU_STYLE_TITLED        = 1,
+	GNU_STYLE_CLOSABLE      = 2,
+	GNU_STYLE_MINIMIZABLE   = 4,
+	GNU_STYLE_RESIZEABLE    = 8,
+	GNU_STYLE_ICON          = 64,
+	GNU_STYLE_MINIWINDOW    = 128,
 };
 
 /* motif window manager (Mwm) hints */
@@ -534,30 +546,37 @@ getwintype(Window *win_ret, Window *leader, struct Tab **tab, int *state, XRecta
 		*leader = (wmhints != NULL && (wmhints->flags & WindowGroupHint)) ? wmhints->window_group : None;
 	*tab = getdialogfor(win);
 	XFree(wmhints);
-	if (isdockapp) {
+	if (!(gnuhints.flags & GNU_FLAG_WINDOWSTYLE))
+		gnuhints.window_style = 0;
+	if (!(gnuhints.flags & GNU_FLAG_WINDOWLEVEL))
+		gnuhints.window_level = 0;
+	if (isdockapp ||
+	    gnuhints.window_style == GNU_STYLE_ICON ||
+	    gnuhints.window_style == GNU_STYLE_MINIWINDOW) {
 		type = TYPE_DOCKAPP;
-	} else if (gnuhints.window_level == GNU_LEVEL_SUBMENU ||
-                   gnuhints.window_level == GNU_LEVEL_MAINMENU ||
-                   gnuhints.window_level == GNU_LEVEL_POPUP) {
-		type = TYPE_POPUP;
 	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_DESKTOP]) {
 		type = TYPE_DESKTOP;
-	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_DOCK]) {
-		type = TYPE_DOCK;
 	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_NOTIFICATION]) {
 		type = TYPE_NOTIFICATION;
 	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_PROMPT]) {
 		type = TYPE_PROMPT;
 	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_SPLASH]) {
 		type = TYPE_SPLASH;
+	} else if (gnuhints.window_level == GNU_LEVEL_POPUP) {
+		type = TYPE_POPUP;
 	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_MENU] ||
 	           prop == atoms[_NET_WM_WINDOW_TYPE_UTILITY] ||
 	           prop == atoms[_NET_WM_WINDOW_TYPE_TOOLBAR] ||
+	           gnuhints.window_level == GNU_LEVEL_PANEL ||
+	           gnuhints.window_level == GNU_LEVEL_SUBMENU ||
+                   gnuhints.window_level == GNU_LEVEL_MAINMENU ||
                    ((mwmhints.flags & MWM_HINTS_STATUS) &&
                     (mwmhints.status & MWM_TEAROFF_WINDOW))) {
 		if (*tab != NULL)
 			*leader = (*tab)->obj.win;
 		type = TYPE_MENU;
+	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_DOCK]) {
+		type = TYPE_DOCK;
 	} else if (*tab != NULL) {
 		if (*tab != NULL)
 			*leader = (*tab)->obj.win;
