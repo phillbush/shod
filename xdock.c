@@ -48,13 +48,17 @@ dockappinsert(struct Dockapp *dapp)
 {
 	struct Object *prev;
 
-	TAILQ_FOREACH_REVERSE(prev, &dock.dappq, Queue, entry)
-		if (((struct Dockapp *)prev)->dockpos <= dapp->dockpos)
-			break;
-	if (prev != NULL) {
-		TAILQ_INSERT_AFTER(&dock.dappq, prev, (struct Object *)dapp, entry);
+	if (dapp->dockpos == 0) {
+		TAILQ_INSERT_TAIL(&dock.dappq, (struct Object *)dapp, entry);
 	} else {
-		TAILQ_INSERT_HEAD(&dock.dappq, (struct Object *)dapp, entry);
+		TAILQ_FOREACH_REVERSE(prev, &dock.dappq, Queue, entry)
+			if (((struct Dockapp *)prev)->dockpos <= dapp->dockpos)
+				break;
+		if (prev != NULL) {
+			TAILQ_INSERT_AFTER(&dock.dappq, prev, (struct Object *)dapp, entry);
+		} else {
+			TAILQ_INSERT_HEAD(&dock.dappq, (struct Object *)dapp, entry);
+		}
 	}
 	dockappconfigure(
 		dapp,
