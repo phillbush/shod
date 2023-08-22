@@ -30,6 +30,10 @@ getwinname(Window win)
 static int
 isobscured(struct Container *c, struct Monitor *mon, int desk, int x, int y, int w, int h)
 {
+	x = max(x, mon->wx);
+	y = max(y, mon->wy);
+	w = min(x + w, mon->wx + mon->ww) - x;
+	h = min(y + h, mon->wy + mon->wh) - y;
 	if (config.disablehidden || c == NULL)
 		return 0;
 	if (w <= 0 || h <= 0)
