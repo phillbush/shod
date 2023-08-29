@@ -53,6 +53,9 @@ how a X Window Manager works.
 • dwm:      https://dwm.suckless.org
 • katriawm: https://www.uninformativ.de/git/katriawm/file/README.html
 
+Screenshots:
+See the images in the demos/ directory.
+
 Changelog:
 • 2.6.2 (2023-04-24): Bugfixes (wait for children processes).
 • 2.6.1 (2023-04-23): Bugfixes (dockupdate).
