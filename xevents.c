@@ -1930,7 +1930,20 @@ scan(void)
 void
 setmod(void)
 {
+	size_t i;
+	static unsigned int locks[] = {
+		0,
+		LockMask,       /* Caps Lock */
+		Mod2Mask,       /* Num Lock */
+		Mod3Mask,       /* Scroll Lock (who uses this?) */
+		LockMask | Mod2Mask,
+		LockMask | Mod3Mask,
+		Mod2Mask | Mod3Mask,
+		LockMask | Mod2Mask | Mod3Mask,
+	};
+
 	config.altkeycode = 0;
+	XUngrabKey(dpy, config.tabkeycode, AnyModifier, root);
 	if ((config.altkeycode = XKeysymToKeycode(dpy, config.altkeysym)) == 0) {
 		warnx("could not get keycode from keysym");
 		return;
@@ -1941,8 +1954,17 @@ setmod(void)
 	}
 	if (config.disablealttab)
 		return;
-	XUngrabKey(dpy, config.tabkeycode, config.modifier, root);
-	XGrabKey(dpy, config.tabkeycode, config.modifier, root, False, GrabModeAsync, GrabModeAsync);
+	for (i = 0; i < LEN(locks); i++) {
+		XGrabKey(
+			dpy,
+			config.tabkeycode,
+			config.modifier | locks[i],
+			root,
+			False,
+			GrabModeAsync,
+			GrabModeAsync
+		);
+	}
 }
 
 void (*xevents[LASTEvent])(XEvent *) = {
