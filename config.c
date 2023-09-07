@@ -65,6 +65,9 @@ struct Config config = {
 		/* Although Firefox's PictureInPicture is technically a utility (sub)window, make it a normal one */
 		{ NULL,   NULL,     "PictureInPicture",  TYPE_NORMAL,  ABOVE,  0 },
 
+		/* Dockapps */
+		{ "DockApp",   NULL,     NULL, TYPE_DOCKAPP, 0,  0 },
+
 		/* Last rule must be all NULL! */
 		{ NULL,   NULL,     NULL,                TYPE_NORMAL,  0,      0 },
 	}
