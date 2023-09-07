@@ -393,7 +393,7 @@ getextrahints(Window win, Atom prop, unsigned long nmemb, size_t size, void *hin
 
 /* get window info based on its type */
 int
-getwintype(Window *win_ret, Window *leader, struct Tab **tab, int *state, XRectangle *rect, int *desk)
+getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectangle *rect, int *desk)
 {
 	/* rules for identifying windows */
 	enum { I_APP, I_CLASS, I_INSTANCE, I_ROLE, I_RESOURCE, I_NULL, I_LAST };
@@ -403,7 +403,6 @@ getwintype(Window *win_ret, Window *leader, struct Tab **tab, int *state, XRecta
 	struct GNUHints gnuhints = { 0 };
 	XClassHint classh = { .res_class = NULL, .res_name = NULL };
 	XWMHints *wmhints;
-	Window win;
 	Atom prop;
 	size_t i;
 	long n;
@@ -411,7 +410,6 @@ getwintype(Window *win_ret, Window *leader, struct Tab **tab, int *state, XRecta
 	char *role, *value;
 
 	pos = 0;
-	win = *win_ret;
 	*tab = NULL;
 	*state = 0;
 	type = TYPE_UNKNOWN;
@@ -538,9 +536,11 @@ getwintype(Window *win_ret, Window *leader, struct Tab **tab, int *state, XRecta
 	wmhints = XGetWMHints(dpy, win);
 	getextrahints(win, atoms[_MOTIF_WM_HINTS], PROP_MWM_HINTS_ELEMENTS, sizeof(mwmhints), &mwmhints);
 	getextrahints(win, atoms[_GNUSTEP_WM_ATTR], PROP_GNU_HINTS_ELEMENTS, sizeof(gnuhints), &gnuhints);
-	isdockapp = (wmhints && (wmhints->flags & (IconWindowHint | StateHint)) && wmhints->initial_state == WithdrawnState);
-	if (isdockapp && wmhints->icon_window != None)
-		*win_ret = wmhints->icon_window;
+	isdockapp = (
+		wmhints &&
+		FLAG(wmhints->flags, IconWindowHint | StateHint) &&
+		wmhints->initial_state == WithdrawnState
+	);
 	*leader = getwinprop(win, atoms[WM_CLIENT_LEADER]);
 	if (*leader == None)
 		*leader = (wmhints != NULL && (wmhints->flags & WindowGroupHint)) ? wmhints->window_group : None;
@@ -770,7 +770,7 @@ manage(Window win, XRectangle rect, int ignoreunmap)
 
 	if (getmanaged(win) != NULL)
 		return;
-	type = getwintype(&win, &leader, &tab, &state, &rect, &desk);
+	type = getwintype(win, &leader, &tab, &state, &rect, &desk);
 	if (type == TYPE_DESKTOP || type == TYPE_POPUP) {
 		/* we do not handle desktop windows */
 		if (type == TYPE_DESKTOP)

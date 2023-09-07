@@ -10,6 +10,7 @@
 #define DROPPIXELS              30      /* number of pixels from the border where a tab can be dropped in */
 #define DOCKBORDER              1
 #define LEN(x)                  (sizeof(x) / sizeof((x)[0]))
+#define FLAG(f, b)              (((f) & (b)) == (b))
 #define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
 #define ISDUMMY(c)              ((c)->ncols == 0)
 
@@ -827,7 +828,7 @@ Unmanagefunc unmanagebar;
 void setmod(void);
 void scan(void);
 void deskupdate(struct Monitor *mon, int desk);
-int getwintype(Window *win_ret, Window *leader, struct Tab **tab, int *state, XRectangle *rect, int *desk);
+int getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectangle *rect, int *desk);
 
 /* function tables */
 extern void (*managefuncs[])(struct Tab *, struct Monitor *, int, Window, Window, XRectangle, int, int);

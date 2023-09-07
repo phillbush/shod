@@ -420,7 +420,7 @@ dockreset(void)
 		TAILQ_REMOVE(&dappq, obj, entry);
 		win = obj->win;
 		dapp = (struct Dockapp *)obj;
-		if (getwintype(&win, &dummyw, &dummyt, &state, &rect, &desk) == TYPE_DOCKAPP) {
+		if (getwintype(win, &dummyw, &dummyt, &state, &rect, &desk) == TYPE_DOCKAPP) {
 			if (rect.x > 0) {
 				dapp->dockpos = rect.x;
 			}
