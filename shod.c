@@ -436,14 +436,14 @@ main(int argc, char *argv[])
 	setmod();
 
 	/* run main event loop */
-	while (!XNextEvent(dpy, &ev)) {
+	while (wm.running) {
 		wm.setclientlist = 0;
-		if (wm.xrandr && ev.type - wm.xrandrev == RRScreenChangeNotify)
-			monevent(&ev);
-		else if (ev.type < LASTEvent && xevents[ev.type] != NULL)
+		(void)XNextEvent(dpy, &ev);
+		if (ev.type < LASTEvent && xevents[ev.type] != NULL) {
 			(*xevents[ev.type])(&ev);
-		if (!wm.running)
-			break;
+		} else if (wm.xrandr && ev.type == wm.xrandrev) {
+			monevent(&ev);
+		}
 		if (wm.setclientlist) {
 			ewmhsetclients();
 		}

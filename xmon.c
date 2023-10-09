@@ -7,9 +7,9 @@ moninit(void)
 {
 	int i;
 
-	if ((wm.xrandr = XRRQueryExtension(dpy, &wm.xrandrev, &i))) {
+	if ((wm.xrandr = XRRQueryExtension(dpy, &wm.xrandrev, &i)))
 		XRRSelectInput(dpy, root, RRScreenChangeNotifyMask);
-	}
+	wm.xrandrev += RRScreenChangeNotify;
 }
 
 void
