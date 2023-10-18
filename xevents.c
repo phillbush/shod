@@ -254,9 +254,14 @@ getdialogfor(Window win)
 	struct Object *obj;
 	Window tmpwin;
 
-	if (XGetTransientForHint(dpy, win, &tmpwin))
-		if ((obj = getmanaged(tmpwin)) != NULL && obj->type == TYPE_NORMAL)
-			return (struct Tab *)obj;
+	if (XGetTransientForHint(dpy, win, &tmpwin)) {
+		obj = getmanaged(tmpwin);
+		if (obj == NULL)
+			return NULL;
+		if (obj->class->type != TYPE_NORMAL)
+			return NULL;
+		return (struct Tab *)obj;
+	}
 	return NULL;
 }
 
@@ -872,7 +877,9 @@ done:
 	yroot = ev.xbutton.y_root - y;
 	obj = getmanaged(ev.xbutton.subwindow);
 	c = NULL;
-	if (obj != NULL && obj->type == TYPE_NORMAL && ev.xbutton.subwindow == ((struct Tab *)obj)->row->col->c->frame) {
+	if (obj != NULL &&
+	   obj->class->type == TYPE_NORMAL &&
+	   ev.xbutton.subwindow == ((struct Tab *)obj)->row->col->c->frame) {
 		c = ((struct Tab *)obj)->row->col->c;
 		XTranslateCoordinates(dpy, ev.xbutton.window, c->frame, ev.xbutton.x_root, ev.xbutton.y_root, &x, &y, &win);
 	}
@@ -1060,6 +1067,7 @@ done:
 static void
 mousemove(Window win, int type, void *p, int xroot, int yroot, enum Octant o)
 {
+	struct Object *obj;
 	struct Container *c;
 	struct Menu *menu;
 	Window frame;
@@ -1083,6 +1091,7 @@ mousemove(Window win, int type, void *p, int xroot, int yroot, enum Octant o)
 		XDefineCursor(dpy, win, wm.cursors[CURSOR_MOVE]);
 	else if (XGrabPointer(dpy, frame, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, wm.cursors[CURSOR_MOVE], CurrentTime) != GrabSuccess)
 		goto done;
+	obj = (struct Object *)c->selcol->selrow->seltab;
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
 		case ButtonRelease:
@@ -1096,8 +1105,8 @@ mousemove(Window win, int type, void *p, int xroot, int yroot, enum Octant o)
 			if (type == FLOAT_MENU)
 				menuincrmove(menu, x, y);
 			else if (c->ismaximized && ev.xmotion.y_root > 0 && unmaximize) {
-				containersetstate(
-					c->selcol->selrow->seltab,
+				(*tab_class->setstate)(
+					obj,
 					(Atom []){
 						atoms[_NET_WM_STATE_MAXIMIZED_VERT],
 						atoms[_NET_WM_STATE_MAXIMIZED_HORZ],
@@ -1110,8 +1119,8 @@ mousemove(Window win, int type, void *p, int xroot, int yroot, enum Octant o)
 					0, 0
 				);
 			} else if (!c->ismaximized && ev.xmotion.y_root <= 0) {
-				containersetstate(
-					c->selcol->selrow->seltab,
+				(*tab_class->setstate)(
+					obj,
 					(Atom []){
 						atoms[_NET_WM_STATE_MAXIMIZED_VERT],
 						atoms[_NET_WM_STATE_MAXIMIZED_HORZ],
@@ -1272,7 +1281,7 @@ xeventbuttonpress(XEvent *e)
 	menu = NULL;
 	tab = NULL;
 	c = NULL;
-	switch (obj->type) {
+	switch (obj->class->type) {
 	case TYPE_NORMAL:
 		tab = (struct Tab *)obj;
 		c = tab->row->col->c;
@@ -1343,14 +1352,14 @@ xeventbuttonpress(XEvent *e)
 		}
 		o = getframehandle(c->w, c->h, x, y);
 		if (ev->window == tab->title && ev->button == Button4) {
-			containersetstate(
-				tab,
+			(*tab_class->setstate)(
+				obj,
 				(Atom [2]){ atoms[_NET_WM_STATE_SHADED], None },
 				ADD
 			);
 		} if (ev->window == tab->title && ev->button == Button5) {
-			containersetstate(
-				tab,
+			(*tab_class->setstate)(
+				obj,
 				(Atom [2]){ atoms[_NET_WM_STATE_SHADED], None },
 				REMOVE
 			);
@@ -1411,7 +1420,7 @@ xeventbuttonrelease(XEvent *e)
 		return;
 	if ((obj = getmanaged(ev->window)) == NULL)
 		return;
-	switch (obj->type) {
+	switch (obj->class->type) {
 	case TYPE_NORMAL:
 		row = ((struct Tab *)obj)->row;
 		if (ev->window == row->br) {
@@ -1495,7 +1504,7 @@ xeventclientmessage(XEvent *e)
 
 	ev = &e->xclient;
 	if ((obj = getmanaged(ev->window)) != NULL) {
-		switch (obj->type) {
+		switch (obj->class->type) {
 		case TYPE_NORMAL:
 			tab = (struct Tab *)obj;
 			c = tab->row->col->c;
@@ -1503,6 +1512,8 @@ xeventclientmessage(XEvent *e)
 		case TYPE_DIALOG:
 			tab = ((struct Dialog *)obj)->tab;
 			c = tab->row->col->c;
+			break;
+		default:
 			break;
 		}
 	}
@@ -1517,9 +1528,15 @@ xeventclientmessage(XEvent *e)
 			deskfocus(wm.selmon, wm.selmon->seldesk);
 		}
 	} else if (ev->message_type == atoms[_NET_WM_STATE]) {
-		if (obj == NULL || obj->type != TYPE_NORMAL)
+		if (obj == NULL)
 			return;
-		containersetstate(tab, (Atom *)(ev->data.l + 1), ev->data.l[0]);
+		if (obj->class->setstate == NULL)
+			return;
+		(*obj->class->setstate)(
+			obj,
+			(Atom *)(ev->data.l + 1),
+			ev->data.l[0]
+		);
 	} else if (ev->message_type == atoms[_NET_ACTIVE_WINDOW]) {
 #define ACTIVATECOL(col) { if ((col) != NULL) tabfocus((col)->selrow->seltab, 1); }
 #define ACTIVATEROW(row) { if ((row) != NULL) tabfocus((row)->seltab, 1); }
@@ -1583,13 +1600,13 @@ xeventclientmessage(XEvent *e)
 		wc.y = (ev->data.l[0] & _SHOD_MOVERESIZE_RELATIVE) ? c->y + ev->data.l[2] : ev->data.l[2];
 		wc.width = (ev->data.l[0] & _SHOD_MOVERESIZE_RELATIVE) ? c->w + ev->data.l[3] : ev->data.l[3];
 		wc.height = (ev->data.l[0] & _SHOD_MOVERESIZE_RELATIVE) ? c->h + ev->data.l[4] : ev->data.l[4];
-		if (obj->type == TYPE_DIALOG) {
+		if (obj->class->type == TYPE_DIALOG) {
 			dialogconfigure((struct Dialog *)obj, value_mask, &wc);
-		} else if (obj->type == TYPE_NORMAL) {
+		} else if (obj->class->type == TYPE_NORMAL) {
 			containerconfigure(c, value_mask, &wc);
 		}
 	} else if (ev->message_type == atoms[_NET_WM_DESKTOP]) {
-		if (obj == NULL || obj->type != TYPE_NORMAL)
+		if (obj == NULL || obj->class->type != TYPE_NORMAL)
 			return;
 		containersendtodeskandfocus(c, c->mon, ev->data.l[0]);
 	} else if (ev->message_type == atoms[_NET_REQUEST_FRAME_EXTENTS]) {
@@ -1602,21 +1619,27 @@ xeventclientmessage(XEvent *e)
 			 */
 			ewmhsetframeextents(ev->window, config.borderwidth, config.titlewidth);
 		} else {
-			ewmhsetframeextents(ev->window, c->b, (obj->type == TYPE_DIALOG ? 0 : TITLEWIDTH(c)));
+			ewmhsetframeextents(
+				ev->window,
+				c->b,
+				(obj->class->type == TYPE_DIALOG ? 0 : TITLEWIDTH(c))
+			);
 		}
 	} else if (ev->message_type == atoms[_NET_WM_MOVERESIZE]) {
 		/*
 		 * Client-side decorated Gtk3 windows emit this signal when being
 		 * dragged by their GtkHeaderBar
 		 */
-		if (obj == NULL || (obj->type != TYPE_NORMAL && obj->type != TYPE_MENU))
+		if (obj == NULL)
 			return;
-		if (obj->type == TYPE_MENU) {
+		if (obj->class->type == TYPE_MENU) {
 			p = obj;
 			floattype = FLOAT_MENU;
-		} else {
+		} else if (obj->class->type == TYPE_NORMAL) {
 			p = c;
 			floattype = FLOAT_CONTAINER;
+		} else {
+			return;
 		}
 		switch (ev->data.l[2]) {
 		case _NET_WM_MOVERESIZE_SIZE_TOPLEFT:
@@ -1674,14 +1697,21 @@ xeventconfigurerequest(XEvent *e)
 		XConfigureWindow(dpy, ev->window, ev->value_mask, &wc);
 	if (!config.honorconfig)
 		return;
-	if (obj->type == TYPE_DIALOG) {
+	switch (obj->class->type) {
+	case TYPE_DIALOG:
 		dialogconfigure((struct Dialog *)obj, ev->value_mask, &wc);
-	} else if (obj->type == TYPE_MENU) {
+		break;
+	case TYPE_MENU:
 		menuconfigure((struct Menu *)obj, ev->value_mask, &wc);
-	} else if (obj->type == TYPE_DOCKAPP) {
+		break;
+	case TYPE_DOCKAPP:
 		dockappconfigure((struct Dockapp *)obj, ev->value_mask, &wc);
-	} else if (obj->type == TYPE_NORMAL) {
+		break;
+	case TYPE_NORMAL:
 		containerconfigure(((struct Tab *)obj)->row->col->c, ev->value_mask, &wc);
+		break;
+	default:
+		return;
 	}
 }
 
@@ -1694,7 +1724,7 @@ xeventdestroynotify(XEvent *e)
 
 	ev = &e->xdestroywindow;
 	if ((obj = getmanaged(ev->window)) != NULL) {
-		if (obj->win == ev->window && (*unmanagefuncs[obj->type])(obj, 0)) {
+		if (obj->win == ev->window && (*unmanagefuncs[obj->class->type])(obj, 0)) {
 			wm.setclientlist = 1;
 		}
 	} else if (ev->window == wm.checkwin) {
@@ -1715,11 +1745,12 @@ xevententernotify(XEvent *e)
 		;
 	if ((obj = getmanaged(e->xcrossing.window)) == NULL)
 		return;
-	if (obj->type == TYPE_DIALOG)
+	if (obj->class->type == TYPE_DIALOG)
 		tab = ((struct Dialog *)obj)->tab;
-	else if (obj->type == TYPE_NORMAL)
+	else if (obj->class->type == TYPE_NORMAL)
 		tab = (struct Tab *)obj;
-	else return;
+	else
+		return;
 	if (!config.sloppytiles && tab->row->col->c == wm.focused)
 		return;
 	if (!config.sloppyfocus && tab->row->col->c != wm.focused)
@@ -1744,7 +1775,7 @@ xeventfocusin(XEvent *e)
 	obj = getmanaged(ev->window);
 	if (obj == NULL)
 		goto focus;
-	switch (obj->type) {
+	switch (obj->class->type) {
 	case TYPE_MENU:
 		menufocus((struct Menu *)obj);
 		break;
@@ -1756,6 +1787,8 @@ xeventfocusin(XEvent *e)
 		if ((struct Tab *)obj != wm.focused->selcol->selrow->seltab)
 			goto focus;
 		break;
+	default:
+		return;
 	}
 	return;
 focus:
@@ -1842,7 +1875,7 @@ xeventpropertynotify(XEvent *e)
 	obj = getmanaged(ev->window);
 	if (obj == NULL)
 		return;
-	if (obj->type == TYPE_NORMAL && ev->window == obj->win) {
+	if (obj->class->type == TYPE_NORMAL && ev->window == obj->win) {
 		tab = (struct Tab *)obj;
 		if (ev->atom == XA_WM_NAME || ev->atom == atoms[_NET_WM_NAME]) {
 			winupdatetitle(tab->obj.win, &tab->name);
@@ -1850,10 +1883,10 @@ xeventpropertynotify(XEvent *e)
 		} else if (ev->atom == XA_WM_HINTS) {
 			tabupdateurgency(tab, getwinurgency(tab->obj.win));
 		}
-	} else if (obj->type == TYPE_DOCK && (ev->atom == _NET_WM_STRUT_PARTIAL || ev->atom == _NET_WM_STRUT)) {
+	} else if (obj->class->type == TYPE_DOCK && (ev->atom == _NET_WM_STRUT_PARTIAL || ev->atom == _NET_WM_STRUT)) {
 		barstrut((struct Bar *)obj);
 		monupdatearea();
-	} else if (obj->type == TYPE_MENU && ev->window == obj->win) {
+	} else if (obj->class->type == TYPE_MENU && ev->window == obj->win) {
 		menu = (struct Menu *)obj;
 		if (ev->atom == XA_WM_NAME || ev->atom == atoms[_NET_WM_NAME]) {
 			winupdatetitle(menu->obj.win, &menu->name);
@@ -1871,7 +1904,7 @@ xeventunmapnotify(XEvent *e)
 
 	ev = &e->xunmap;
 	if ((obj = getmanaged(ev->window)) != NULL) {
-		if (obj->win == ev->window && (*unmanagefuncs[obj->type])(obj, 1)) {
+		if (obj->win == ev->window && (*unmanagefuncs[obj->class->type])(obj, 1)) {
 			wm.setclientlist = 1;
 		}
 	}

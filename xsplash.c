@@ -9,7 +9,7 @@ splashnew(Window win, int w, int h)
 	splash = emalloc(sizeof(*splash));
 	*splash = (struct Splash){
 		.obj.win = win,
-		.obj.type = TYPE_SPLASH,
+		.obj.class = splash_class,
 		.w = w,
 		.h = h,
 	};
@@ -91,3 +91,8 @@ managesplash(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window 
 	splashrise(splash);
 	splashhide(splash, REMOVE);
 }
+
+Class *splash_class = &(Class){
+	.type           = TYPE_SPLASH,
+	.setstate       = NULL,
+};

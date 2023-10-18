@@ -41,7 +41,7 @@ managebar(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window lea
 	bar = emalloc(sizeof(*bar));
 	*bar = (struct Bar){
 		.obj.win = win,
-		.obj.type = TYPE_DOCK,
+		.obj.class = bar_class,
 	};
 	TAILQ_INSERT_HEAD(&wm.barq, (struct Object *)bar, entry);
 	XRestackWindows(dpy, wins, 2);
@@ -63,3 +63,8 @@ unmanagebar(struct Object *obj, int dummy)
 	monupdatearea();
 	return 0;
 }
+
+Class *bar_class = &(Class){
+	.type           = TYPE_DOCK,
+	.setstate       = NULL,
+};

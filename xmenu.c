@@ -11,7 +11,7 @@ menunew(Window win, int x, int y, int w, int h, int ignoreunmap)
 		.titlebar = None,
 		.button = None,
 		.obj.win = win,
-		.obj.type = TYPE_MENU,
+		.obj.class = menu_class,
 		.pix = None,
 		.pixbutton = None,
 		.pixtitlebar = None,
@@ -261,3 +261,8 @@ menuupdate(void)
 		}
 	}
 }
+
+Class *menu_class = &(Class){
+	.type           = TYPE_MENU,
+	.setstate       = NULL,
+};

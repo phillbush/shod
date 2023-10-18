@@ -11,7 +11,7 @@ notifnew(Window win, int w, int h)
 		.w = w + 2 * config.borderwidth,
 		.h = h + 2 * config.borderwidth,
 		.pix = None,
-		.obj.type = TYPE_NOTIFICATION,
+		.obj.class = notif_class,
 		.obj.win = win,
 	};
 	TAILQ_INSERT_TAIL(&wm.notifq, (struct Object *)notif, entry);
@@ -150,3 +150,8 @@ unmanagenotif(struct Object *obj, int dummy)
 	notifplace();
 	return 0;
 }
+
+Class *notif_class = &(Class){
+	.type           = TYPE_NOTIFICATION,
+	.setstate       = NULL,
+};

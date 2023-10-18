@@ -98,22 +98,6 @@ enum {
 };
 
 enum {
-	/* application window array indices */
-	TYPE_UNKNOWN,
-	TYPE_NORMAL,
-	TYPE_DESKTOP,
-	TYPE_DOCK,
-	TYPE_MENU,
-	TYPE_DIALOG,
-	TYPE_NOTIFICATION,
-	TYPE_PROMPT,
-	TYPE_SPLASH,
-	TYPE_DOCKAPP,
-	TYPE_POPUP,
-	TYPE_LAST
-};
-
-enum {
 	/* color array indices */
 	COLOR_BG     = 0,
 	COLOR_BORD   = 1,
@@ -237,7 +221,7 @@ struct Object {
 	 */
 	TAILQ_ENTRY(Object) entry;
 	Window win;
-	int type;
+	struct Class *class;
 };
 
 TAILQ_HEAD(RowQueue, Row);
@@ -432,6 +416,26 @@ struct Monitor {
 	int mx, my, mw, mh;                     /* monitor size */
 	int wx, wy, ww, wh;                     /* window area */
 };
+
+typedef struct Class {
+	enum Type {
+		TYPE_UNKNOWN,
+		TYPE_NORMAL,
+		TYPE_DESKTOP,
+		TYPE_DOCK,
+		TYPE_MENU,
+		TYPE_DIALOG,
+		TYPE_NOTIFICATION,
+		TYPE_PROMPT,
+		TYPE_SPLASH,
+		TYPE_DOCKAPP,
+		TYPE_POPUP,
+		TYPE_LAST
+	} type;
+
+	/* class' methods */
+	void (*setstate)(struct Object *, Atom *, unsigned long);
+} Class;
 
 struct Tab {
 	struct Object obj;
@@ -719,7 +723,6 @@ void containermoveresize(struct Container *c, int checkstack);
 void containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, int recursive, enum Octant o);
 void containerredecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, enum Octant o);
 void containercalccols(struct Container *c);
-void containersetstate(struct Tab *, Atom *, unsigned long);
 void containermove(struct Container *c, int x, int y, int relative);
 void containerraise(struct Container *c, int isfullscreen, int layer);
 void containerconfigure(struct Container *c, unsigned int valuemask, XWindowChanges *wc);
@@ -841,3 +844,13 @@ extern void (*xevents[LASTEvent])(XEvent *);
 extern struct Config config;
 extern struct WM wm;
 extern struct Dock dock;
+
+/* object classes */
+extern Class *tab_class;
+extern Class *dialog_class;
+extern Class *bar_class;
+extern Class *menu_class;
+extern Class *dialog_class;
+extern Class *dockapp_class;
+extern Class *notif_class;
+extern Class *splash_class;

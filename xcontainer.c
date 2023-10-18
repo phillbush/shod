@@ -154,7 +154,7 @@ dialognew(Window win, int maxw, int maxh, int ignoreunmap)
 		.maxh = maxh,
 		.ignoreunmap = ignoreunmap,
 		.obj.win = win,
-		.obj.type = TYPE_DIALOG,
+		.obj.class = dialog_class,
 	};
 	dial->frame = XCreateWindow(dpy, root, 0, 0, maxw, maxh, 0, depth, CopyFromParent, visual, clientmask, &clientswa);
 	XReparentWindow(dpy, dial->obj.win, dial->frame, 0, 0);
@@ -262,10 +262,9 @@ tabnew(Window win, Window leader, int ignoreunmap)
 		.title = None,
 		.leader = leader,
 		.obj.win = win,
-		.obj.type = TYPE_NORMAL,
+		.obj.class = tab_class,
 	};
 	TAILQ_INIT(&tab->dialq);
-	((struct Object *)tab)->type = TYPE_NORMAL;
 	tab->frame = XCreateWindow(dpy, root, 0, 0, 1, 1, 0, depth, CopyFromParent, visual, clientmask, &clientswa),
 	XReparentWindow(dpy, tab->obj.win, tab->frame, 0, 0);
 	XMapWindow(dpy, tab->obj.win);
@@ -1261,11 +1260,13 @@ containerconfigure(struct Container *c, unsigned int valuemask, XWindowChanges *
 }
 
 /* set container state from client message */
-void
-containersetstate(struct Tab *tab, Atom *props, unsigned long set)
+static void
+containersetstate(struct Object *obj, Atom *props, unsigned long set)
 {
 	struct Container *c;
+	struct Tab *tab;
 
+	tab = (struct Tab *)obj;
 	if (tab == NULL)
 		return;
 	c = tab->row->col->c;
@@ -1993,3 +1994,13 @@ containercontentwidth(struct Container *c)
 {
 	return c->w - (c->ncols - 1) * config.divwidth - 2 * c->b;
 }
+
+Class *tab_class = &(Class){
+	.type           = TYPE_NORMAL,
+	.setstate       = containersetstate,
+};
+
+Class *dialog_class = &(Class){
+	.type           = TYPE_DIALOG,
+	.setstate       = NULL,
+};

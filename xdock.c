@@ -78,7 +78,7 @@ dockappnew(Window win, int w, int h, int dockpos, int state, int ignoreunmap)
 
 	dapp = emalloc(sizeof(*dapp));
 	*dapp = (struct Dockapp){
-		.obj.type = TYPE_DOCKAPP,
+		.obj.class = dockapp_class,
 		.obj.win = win,
 		.x = 0,
 		.y = 0,
@@ -432,3 +432,8 @@ dockreset(void)
 	}
 	dockupdate();
 }
+
+Class *dockapp_class = &(Class){
+	.type           = TYPE_DOCKAPP,
+	.setstate       = NULL,
+};
