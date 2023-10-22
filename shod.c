@@ -13,6 +13,7 @@
 
 #include "shod.h"
 
+#define DOCK_TITLE      "shod's dock"
 #define WMNAME          "shod"
 #define ROOT_EVENTS     (SubstructureRedirectMask | SubstructureNotifyMask \
                         | StructureNotifyMask | ButtonPressMask \
@@ -254,8 +255,13 @@ initdock(void)
 	swa.background_pixel = BlackPixel(dpy, screen);
 	swa.border_pixel = BlackPixel(dpy, screen);
 	swa.colormap = colormap;
-	dock.win = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
-		                     depth, InputOutput, visual, clientmask, &swa);
+	dock.win = XCreateWindow(
+		dpy, root,
+		0, 0, 1, 1, 0,
+		depth, InputOutput, visual,
+		clientmask, &swa
+	);
+	settitle(dock.win, DOCK_TITLE);
 }
 
 /* create dummy windows used for controlling focus and the layer of clients */
@@ -437,16 +443,14 @@ main(int argc, char *argv[])
 
 	/* run main event loop */
 	while (wm.running) {
-		wm.setclientlist = 0;
 		(void)XNextEvent(dpy, &ev);
-		if (ev.type < LASTEvent && xevents[ev.type] != NULL) {
+		if (ev.type < LASTEvent && xevents[ev.type] != NULL)
 			(*xevents[ev.type])(&ev);
-		} else if (wm.xrandr && ev.type == wm.xrandrev) {
+		else if (wm.xrandr && ev.type == wm.xrandrev)
 			monevent(&ev);
-		}
-		if (wm.setclientlist) {
+		if (wm.setclientlist)
 			ewmhsetclients();
-		}
+		wm.setclientlist = false;
 	}
 
 	/* clean up */

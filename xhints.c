@@ -87,66 +87,83 @@ ewmhsetshowingdesktop(int n)
 	XChangeProperty(dpy, root, atoms[_NET_SHOWING_DESKTOP], XA_CARDINAL, 32, PropModeReplace, (unsigned char *)&n, 1);
 }
 
-/* set stacking list of clients hint */
+void
+prependprop(Atom prop, Window win)
+{
+	XChangeProperty(
+		dpy, root,
+		prop,
+		XA_WINDOW, 32,
+		PropModePrepend,
+		(unsigned char *)&win,
+		1
+	);
+}
+
 void
 ewmhsetclients(void)
 {
-	Window *wins = NULL;
-	Window *cnts = NULL;
 	struct Container *c;
 	struct Column *col;
 	struct Row *row;
-	struct Object *p;
-	struct Tab *t;
-	int prevobscured, i, j = 0;
+	struct Object *obj;
+	int prevobscured;
 
-	if (wm.nclients < 1) {
-		XChangeProperty(dpy, root, atoms[_NET_CLIENT_LIST], XA_WINDOW, 32, PropModeReplace, NULL, 0);
-		XChangeProperty(dpy, root, atoms[_NET_CLIENT_LIST_STACKING], XA_WINDOW, 32, PropModeReplace, NULL, 0);
-		XChangeProperty(dpy, root, atoms[_SHOD_CONTAINER_LIST], XA_WINDOW, 32, PropModeReplace, NULL, 0);
-		return;
-	}
-	wins = ecalloc(wm.nclients, sizeof *wins);
-	cnts = ecalloc(wm.nclients, sizeof *cnts);
-	i = wm.nclients;
+	XDeleteProperty(dpy, root, atoms[_NET_CLIENT_LIST]);
+	XDeleteProperty(dpy, root, atoms[_NET_CLIENT_LIST_STACKING]);
+	XDeleteProperty(dpy, root, atoms[_SHOD_CONTAINER_LIST]);
+	XDeleteProperty(dpy, root, atoms[_SHOD_DOCK_LIST]);
 	TAILQ_FOREACH(c, &wm.stackq, raiseentry) {
 		if (ISDUMMY(c))
 			continue;
-		cnts[j++] = c->selcol->selrow->seltab->obj.win;
+		prependprop(
+			atoms[_SHOD_CONTAINER_LIST],
+			c->selcol->selrow->seltab->obj.win
+		);
 		prevobscured = c->isobscured;
 		if (!config.disablehidden)
 			c->isobscured = isobscured(c, c->mon, c->desk, c->x, c->y, c->w, c->h);
 		TAILQ_FOREACH(col, &c->colq, entry) {
-			if (col->selrow->seltab != NULL)
-				wins[--i] = col->selrow->seltab->obj.win;
-			TAILQ_FOREACH(p, &col->selrow->tabq, entry) {
-				t = (struct Tab *)p;
-				if (t != col->selrow->seltab) {
-					wins[--i] = t->obj.win;
-				}
+			if (col->selrow->seltab != NULL) {
+				prependprop(
+					atoms[_NET_CLIENT_LIST],
+					col->selrow->seltab->obj.win
+				);
+				prependprop(
+					atoms[_NET_CLIENT_LIST_STACKING],
+					col->selrow->seltab->obj.win
+				);
 			}
-			TAILQ_FOREACH(row, &col->rowq, entry) {
-				if (row == col->selrow)
+			TAILQ_FOREACH(row, &col->rowq, entry)
+			TAILQ_FOREACH(obj, &row->tabq, entry) {
+				if ((struct Tab *)obj == col->selrow->seltab)
 					continue;
-				if (row->seltab != NULL)
-					wins[--i] = row->seltab->obj.win;
-				TAILQ_FOREACH(p, &row->tabq, entry) {
-					t = (struct Tab *)p;
-					if (t != row->seltab) {
-						wins[--i] = t->obj.win;
-					}
-				}
+				prependprop(
+					atoms[_NET_CLIENT_LIST],
+					obj->win
+				);
+				prependprop(
+					atoms[_NET_CLIENT_LIST_STACKING],
+					obj->win
+				);
 			}
 		}
 		if (prevobscured != c->isobscured) {
 			ewmhsetstate(c);
 		}
 	}
-	XChangeProperty(dpy, root, atoms[_NET_CLIENT_LIST], XA_WINDOW, 32, PropModeReplace, (unsigned char *)wins, wm.nclients-i);
-	XChangeProperty(dpy, root, atoms[_NET_CLIENT_LIST_STACKING], XA_WINDOW, 32, PropModeReplace, (unsigned char *)wins+i, wm.nclients-i);
-	XChangeProperty(dpy, root, atoms[_SHOD_CONTAINER_LIST], XA_WINDOW, 32, PropModeReplace, (unsigned char *)cnts, j);
-	free(wins);
-	free(cnts);
+	TAILQ_FOREACH(obj, &wm.barq, entry) {
+		prependprop(
+			atoms[_SHOD_DOCK_LIST],
+			obj->win
+		);
+	}
+	if (!TAILQ_EMPTY(&dock.dappq)) {
+		prependprop(
+			atoms[_SHOD_DOCK_LIST],
+			dock.win
+		);
+	}
 }
 
 /* set active window hint */

@@ -21,6 +21,10 @@
 .Nm shodc
 .Cm desk
 .Nm shodc
+.Cm docks
+.Op Fl l
+.Op Ar win_id ...
+.Nm shodc
 .Cm exit
 .Nm shodc
 .Cm focus
@@ -40,8 +44,8 @@
 .Ar desk_id
 .Nm shodc
 .Cm list
-.Op Fl ls
-.Op Ar win_id
+.Op Fl cl
+.Op Ar win_id ...
 .Nm shodc
 .Cm sendto
 .Op Fl m Ar mon_id
@@ -295,16 +299,18 @@ Monitors are counted from 1, not from 0.
 .Ss List windows
 The
 .Cm list
-operation lists windows, one entry per line.
-If a window ID is provided as argument, list only this window.
+operation lists windows managed by
+.Nm shod ,
+one entry per line.
+If one or more window ID are provided as arguments, list only those windows.
 .Pp
 The options are as follows:
 .Bl -tag -width Ds
+.It Fl c
+List only the focused window of each container.
 .It Fl l
 Long list format.
 More information on this format below.
-.It Fl s
-Sort by stacking order.
 .El
 .Pp
 If the
@@ -315,13 +321,13 @@ is displayed for each window, in the following order:
 .It
 Window state.
 .It
-Window desktop.
+Window desktop number.
 .It
 Window geometry (size and position).
 .It
 ID of the container the window is on.
 .It
-ID of the row the window is on.
+ID of the group the window is on.
 .It
 ID of the window.
 .It
@@ -382,6 +388,35 @@ indicates that the window is focused.
 An
 .Dq Sy F
 indicates that the window is both active and focused.
+.El
+.Ss List docks
+The
+.Cm docks
+operation lists docks and bars managed by
+.Nm shod ,
+one entry per line.
+If one or more window ID are provided as arguments, list only those windows.
+.Pp
+The options are as follows:
+.Bl -tag -width Ds
+.It Fl l
+Long list format.
+More information on this format below.
+.El
+.Pp
+If the
+.Fl l
+option is given, the following information (delimited by tabs) is displayed for each window,
+in the following order:
+.Bl -enum -compact
+.It
+Window state.
+.It
+Window geometry.
+.It
+ID of the window.
+.It
+Name of the window.
 .El
 .Ss Send to desktop
 The

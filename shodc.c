@@ -1,10 +1,11 @@
 #include <err.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <unistd.h>
 
 #include "xutil.h"
 
-#define NAMEMAXLEN                      128
+#define NAMEMAXLEN                      512
 #define DIRECT_ACTION                   2
 #define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
 
@@ -55,11 +56,12 @@ usage(void)
 	(void)fprintf(stderr, "usage: shodc close [WIN_ID]\n");
 	(void)fprintf(stderr, "       shodc cycle [-s]\n");
 	(void)fprintf(stderr, "       shodc desks\n");
+	(void)fprintf(stderr, "       shodc docks [-l] [WIN_ID ...]\n");
 	(void)fprintf(stderr, "       shodc exit\n");
 	(void)fprintf(stderr, "       shodc focus [-clrtbpnLRTBPN] [WIN_ID]\n");
 	(void)fprintf(stderr, "       shodc geom [-X|-x N] [-Y|-y N] [-W|-w N] [-H|-h N] [WIN_ID]\n");
 	(void)fprintf(stderr, "       shodc goto [-m MON_ID] DESK_ID\n");
-	(void)fprintf(stderr, "       shodc list [-ls] [WIN_ID]\n");
+	(void)fprintf(stderr, "       shodc list [-cl] [WIN_ID ...]\n");
 	(void)fprintf(stderr, "       shodc sendto [-m MON_ID] DESK_ID [WIN_ID]\n");
 	(void)fprintf(stderr, "       shodc state [-ATR] [-abfMms] [WIN_ID]\n");
 	exit(1);
@@ -115,16 +117,6 @@ getwin(const char *s)
 	return (Window)strtol(s, NULL, 0);
 }
 
-/* get array of windows */
-static unsigned long
-getwins(Window **wins, int sflag)
-{
-	if (sflag)
-		return getwinsprop(root, atoms[_NET_CLIENT_LIST_STACKING], wins);
-	else
-		return getwinsprop(root, atoms[_NET_CLIENT_LIST], wins);
-}
-
 /* get array of desktop names, return size of array */
 static unsigned long
 getdesknames(char **desknames)
@@ -137,7 +129,7 @@ getdesknames(char **desknames)
 
 
 	if (XGetWindowProperty(dpy, root, atoms[_NET_DESKTOP_NAMES], 0, ~0, False,
-	                       UTF8_STRING, &da, &di, &len, &dl, &str) ==
+	                       atoms[UTF8_STRING], &da, &di, &len, &dl, &str) ==
 	                       Success && str) {
 		*desknames = (char *)str;
 	} else {
@@ -157,20 +149,30 @@ getwinname(Window win)
 	char *name = NULL;
 	unsigned char *p = NULL;
 	unsigned long size, dl;
-	int di;
+	int status, di;
 	Atom da;
 
-	if (XGetWindowProperty(dpy, win, atoms[_NET_WM_NAME], 0L, 8L, False, UTF8_STRING,
-	                       &da, &di, &size, &dl, &p) == Success && p) {
+	status = XGetWindowProperty(
+		dpy, win,
+		atoms[_NET_WM_NAME],
+		0L, NAMEMAXLEN,
+		False,
+		atoms[UTF8_STRING],
+		&da, &di, &size, &dl, &p
+	);
+	if (status == Success && p != NULL) {
 		name = estrndup((char *)p, NAMEMAXLEN);
 		XFree(p);
-	} else if (XGetWMName(dpy, win, &tprop) &&
-		   XmbTextPropertyToTextList(dpy, &tprop, &list, &di) == Success &&
-		   di > 0 && list && *list) {
-		name = estrndup(*list, NAMEMAXLEN);
-		XFreeStringList(list);
-		XFree(tprop.value);
+		return name;
 	}
+	XFree(p);
+	if (XGetWMName(dpy, win, &tprop) &&
+	    XmbTextPropertyToTextList(dpy, &tprop, &list, &di) == Success &&
+	    di > 0 && list && *list) {
+		name = estrndup(*list, NAMEMAXLEN);
+	}
+	XFreeStringList(list);
+	XFree(tprop.value);
 	return name;
 }
 
@@ -337,23 +339,19 @@ longlist(Window win)
 	XWMHints *wmhints = NULL;
 	Window *list = NULL;
 	Window dw;
-	XID container, tab;
+	XID container, leader;
 
-	container = tab = 0x0;
+	container = leader = 0x0;
 	if ((wmhints = XGetWMHints(dpy, win)) != NULL) {
 		if (wmhints->flags & XUrgencyHint)
 			state[LIST_URGENCY] = 'u';
+		if (wmhints->flags & WindowGroupHint)
+			leader = wmhints->window_group;
 		XFree(wmhints);
 	}
 	if (getwinsprop(win, atoms[_SHOD_GROUP_CONTAINER], &list) > 0) {
 		if (*list != None) {
 			container = *list;
-		}
-		XFree(list);
-	}
-	if (getwinsprop(win, atoms[_SHOD_GROUP_TAB], &list) > 0) {
-		if (*list != None) {
-			tab = *list;
 		}
 		XFree(list);
 	}
@@ -408,8 +406,36 @@ longlist(Window win)
 	XGetGeometry(dpy, win, &dw, &x, &y, &w, &h, &b, &du);
 	XTranslateCoordinates(dpy, win, root, x, y, &x, &y, &dw);
 
-	printf("%s\t%ld\t%dx%d%+d%+d\t0x%08lx\t0x%08lx\t0x%08lx\t%s\n", state, desk, w, h, x, y, container, tab, win, name);
+	printf(
+		"%s\t%ld\t%dx%d%+d%+d\t0x%08lx\t0x%08lx\t0x%08lx\t%s\n",
+		state, desk, w, h, x, y, container, leader, win, name
+	);
 	free(name);
+}
+
+/* list dock properties */
+static void
+docklist(Window win)
+{
+	Window dw;
+	int x, y;
+	unsigned int w, h, b, du;
+	char *name;
+
+	name = getwinname(win);
+	XGetGeometry(dpy, win, &dw, &x, &y, &w, &h, &b, &du);
+	XTranslateCoordinates(dpy, win, root, x, y, &x, &y, &dw);
+	printf(
+		"--------\t%dx%d%+d%+d\t0x%08lx\t%s\n",
+		w, h, x, y, win, name
+	);
+	free(name);
+}
+
+static void
+shortlist(Window win)
+{
+	printf("0x%08lx\n", win);
 }
 
 /* list desktops */
@@ -460,37 +486,55 @@ listdesks(int argc, char *argv[])
 	free(wdesk);
 }
 
+/* check if win is in on wins[nwins] */
+static bool
+iswininarr(Window win, Window *wins, size_t nwins)
+{
+	size_t i;
+
+	for (i = 0; i < nwins; i++)
+		if (win == wins[i])
+			return true;
+	return false;
+}
+
 /* list windows */
 static void
 list(int argc, char *argv[])
 {
 	Window *wins;
-	unsigned long nwins, i;
-	int lflag, sflag;
-	int c;
+	Window win;
+	Atom prop;
+	void (*fun)(Window);
+	int nwins, i, c;
 
-	lflag = sflag = 0;
-	while ((c = getopt(argc, argv, "dls")) != -1) {
+	prop = atoms[_NET_CLIENT_LIST_STACKING];
+	fun = &shortlist;
+	while ((c = getopt(argc, argv, "cl")) != -1) {
 		switch (c) {
-		case 'l':
-			lflag = 1;
+		case 'c':
+			prop = atoms[_SHOD_CONTAINER_LIST];
 			break;
-		case 's':
-			sflag = 1;
+		case 'l':
+			fun = &longlist;
 			break;
 		default:
 			usage();
 			break;
 		}
 	}
-	if (argc - optind > 1)
-		usage();
-	nwins = getwins(&wins, sflag);
-	for (i = 0; i < nwins; i++) {
-		if (lflag) {
-			longlist(wins[i]);
-		} else {
-			printf("0x%08lx\n", wins[i]);
+	argc -= optind;
+	argv += optind;
+	nwins = getwinsprop(root, prop, &wins);
+	if (argc == 0) {
+		for (i = 0; i < nwins; i++)
+			(*fun)(wins[i]);
+	} else {
+		for (i = 0; i < argc; i++) {
+			win = getwin(argv[i]);
+			if (!iswininarr(win, wins, nwins))
+				errx(1, "0x%08lx: no such client window", win);
+			(*fun)(win);
 		}
 	}
 	XFree(wins);
@@ -627,6 +671,43 @@ exitshod(int argc, char *argv[])
 	}
 }
 
+/* list docks */
+static void
+listdocks(int argc, char *argv[])
+{
+	Window *wins;
+	Window win;
+	void (*fun)(Window);
+	int nwins, i, c;
+
+	fun = &shortlist;
+	while ((c = getopt(argc, argv, "l")) != -1) {
+		switch (c) {
+		case 'l':
+			fun = &docklist;
+			break;
+		default:
+			usage();
+			break;
+		}
+	}
+	argc -= optind;
+	argv += optind;
+	nwins = getwinsprop(root, atoms[_SHOD_DOCK_LIST], &wins);
+	if (argc == 0) {
+		for (i = 0; i < nwins; i++)
+			(*fun)(wins[i]);
+	} else {
+		for (i = 0; i < argc; i++) {
+			win = getwin(argv[i]);
+			if (!iswininarr(win, wins, nwins))
+				errx(1, "0x%08lx: no such dock window", win);
+			(*fun)(win);
+		}
+	}
+	XFree(wins);
+}
+
 /* shodc: remote controller for shod */
 int
 main(int argc, char *argv[])
@@ -641,6 +722,8 @@ main(int argc, char *argv[])
 		closewin(argc - 1, argv + 1);
 	else if (strcmp(argv[1], "desks") == 0)
 		listdesks(argc - 1, argv + 1);
+	else if (strcmp(argv[1], "docks") == 0)
+		listdocks(argc - 1, argv + 1);
 	else if (strcmp(argv[1], "focus") == 0)
 		focuswin(argc - 1, argv + 1);
 	else if (strcmp(argv[1], "geom") == 0)

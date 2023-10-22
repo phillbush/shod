@@ -7,6 +7,8 @@
 #include <X11/xpm.h>
 #include <X11/Xft/Xft.h>
 
+#define LEN(x)                  (sizeof(x) / sizeof((x)[0]))
+
 /* atom names */
 #define ATOMS \
 	X(UTF8_STRING) \
@@ -33,6 +35,7 @@
 	X(_NET_WM_FULL_PLACEMENT) \
 	X(_NET_WM_MOVERESIZE) \
 	X(_NET_WM_NAME) \
+	X(_NET_WM_ICON_NAME) \
 	X(_NET_WM_STATE) \
 	X(_NET_WM_STATE_ABOVE) \
 	X(_NET_WM_STATE_BELOW) \
@@ -62,7 +65,8 @@
 	X(_SHOD_CYCLE) \
 	X(_SHOD_GROUP_TAB) \
 	X(_SHOD_GROUP_CONTAINER) \
-	X(_SHOD_CONTAINER_LIST)
+	X(_SHOD_CONTAINER_LIST) \
+	X(_SHOD_DOCK_LIST)
 
 enum Atom {
 #define X(atom) atom,
@@ -95,4 +99,5 @@ Atom getatomprop(Window win, Atom prop);
 void initatoms(void);
 void xinit(void);
 void xinitvisual(void);
+void settitle(Window win, const char *title);
 char *getresource(XrmDatabase xdb, XrmClass *class, XrmName *name);

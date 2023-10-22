@@ -168,6 +168,33 @@ getatomprop(Window win, Atom prop)
 }
 
 void
+settitle(Window win, const char *title)
+{
+	struct {
+		Atom prop, type;
+	} props[] = {
+		{ atoms[_NET_WM_NAME],          atoms[UTF8_STRING] },
+		{ atoms[_NET_WM_ICON_NAME],     atoms[UTF8_STRING] },
+		{ XA_WM_NAME,                   XA_STRING },
+		{ XA_WM_ICON_NAME,              XA_STRING },
+	};
+	size_t len, i;
+
+	len = strlen(title);
+	for (i = 0; i < LEN(props); i++) {
+		XChangeProperty(
+			dpy, win,
+			props[i].prop,
+			props[i].type,
+			8,
+			PropModeReplace,
+			(unsigned char *)title,
+			len
+		);
+	}
+}
+
+void
 initatoms(void)
 {
 	static char *atomnames[NATOMS] = {

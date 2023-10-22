@@ -65,6 +65,6 @@ unmanagebar(struct Object *obj, int dummy)
 }
 
 Class *bar_class = &(Class){
-	.type           = TYPE_DOCK,
+	.type           = TYPE_BAR,
 	.setstate       = NULL,
 };

@@ -154,7 +154,7 @@ void (*managefuncs[TYPE_LAST])(struct Tab *, struct Monitor *, int, Window, Wind
 	[TYPE_SPLASH] = managesplash,
 	[TYPE_PROMPT] = manageprompt,
 	[TYPE_MENU] = managemenu,
-	[TYPE_DOCK] = managebar,
+	[TYPE_BAR] = managebar,
 };
 
 int (*unmanagefuncs[TYPE_LAST])(struct Object *, int) = {
@@ -165,7 +165,7 @@ int (*unmanagefuncs[TYPE_LAST])(struct Object *, int) = {
 	[TYPE_SPLASH] = unmanagesplash,
 	[TYPE_PROMPT] = unmanageprompt,
 	[TYPE_MENU] = unmanagemenu,
-	[TYPE_DOCK] = unmanagebar,
+	[TYPE_BAR] = unmanagebar,
 };
 
 #define GETMANAGED(head, p, w)                                  \
@@ -581,7 +581,7 @@ getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectangle 
 			*leader = (*tab)->obj.win;
 		type = TYPE_MENU;
 	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_DOCK]) {
-		type = TYPE_DOCK;
+		type = TYPE_BAR;
 	} else if (*tab != NULL) {
 		if (*tab != NULL)
 			*leader = (*tab)->obj.win;
@@ -1883,7 +1883,7 @@ xeventpropertynotify(XEvent *e)
 		} else if (ev->atom == XA_WM_HINTS) {
 			tabupdateurgency(tab, getwinurgency(tab->obj.win));
 		}
-	} else if (obj->class->type == TYPE_DOCK && (ev->atom == _NET_WM_STRUT_PARTIAL || ev->atom == _NET_WM_STRUT)) {
+	} else if (obj->class->type == TYPE_BAR && (ev->atom == _NET_WM_STRUT_PARTIAL || ev->atom == _NET_WM_STRUT)) {
 		barstrut((struct Bar *)obj);
 		monupdatearea();
 	} else if (obj->class->type == TYPE_MENU && ev->window == obj->win) {

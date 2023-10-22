@@ -1,5 +1,7 @@
 #include <sys/queue.h>
 
+#include <stdbool.h>
+
 #include "xutil.h"
 
 #define SHELL                   "SHELL"
@@ -9,7 +11,6 @@
 #define NAMEMAXLEN              256     /* maximum length of window's name */
 #define DROPPIXELS              30      /* number of pixels from the border where a tab can be dropped in */
 #define DOCKBORDER              1
-#define LEN(x)                  (sizeof(x) / sizeof((x)[0]))
 #define FLAG(f, b)              (((f) & (b)) == (b))
 #define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
 #define ISDUMMY(c)              ((c)->ncols == 0)
@@ -422,7 +423,7 @@ typedef struct Class {
 		TYPE_UNKNOWN,
 		TYPE_NORMAL,
 		TYPE_DESKTOP,
-		TYPE_DOCK,
+		TYPE_BAR,
 		TYPE_MENU,
 		TYPE_DIALOG,
 		TYPE_NOTIFICATION,
@@ -637,12 +638,11 @@ struct WM {
 	int minsize;                            /* minimum size of a container */
 
 	/*
-	 * Some operations need to reset the list of clients, to do it
-	 * only once when more than one of such operations, we use this
-	 * value we check at the end of each main loop iteration and
-	 * reset at the beginning of each main loop iteration
+	 * Whenever a function adds or removes a client, this value is
+	 * set.  At the end of each main loop iteration, it is checked
+	 * and the list of clients is changed accordingly.
 	 */
-	int setclientlist;
+	bool setclientlist;
 
 	Window presswin;
 };
