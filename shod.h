@@ -11,11 +11,10 @@
 #define NAMEMAXLEN              256     /* maximum length of window's name */
 #define DROPPIXELS              30      /* number of pixels from the border where a tab can be dropped in */
 #define DOCKBORDER              1
-#define FLAG(f, b)              (((f) & (b)) == (b))
 #define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
 #define ISDUMMY(c)              ((c)->ncols == 0)
 
-#define TITLEWIDTH(c)   ((c)->isfullscreen ? 0 : config.titlewidth)
+#define TITLEWIDTH(c)   ((c)->state & FULLSCREEN ? 0 : config.titlewidth)
 
 #define TAB_FOREACH_BEGIN(c, tab) {                             \
 	struct Column *col;                                     \
@@ -121,6 +120,7 @@ enum {
 
 enum {
 	/* window layer array indices */
+	LAYER_DESK,
 	LAYER_BELOW,
 	LAYER_NORMAL,
 	LAYER_ABOVE,
@@ -147,21 +147,23 @@ enum {
 	STRUT_LAST              = 12,
 };
 
-enum {
+enum State {
 	/* container states bits*/
-	ABOVE           = 0x01,
-	BELOW           = 0x02,
-	FULLSCREEN      = 0x04,
-	MAXIMIZED       = 0x08,
-	MINIMIZED       = 0x10,
-	SHADED          = 0x20,
-	STICKY          = 0x40,
-	USERPLACED      = 0x80,
+	ABOVE           = 0x001,
+	BELOW           = 0x002,
+	FULLSCREEN      = 0x004,
+	MAXIMIZED       = 0x008,
+	MINIMIZED       = 0x010,
+	SHADED          = 0x020,
+	STICKY          = 0x040,
+	USERPLACED      = 0x080,
+	ATTENTION       = 0x100,
+	STRETCHED       = 0x200,
 
 	/* dockapp states bits */
-	EXTEND          = 0x100,
-	SHRUNK          = 0x200,
-	RESIZED         = 0x400,
+	EXTEND          = 0x001,
+	SHRUNK          = 0x002,
+	RESIZED         = 0x004,
 };
 
 enum {
@@ -387,19 +389,11 @@ struct Container {
 	int nx, ny, nw, nh;                     /* non-maximized geometry */
 
 	/*
-	 * A container can have several states.  Except for the `layer`
-	 * state (which has tree values), all states are boolean (can or
-	 * cannot be valid at a given time) and begin with "is-".  The
-	 * possible values for boolean states are zero and nonzero.  The
-	 * possible values for the `layer` state is negative (below),
-	 * zero (middle) or positive (above).
+	 * Container state bitmask.
 	 */
-	int ismaximized, issticky;              /* window states */
-	int isminimized, isshaded;              /* window states */
-	int isobscured;                         /* whether container is obscured */
-	int isfullscreen;                       /* whether container is fullscreen */
-	int ishidden;                           /* whether container is hidden */
-	int abovebelow;                         /* stacking order */
+	enum State state;
+	bool ishidden;                          /* whether container is hidden */
+	bool isobscured;                        /* whether container is obscured */
 };
 
 TAILQ_HEAD(MonitorQueue, Monitor);
@@ -435,7 +429,7 @@ typedef struct Class {
 	} type;
 
 	/* class' methods */
-	void (*setstate)(struct Object *, Atom *, unsigned long);
+	void (*setstate)(struct Object *, enum State, int);
 } Class;
 
 struct Tab {
@@ -491,7 +485,7 @@ struct Tab {
 	 * Name of the tab's application window, its size and urgency.
 	 */
 	int winw, winh;                         /* window geometry */
-	int isurgent;                           /* whether tab is urgent */
+	bool isurgent;                          /* whether tab is urgent */
 	char *name;                             /* client name */
 };
 
@@ -542,7 +536,8 @@ struct Menu {
 struct Bar {
 	struct Object obj;
 	int strut[STRUT_LAST];                  /* strut values */
-	int ispartial;                          /* whether strut has 12 elements rather than 4 */
+	bool ispartial;                         /* whether strut has 12 elements rather than 4 */
+	bool isbelow;                           /* whether bar is below */
 };
 
 struct Dockapp {
@@ -724,7 +719,7 @@ void containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdi
 void containerredecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, enum Octant o);
 void containercalccols(struct Container *c);
 void containermove(struct Container *c, int x, int y, int relative);
-void containerraise(struct Container *c, int isfullscreen, int layer);
+void containerraise(struct Container *c, enum State state);
 void containerconfigure(struct Container *c, unsigned int valuemask, XWindowChanges *wc);
 void containersendtodeskandfocus(struct Container *c, struct Monitor *mon, unsigned long desk);
 void containerplace(struct Container *c, struct Monitor *mon, int desk, int userplaced);

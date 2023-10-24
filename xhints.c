@@ -87,7 +87,20 @@ ewmhsetshowingdesktop(int n)
 	XChangeProperty(dpy, root, atoms[_NET_SHOWING_DESKTOP], XA_CARDINAL, 32, PropModeReplace, (unsigned char *)&n, 1);
 }
 
-void
+static void
+clearprop(Atom prop)
+{
+	XChangeProperty(
+		dpy, root,
+		prop,
+		XA_WINDOW, 32,
+		PropModeReplace,
+		NULL,
+		0
+	);
+}
+
+static void
 prependprop(Atom prop, Window win)
 {
 	XChangeProperty(
@@ -109,10 +122,10 @@ ewmhsetclients(void)
 	struct Object *obj;
 	int prevobscured;
 
-	XDeleteProperty(dpy, root, atoms[_NET_CLIENT_LIST]);
-	XDeleteProperty(dpy, root, atoms[_NET_CLIENT_LIST_STACKING]);
-	XDeleteProperty(dpy, root, atoms[_SHOD_CONTAINER_LIST]);
-	XDeleteProperty(dpy, root, atoms[_SHOD_DOCK_LIST]);
+	clearprop(atoms[_NET_CLIENT_LIST]);
+	clearprop(atoms[_NET_CLIENT_LIST_STACKING]);
+	clearprop(atoms[_SHOD_CONTAINER_LIST]);
+	clearprop(atoms[_SHOD_DOCK_LIST]);
 	TAILQ_FOREACH(c, &wm.stackq, raiseentry) {
 		if (ISDUMMY(c))
 			continue;
@@ -121,8 +134,13 @@ ewmhsetclients(void)
 			c->selcol->selrow->seltab->obj.win
 		);
 		prevobscured = c->isobscured;
-		if (!config.disablehidden)
-			c->isobscured = isobscured(c, c->mon, c->desk, c->x, c->y, c->w, c->h);
+		if (!config.disablehidden) {
+			c->isobscured = isobscured(
+				c,
+				c->mon, c->desk,
+				c->x, c->y, c->w, c->h
+			);
+		}
 		TAILQ_FOREACH(col, &c->colq, entry) {
 			if (col->selrow->seltab != NULL) {
 				prependprop(
@@ -180,7 +198,10 @@ ewmhsetwmdesktop(struct Container *c)
 	struct Object *t;
 	unsigned long n;
 
-	n = (c->issticky || c->isminimized) ? 0xFFFFFFFF : (unsigned long)c->desk;
+	if (c->state & (STICKY|MINIMIZED))
+		n = 0xFFFFFFFF;
+	else
+		n = (unsigned long)c->desk;
 	TAB_FOREACH_BEGIN(c, t){
 		ewmhsetdesktop(t->win, n);
 	}TAB_FOREACH_END
@@ -209,22 +230,22 @@ ewmhsetstate(struct Container *c)
 		return;
 	if (c == wm.focused)
 		data[n++] = atoms[_NET_WM_STATE_FOCUSED];
-	if (c->isfullscreen)
+	if (c->state & FULLSCREEN)
 		data[n++] = atoms[_NET_WM_STATE_FULLSCREEN];
-	if (c->issticky)
+	if (c->state & STICKY)
 		data[n++] = atoms[_NET_WM_STATE_STICKY];
-	if (c->isshaded)
+	if (c->state & SHADED)
 		data[n++] = atoms[_NET_WM_STATE_SHADED];
-	if (c->isminimized || c->isobscured)
+	if (c->state & MINIMIZED || c->isobscured)
 		data[n++] = atoms[_NET_WM_STATE_HIDDEN];
-	if (c->ismaximized) {
+	if (c->state & ABOVE)
+		data[n++] = atoms[_NET_WM_STATE_ABOVE];
+	if (c->state & BELOW)
+		data[n++] = atoms[_NET_WM_STATE_BELOW];
+	if (c->state & MAXIMIZED) {
 		data[n++] = atoms[_NET_WM_STATE_MAXIMIZED_VERT];
 		data[n++] = atoms[_NET_WM_STATE_MAXIMIZED_HORZ];
 	}
-	if (c->abovebelow > 0)
-		data[n++] = atoms[_NET_WM_STATE_ABOVE];
-	else if (c->abovebelow < 0)
-		data[n++] = atoms[_NET_WM_STATE_BELOW];
 	TAB_FOREACH_BEGIN(c, t){
 		XChangeProperty(dpy, t->win, atoms[_NET_WM_STATE], XA_ATOM, 32, PropModeReplace, (unsigned char *)data, n);
 	}TAB_FOREACH_END

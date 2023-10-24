@@ -698,7 +698,7 @@ deskshow(int show)
 	struct Container *c;
 
 	TAILQ_FOREACH(c, &wm.focusq, entry)
-		if (!c->isminimized)
+		if (!(c->state & MINIMIZED))
 			containerhide(c, show);
 	TAILQ_FOREACH(obj, &wm.splashq, entry)
 		splashhide((struct Splash *)obj, show);
@@ -725,9 +725,9 @@ deskupdate(struct Monitor *mon, int desk)
 		TAILQ_FOREACH(c, &wm.focusq, entry) {
 			if (c->mon != mon)
 				continue;
-			if (!c->isminimized && c->desk == desk) {
+			if (!(c->state & MINIMIZED) && c->desk == desk) {
 				containerhide(c, REMOVE);
-			} else if (!c->issticky && c->desk == mon->seldesk) {
+			} else if (!(c->state & STICKY) && c->desk == mon->seldesk) {
 				containerhide(c, ADD);
 			}
 		}
@@ -827,7 +827,7 @@ done:
 	containerbacktoplace(c, 1);
 	wm.focused = prevfocused;
 	tabfocus(c->selcol->selrow->seltab, 0);
-	containerraise(c, c->isfullscreen, c->abovebelow);
+	containerraise(c, c->state);
 }
 
 /* detach tab from window with mouse */
@@ -931,7 +931,7 @@ mouseresize(int type, void *obj, int xroot, int yroot, enum Octant o)
 		menudecorate(menu, o != C);
 	} else {
 		c = (struct Container *)obj;
-		if (c->isfullscreen || c->b == 0)
+		if (c->state & FULLSCREEN || c->b == 0)
 			return;
 		if (containerisshaded(c)) {
 			if (o & W) {
@@ -1081,17 +1081,18 @@ mousemove(Window win, int type, void *p, int xroot, int yroot, enum Octant o)
 		menu = (struct Menu *)p;
 		menudecorate(menu, o);
 		frame = menu->frame;
+		obj = (struct Object *)menu;
 	} else {
 		c = (struct Container *)p;
 		containerdecorate(c, NULL, NULL, 0, o);
 		frame = c->frame;
+		obj = (struct Object *)c->selcol->selrow->seltab;
 	}
 	lasttime = 0;
 	if (win != None)
 		XDefineCursor(dpy, win, wm.cursors[CURSOR_MOVE]);
 	else if (XGrabPointer(dpy, frame, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, wm.cursors[CURSOR_MOVE], CurrentTime) != GrabSuccess)
 		goto done;
-	obj = (struct Object *)c->selcol->selrow->seltab;
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
 		case ButtonRelease:
@@ -1102,32 +1103,18 @@ mousemove(Window win, int type, void *p, int xroot, int yroot, enum Octant o)
 				break;
 			x = ev.xmotion.x_root - xroot;
 			y = ev.xmotion.y_root - yroot;
-			if (type == FLOAT_MENU)
+			if (type == FLOAT_MENU) {
 				menuincrmove(menu, x, y);
-			else if (c->ismaximized && ev.xmotion.y_root > 0 && unmaximize) {
-				(*tab_class->setstate)(
-					obj,
-					(Atom []){
-						atoms[_NET_WM_STATE_MAXIMIZED_VERT],
-						atoms[_NET_WM_STATE_MAXIMIZED_HORZ],
-					},
-					REMOVE
-				);
+			} else if (c->state & MAXIMIZED && ev.xmotion.y_root > 0 && unmaximize) {
+				(*tab_class->setstate)(obj, MAXIMIZED, REMOVE);
 				containermove(
 					c,
 					ev.xmotion.x_root - c->nw / 2,
 					0, 0
 				);
-			} else if (!c->ismaximized && ev.xmotion.y_root <= 0) {
-				(*tab_class->setstate)(
-					obj,
-					(Atom []){
-						atoms[_NET_WM_STATE_MAXIMIZED_VERT],
-						atoms[_NET_WM_STATE_MAXIMIZED_HORZ],
-					},
-					ADD
-				);
-			} else if (!c->ismaximized) {
+			} else if (!(c->state & MAXIMIZED) && ev.xmotion.y_root <= 0) {
+				(*tab_class->setstate)(obj, MAXIMIZED, ADD);
+			} else if (!(c->state & MAXIMIZED)) {
 				containermove(c, x, y, 1);
 			}
 			if (ev.xmotion.y_root < origyroot - config.titlewidth)
@@ -1244,6 +1231,54 @@ done:
 	XUngrabPointer(dpy, CurrentTime);
 }
 
+/* convert array of state atoms into bitmask of atoms */
+static enum State
+atoms2state(Atom arr[], size_t siz)
+{
+	enum State state;
+	size_t i;
+
+	state = 0;
+	for (i = 0; i < siz; i++) {
+		/*
+		 * EWMH allows to set two states for a client in a
+		 * single client message.  This is a hack to allow
+		 * window maximization.
+		 *
+		 * EWMH does not have any state to represent fully
+		 * maximized windows.  Instead, it has two partial
+		 * (horizontal and vertical) maximized states.
+		 *
+		 * A fully maximized window is then represented as
+		 * having both states set.
+		 *
+		 * Since shod does not do partial maximization, we
+		 * normalize either as a internal MAXIMIZED state.
+		 */
+		if (arr[i] == atoms[_NET_WM_STATE_MAXIMIZED_HORZ])
+			state |= MAXIMIZED;
+		else if (arr[i] == atoms[_NET_WM_STATE_MAXIMIZED_VERT])
+			state |= MAXIMIZED;
+		else if (arr[i] == atoms[_NET_WM_STATE_ABOVE])
+			state |= ABOVE;
+		else if (arr[i] == atoms[_NET_WM_STATE_BELOW])
+			state |= BELOW;
+		else if (arr[i] == atoms[_NET_WM_STATE_FULLSCREEN])
+			state |= FULLSCREEN;
+		else if (arr[i] == atoms[_NET_WM_STATE_HIDDEN])
+			state |= MINIMIZED;
+		else if (arr[i] == atoms[_NET_WM_STATE_SHADED])
+			state |= SHADED;
+		else if (arr[i] == atoms[_NET_WM_STATE_STICKY])
+			state |= STICKY;
+		else if (arr[i] == atoms[_NET_WM_STATE_DEMANDS_ATTENTION])
+			state |= ATTENTION;
+		else if (arr[i] == atoms[_SHOD_WM_STATE_STRETCHED])
+			state |= STRETCHED;
+	}
+	return state;
+}
+
 /* handle mouse operation, focusing and raising */
 static void
 xeventbuttonpress(XEvent *e)
@@ -1314,7 +1349,7 @@ xeventbuttonpress(XEvent *e)
 	/* raise client */
 	if (ev->button == Button1) {
 		if (c != NULL) {
-			containerraise(c, c->isfullscreen, c->abovebelow);
+			containerraise(c, c->state);
 		} else if (menu != NULL) {
 			menuraise(menu);
 		}
@@ -1352,17 +1387,9 @@ xeventbuttonpress(XEvent *e)
 		}
 		o = getframehandle(c->w, c->h, x, y);
 		if (ev->window == tab->title && ev->button == Button4) {
-			(*tab_class->setstate)(
-				obj,
-				(Atom [2]){ atoms[_NET_WM_STATE_SHADED], None },
-				ADD
-			);
+			(*tab_class->setstate)(obj, SHADED, ADD);
 		} if (ev->window == tab->title && ev->button == Button5) {
-			(*tab_class->setstate)(
-				obj,
-				(Atom [2]){ atoms[_NET_WM_STATE_SHADED], None },
-				REMOVE
-			);
+			(*tab_class->setstate)(obj, SHADED, REMOVE);
 		} else if (ev->window == tab->title && ev->button == Button3) {
 			mouseretab(tab, ev->x_root, ev->y_root, ev->x, ev->y);
 		} else if (ev->window == tab->row->bl && ev->button == Button1) {
@@ -1376,12 +1403,12 @@ xeventbuttonpress(XEvent *e)
 			if (cdiv != NULL || rdiv != NULL) {
 				mouseretile(c, cdiv, rdiv, ev->x, ev->y);
 			}
-		} else if (!c->isfullscreen && !c->isminimized) {
+		} else if (!(c->state & (FULLSCREEN|MINIMIZED))) {
 			if (isvalidstate(ev->state) && ev->button == Button1) {
 				mousemove(None, FLOAT_CONTAINER, c, ev->x_root, ev->y_root, 0);
 			} else if (ev->window == c->frame && ev->button == Button3) {
 				mousemove(None, FLOAT_CONTAINER, c, ev->x_root, ev->y_root, o);
-			} else if (!c->ismaximized &&
+			} else if (!(c->state & MINIMIZED) &&
 			           ((isvalidstate(ev->state) && ev->button == Button3) ||
 			           (o != C && ev->window == c->frame && ev->button == Button1))) {
 				if (o == C)
@@ -1534,7 +1561,7 @@ xeventclientmessage(XEvent *e)
 			return;
 		(*obj->class->setstate)(
 			obj,
-			(Atom *)(ev->data.l + 1),
+			atoms2state((Atom *)&ev->data.l[1], 2),
 			ev->data.l[0]
 		);
 	} else if (ev->message_type == atoms[_NET_ACTIVE_WINDOW]) {
@@ -1587,7 +1614,7 @@ xeventclientmessage(XEvent *e)
 			break;
 		default:
 			tabfocus(tab, 1);
-			containerraise(c, c->isfullscreen, c->abovebelow);
+			containerraise(c, c->state);
 			break;
 		}
 	} else if (ev->message_type == atoms[_NET_CLOSE_WINDOW]) {

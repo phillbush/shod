@@ -8,6 +8,7 @@
 #include <X11/Xft/Xft.h>
 
 #define LEN(x)                  (sizeof(x) / sizeof((x)[0]))
+#define FLAG(f, b)              (((f) & (b)) == (b))
 
 /* atom names */
 #define ATOMS \

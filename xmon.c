@@ -126,7 +126,7 @@ next:
 	/* send containers which do not belong to a monitor to selected desktop */
 	focus = NULL;
 	TAILQ_FOREACH(c, &wm.focusq, entry) {
-		if (!c->isminimized && c->mon == NULL) {
+		if (!(c->state & MINIMIZED) && c->mon == NULL) {
 			focus = c;
 			c->mon = wm.selmon;
 			c->desk = wm.selmon->seldesk;
@@ -222,7 +222,7 @@ monupdatearea(void)
 		mon->ww -= l + r;
 	}
 	TAILQ_FOREACH(c, &wm.focusq, entry) {
-		if (c->ismaximized) {
+		if (c->state & MAXIMIZED) {
 			containercalccols(c);
 			containermoveresize(c, 0);
 			containerredecorate(c, NULL, NULL, 0);
