@@ -179,7 +179,7 @@ ewmhsetclients(void)
 	if (!TAILQ_EMPTY(&dock.dappq)) {
 		prependprop(
 			atoms[_SHOD_DOCK_LIST],
-			dock.win
+			dock.obj.win
 		);
 	}
 }

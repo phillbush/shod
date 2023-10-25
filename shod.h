@@ -13,6 +13,7 @@
 #define DOCKBORDER              1
 #define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
 #define ISDUMMY(c)              ((c)->ncols == 0)
+#define CLIENT_EVENTS           (StructureNotifyMask | PropertyChangeMask | FocusChangeMask)
 
 #define TITLEWIDTH(c)   ((c)->state & FULLSCREEN ? 0 : config.titlewidth)
 
@@ -418,6 +419,7 @@ typedef struct Class {
 		TYPE_NORMAL,
 		TYPE_DESKTOP,
 		TYPE_BAR,
+		TYPE_DOCK,
 		TYPE_MENU,
 		TYPE_DIALOG,
 		TYPE_NOTIFICATION,
@@ -532,7 +534,7 @@ struct Bar {
 	struct Object obj;
 	int strut[STRUT_LAST];                  /* strut values */
 	bool ispartial;                         /* whether strut has 12 elements rather than 4 */
-	bool isbelow;                           /* whether bar is below */
+	enum State state;
 };
 
 struct Dockapp {
@@ -638,13 +640,14 @@ struct WM {
 };
 
 struct Dock {
-	/* the dock */
+	struct Object obj;
+
 	struct Queue dappq;
-	Window win;                     /* dock window */
 	Pixmap pix;                     /* dock pixmap */
 	int x, y, w, h;                 /* dock geometry */
 	int pw, ph;                     /* dock pixmap size */
 	int mapped;                     /* whether dock is mapped */
+	enum State state;
 };
 
 struct Config {
@@ -838,6 +841,7 @@ extern struct Dock dock;
 /* object classes */
 extern Class *tab_class;
 extern Class *dialog_class;
+extern Class *dock_class;
 extern Class *bar_class;
 extern Class *menu_class;
 extern Class *dialog_class;

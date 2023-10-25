@@ -41,6 +41,7 @@ managebar(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window lea
 	*bar = (struct Bar){
 		.obj.win = win,
 		.obj.class = bar_class,
+		.state = MAXIMIZED,
 	};
 	TAILQ_INSERT_HEAD(&wm.barq, (struct Object *)bar, entry);
 	XRestackWindows(dpy, wins, 2);
@@ -62,7 +63,82 @@ unmanagebar(struct Object *obj)
 	return 0;
 }
 
+static void
+toggleabove(struct Bar *bar)
+{
+	Window wins[2] = {wm.layers[LAYER_DOCK].frame, bar->obj.win};
+
+	XRestackWindows(dpy, wins, 2);
+	bar->state &= ~BELOW;
+	bar->state ^= ABOVE;
+}
+
+static void
+togglebelow(struct Bar *bar)
+{
+	Window wins[2] = {wm.layers[LAYER_DESK].frame, bar->obj.win};
+
+	if (bar->state & BELOW)         /* bar is below; move it back to above */
+		wins[0] = wm.layers[LAYER_DOCK].frame;
+	XRestackWindows(dpy, wins, 2);
+	bar->state &= ~ABOVE;
+	bar->state ^= BELOW;
+}
+
+static void
+togglemaximized(struct Bar *bar)
+{
+	bar->state ^= MAXIMIZED;
+}
+
+static void
+toggleminimized(struct Bar *bar)
+{
+	Window win;
+
+	win = bar->obj.win;
+	if (bar->state & MINIMIZED) {
+		/* bar is hidden; show it */
+		XMapWindow(dpy, win);
+	} else {
+		XSelectInput(dpy, win, CLIENT_EVENTS & ~StructureNotifyMask);
+		XUnmapWindow(dpy, bar->obj.win);
+		XSelectInput(dpy, win, CLIENT_EVENTS);
+	}
+	bar->state ^= MINIMIZED;
+}
+
+static void
+changestate(struct Object *obj, enum State mask, int set)
+{
+	static struct {
+		enum State state;
+		void (*fun)(struct Bar *);
+	} togglers[] = {
+		{ ABOVE,        &toggleabove     },
+		{ BELOW,        &togglebelow     },
+		{ MAXIMIZED,    &togglemaximized },
+		{ MINIMIZED,    &toggleminimized },
+	};
+	enum State state;
+	struct Bar *bar;
+	size_t i;
+
+	bar = (struct Bar *)obj;
+	for (i = 0; i < LEN(togglers); i++) {
+		state = togglers[i].state;
+		if (!(mask & state))
+			continue;       /* state change not requested */
+		if (set == REMOVE && !(bar->state & state))
+			continue;       /* state already unset */
+		if (set == ADD    && !(bar->state & state))
+			continue;       /* state already set */
+		(*togglers[i].fun)(bar);
+	}
+	monupdatearea();
+}
+
 Class *bar_class = &(Class){
 	.type           = TYPE_BAR,
-	.setstate       = NULL,
+	.setstate       = &changestate,
 };

@@ -163,7 +163,8 @@ monupdatearea(void)
 		mon->ww = mon->mw;
 		mon->wh = mon->mh;
 		t = b = l = r = 0;
-		if (mon == TAILQ_FIRST(&wm.monq) && dock.mapped) {
+		if (mon == TAILQ_FIRST(&wm.monq) && dock.mapped &&
+		    (dock.state & MAXIMIZED) && !(dock.state & MINIMIZED)) {
 			switch (config.dockgravity[0]) {
 			case 'N':
 				t = config.dockwidth;
@@ -182,6 +183,10 @@ monupdatearea(void)
 		}
 		TAILQ_FOREACH(p, &wm.barq, entry) {
 			bar = (struct Bar *)p;
+			if (bar->state & MINIMIZED)
+				continue;
+			if (!(bar->state & MAXIMIZED))
+				continue;
 			if (bar->strut[STRUT_TOP] != 0) {
 				if (bar->strut[STRUT_TOP] >= mon->my &&
 				    bar->strut[STRUT_TOP] < mon->my + mon->mh &&

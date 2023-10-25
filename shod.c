@@ -15,17 +15,14 @@
 
 #define DOCK_TITLE      "shod's dock"
 #define WMNAME          "shod"
-#define ROOT_EVENTS     (SubstructureRedirectMask | SubstructureNotifyMask \
-                        | StructureNotifyMask | ButtonPressMask \
-                        | PropertyChangeMask)
 
 static int (*xerrorxlib)(Display *, XErrorEvent *);
 
 /* shared variables */
 unsigned long clientmask = CWEventMask | CWColormap | CWBackPixel | CWBorderPixel;
 XSetWindowAttributes clientswa = {
-	.event_mask = SubstructureNotifyMask | ButtonReleaseMask
-	            | SubstructureRedirectMask | ButtonPressMask | FocusChangeMask
+	.event_mask = StructureNotifyMask | ButtonReleaseMask
+	            | ButtonPressMask | FocusChangeMask
 	            | Button1MotionMask
 };
 struct WM wm = { .running = 1 };
@@ -244,13 +241,15 @@ initdock(void)
 	swa.background_pixel = BlackPixel(dpy, screen);
 	swa.border_pixel = BlackPixel(dpy, screen);
 	swa.colormap = colormap;
-	dock.win = XCreateWindow(
+	dock.obj.win = XCreateWindow(
 		dpy, root,
 		0, 0, 1, 1, 0,
 		depth, InputOutput, visual,
 		clientmask, &swa
 	);
-	settitle(dock.win, DOCK_TITLE);
+	dock.state = MAXIMIZED;
+	dock.obj.class = dock_class;
+	settitle(dock.obj.win, DOCK_TITLE);
 }
 
 /* create dummy windows used for controlling focus and the layer of clients */
@@ -307,8 +306,25 @@ autostart(char *filename)
 static void
 checkotherwm(void)
 {
+	/*
+	 * XXX: Do we need to select SubstructureNotifyMask on the root window?
+	 *
+	 * We will always select StructureNotifyMask on the client windows we
+	 * are requested to map, so selecting StructureNotifyMask on the root
+	 * window seems redundant.
+	 *
+	 * I have removed this mask in the bitmask passed as the third parameter
+	 * to XSelectInput(3) down here.  If anything ever brake, just add it
+	 * back.
+	 */
 	xerrorxlib = XSetErrorHandler(xerrorstart);
-	XSelectInput(dpy, root, ROOT_EVENTS);
+	XSelectInput(
+		dpy, root,
+		SubstructureRedirectMask |      /* so clients request us to map */
+		StructureNotifyMask |           /* get changes on root configuration */
+		PropertyChangeMask |            /* get changes on root properties */
+		ButtonPressMask                 /* to change monitor when clicking */
+	);
 	XSync(dpy, False);
 	(void)XSetErrorHandler(xerror);
 	XSync(dpy, False);
@@ -359,7 +375,7 @@ cleanwm(void)
 		mondel(mon);
 	if (dock.pix != None)
 		XFreePixmap(dpy, dock.pix);
-	XDestroyWindow(dpy, dock.win);
+	XDestroyWindow(dpy, dock.obj.win);
 }
 
 /* shod window manager */

@@ -5,11 +5,11 @@ void
 dockdecorate(void)
 {
 	if (dock.pw != dock.w || dock.ph != dock.h || dock.pix == None)
-		pixmapnew(&dock.pix, dock.win, dock.w, dock.h);
+		pixmapnew(&dock.pix, dock.obj.win, dock.w, dock.h);
 	dock.pw = dock.w;
 	dock.ph = dock.h;
 	drawdock(dock.pix, dock.w, dock.h);
-	drawcommit(dock.pix, dock.win);
+	drawcommit(dock.pix, dock.obj.win);
 }
 
 /* configure dockapp window */
@@ -140,7 +140,7 @@ dockupdateresizeable(void)
 		size += dapp->slotsize;
 	}
 	if (size == 0) {
-		XUnmapWindow(dpy, dock.win);
+		XUnmapWindow(dpy, dock.obj.win);
 		dock.mapped = 0;
 		return;
 	}
@@ -228,7 +228,7 @@ dockupdatefull(void)
 
 	mon = TAILQ_FIRST(&wm.monq);
 	if (TAILQ_FIRST(&dock.dappq) == NULL) {
-		XUnmapWindow(dpy, dock.win);
+		XUnmapWindow(dpy, dock.obj.win);
 		dock.mapped = 0;
 		return;
 	}
@@ -345,7 +345,7 @@ dockupdate(void)
 	Window wins[2];
 
 	if (TAILQ_EMPTY(&dock.dappq)) {
-		XUnmapWindow(dpy, dock.win);
+		XUnmapWindow(dpy, dock.obj.win);
 		return;
 	}
 	if (config.dockgravity[0] != '\0' && (config.dockgravity[1] == 'F' || config.dockgravity[1] == 'f')) {
@@ -354,12 +354,18 @@ dockupdate(void)
 		dockupdateresizeable();
 	}
 	dockdecorate();
-	wins[0] = wm.layers[LAYER_DOCK].frame;
-	wins[1] = dock.win;
-	XMoveResizeWindow(dpy, dock.win, dock.x, dock.y, dock.w, dock.h);
+	if (dock.state & BELOW)
+		wins[0] = wm.layers[LAYER_DESK].frame;
+	else
+		wins[0] = wm.layers[LAYER_DOCK].frame;
+	wins[1] = dock.obj.win;
+	XMoveResizeWindow(dpy, dock.obj.win, dock.x, dock.y, dock.w, dock.h);
 	XRestackWindows(dpy, wins, 2);
-	XMapWindow(dpy, dock.win);
-	XMapSubwindows(dpy, dock.win);
+	if (dock.state & MINIMIZED)
+		XUnmapWindow(dpy, dock.obj.win);
+	else
+		XMapWindow(dpy, dock.obj.win);
+	XMapSubwindows(dpy, dock.obj.win);
 }
 
 /* map dockapp window */
@@ -370,7 +376,7 @@ managedockapp(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window
 	(void)mon;
 	(void)desk;
 	(void)leader;
-	XReparentWindow(dpy, win, dock.win, 0, 0);
+	XReparentWindow(dpy, win, dock.obj.win, 0, 0);
 	dockappnew(win, rect.width, rect.height, rect.x, state);
 	dockupdate();
 	monupdatearea();
@@ -403,7 +409,7 @@ dockreset(void)
 	int state, desk;
 
 	if (TAILQ_EMPTY(&dock.dappq)) {
-		XUnmapWindow(dpy, dock.win);
+		XUnmapWindow(dpy, dock.obj.win);
 		return;
 	}
 	TAILQ_INIT(&dappq);
@@ -427,6 +433,38 @@ dockreset(void)
 	}
 	dockupdate();
 }
+
+static void
+changestate(struct Object *obj, enum State mask, int set)
+{
+	enum State states[] = {
+		ABOVE,
+		BELOW,
+		MAXIMIZED,
+		MINIMIZED,
+	};
+	enum State state;
+	size_t i;
+
+	(void)obj;
+	for (i = 0; i < LEN(states); i++) {
+		state = states[i];
+		if (!(mask & state))
+			continue;       /* state change not requested */
+		if (set == REMOVE && !(dock.state & state))
+			continue;       /* state already unset */
+		if (set == ADD    && !(dock.state & state))
+			continue;       /* state already set */
+		dock.state ^= state;
+	}
+	dockupdate();
+	monupdatearea();
+}
+
+Class *dock_class = &(Class){
+	.type           = TYPE_DOCK,
+	.setstate       = &changestate,
+};
 
 Class *dockapp_class = &(Class){
 	.type           = TYPE_DOCKAPP,

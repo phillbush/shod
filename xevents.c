@@ -237,6 +237,8 @@ getmanaged(Window win)
 		    ((struct Menu *)menu)->titlebar == win)
 			return menu;
 	}
+	if (win == dock.obj.win)
+		return &dock.obj;
 	return NULL;
 }
 
@@ -606,7 +608,7 @@ done:
 static void
 preparewin(Window win)
 {
-	XSelectInput(dpy, win, StructureNotifyMask | PropertyChangeMask | FocusChangeMask);
+	XSelectInput(dpy, win, CLIENT_EVENTS);
 	XGrabButton(dpy, AnyButton, AnyModifier, win, False, ButtonPressMask,
 	            GrabModeSync, GrabModeSync, None, None);
 	XSetWindowBorderWidth(dpy, win, 0);
@@ -1969,6 +1971,28 @@ xeventunmapnotify(XEvent *e)
 		/*
 		 * Unmapped window is not the client window of an object
 		 * we handle.
+		 */
+		return;
+	}
+	if (ev->event == root) {
+		/*
+		 * Ignore unmap notifications reported relative the root
+		 * window (if we have selected SubstructureNotifyMask on
+		 * the root window at shod.c).
+		 *
+		 * Since we select StructureNotifyMask on client windows,
+		 * unmap notifications are reported to us relative to the
+		 * client window itself.
+		 *
+		 * If we get a unmap notification relative to root window
+		 * (supposed we had selected SubstructureNotifyMask on it),
+		 * we have most likely unselected StructureNotifyMask on
+		 * the client window temporarily.
+		 *
+		 * [SubstructureNotifyMask is not selected on the root
+		 *  window anymore for it seemed redundant; so we will
+		 *  probably never reach this point of the function.
+		 *  Check shod.c:/checkotherwm/ for more information.]
 		 */
 		return;
 	}
