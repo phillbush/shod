@@ -2,7 +2,7 @@
 
 /* create new menu */
 static struct Menu *
-menunew(Window win, int x, int y, int w, int h, int ignoreunmap)
+menunew(Window win, int x, int y, int w, int h)
 {
 	struct Menu *menu;
 
@@ -19,7 +19,6 @@ menunew(Window win, int x, int y, int w, int h, int ignoreunmap)
 		.y = y - config.borderwidth,
 		.w = w + config.borderwidth * 2,
 		.h = h + config.borderwidth * 2 + config.titlewidth,
-		.ignoreunmap = ignoreunmap,
 	};
 	menu->frame = XCreateWindow(dpy, root, 0, 0,
 	                            w + config.borderwidth * 2,
@@ -182,7 +181,7 @@ menuhide(struct Menu *menu, int hide)
 
 /* assign menu to tab */
 void
-managemenu(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state, int ignoreunmap)
+managemenu(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state)
 {
 	struct Menu *menu;
 
@@ -190,7 +189,7 @@ managemenu(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window le
 	(void)mon;
 	(void)desk;
 	(void)state;
-	menu = menunew(win, rect.x, rect.y, rect.width, rect.height, ignoreunmap);
+	menu = menunew(win, rect.x, rect.y, rect.width, rect.height);
 	menu->leader = leader;
 	winupdatetitle(menu->obj.win, &menu->name);
 	TAILQ_INSERT_HEAD(&wm.menuq, (struct Object *)menu, entry);
@@ -208,15 +207,11 @@ managemenu(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window le
 
 /* delete menu; return whether menu was deleted */
 int
-unmanagemenu(struct Object *obj, int ignoreunmap)
+unmanagemenu(struct Object *obj)
 {
 	struct Menu *menu;
 
 	menu = (struct Menu *)obj;
-	if (ignoreunmap && menu->ignoreunmap) {
-		menu->ignoreunmap--;
-		return 0;
-	}
 	menudelraise(menu);
 	if (menu->pix != None)
 		XFreePixmap(dpy, menu->pix);

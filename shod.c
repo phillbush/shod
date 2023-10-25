@@ -232,17 +232,6 @@ initxrm(void)
 	}
 }
 
-/* set up root window */
-static void
-initroot(void)
-{
-	/* change default cursor */
-	XDefineCursor(dpy, root, wm.cursors[CURSOR_NORMAL]);
-
-	/* Set focus to root window */
-	XSetInputFocus(dpy, root, RevertToParent, CurrentTime);
-}
-
 /* create dock window */
 static void
 initdock(void)
@@ -359,13 +348,13 @@ cleanwm(void)
 	while ((c = TAILQ_FIRST(&wm.focusq)) != NULL)
 		containerdel(c);
 	while ((obj = TAILQ_FIRST(&wm.notifq)) != NULL)
-		(void)unmanagenotif(obj, 0);
+		(void)unmanagenotif(obj);
 	while ((obj = TAILQ_FIRST(&wm.barq)) != NULL)
-		(void)unmanagebar(obj, 0);
+		(void)unmanagebar(obj);
 	while ((obj = TAILQ_FIRST(&wm.splashq)) != NULL)
-		(void)unmanagesplash(obj, 0);
+		(void)unmanagesplash(obj);
 	while ((obj = TAILQ_FIRST(&dock.dappq)) != NULL)
-		(void)unmanagedockapp(obj, 0);
+		(void)unmanagedockapp(obj);
 	while ((mon = TAILQ_FIRST(&wm.monq)) != NULL)
 		mondel(mon);
 	if (dock.pix != None)
@@ -415,7 +404,6 @@ main(int argc, char *argv[])
 	initsignal();
 	initcursors();
 	initatoms();
-	initroot();
 	initdummywindows();
 	initdock();
 	initxrm();
@@ -437,6 +425,12 @@ main(int argc, char *argv[])
 	/* scan windows */
 	scan();
 	mapdummywins();
+
+	/* change default cursor */
+	XDefineCursor(dpy, root, wm.cursors[CURSOR_NORMAL]);
+
+	/* Set focus to root window */
+	XSetInputFocus(dpy, root, RevertToParent, CurrentTime);
 
 	/* set modifier key and grab alt key */
 	setmod();

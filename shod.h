@@ -477,11 +477,6 @@ struct Tab {
 	int x, w;                               /* title bar geometry */
 
 	/*
-	 * Dirty hack to ignore unmap notifications.
-	 */
-	int ignoreunmap;                        /* number of unmapnotifys to ignore */
-
-	/*
 	 * Name of the tab's application window, its size and urgency.
 	 */
 	int winw, winh;                         /* window geometry */
@@ -705,8 +700,8 @@ struct Config {
 	int divwidth;                           /* = .borderwidth */
 };
 
-typedef void Managefunc(struct Tab *, struct Monitor *, int, Window, Window, XRectangle, int, int);
-typedef int Unmanagefunc(struct Object *obj, int ignoreunmap);
+typedef void Managefunc(struct Tab *, struct Monitor *, int, Window, Window, XRectangle, int);
+typedef int Unmanagefunc(struct Object *obj);
 
 /* container routines */
 struct Container *getnextfocused(struct Monitor *mon, int desk);
@@ -829,8 +824,8 @@ void deskupdate(struct Monitor *mon, int desk);
 int getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectangle *rect, int *desk);
 
 /* function tables */
-extern void (*managefuncs[])(struct Tab *, struct Monitor *, int, Window, Window, XRectangle, int, int);
-extern int (*unmanagefuncs[])(struct Object *, int);
+extern void (*managefuncs[])(struct Tab *, struct Monitor *, int, Window, Window, XRectangle, int);
+extern int (*unmanagefuncs[])(struct Object *);
 
 /* extern variables */
 extern XSetWindowAttributes clientswa;

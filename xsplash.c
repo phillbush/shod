@@ -61,12 +61,11 @@ splashrise(struct Splash *splash)
 
 /* delete splash screen window */
 int
-unmanagesplash(struct Object *obj, int dummy)
+unmanagesplash(struct Object *obj)
 {
 	struct Splash *splash;
 
 	splash = (struct Splash *)obj;
-	(void)dummy;
 	TAILQ_REMOVE(&wm.splashq, (struct Object *)splash, entry);
 	icccmdeletestate(splash->obj.win);
 	XDestroyWindow(dpy, splash->frame);
@@ -76,14 +75,13 @@ unmanagesplash(struct Object *obj, int dummy)
 
 /* add splash screen and center it on the screen */
 void
-managesplash(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state, int ignoreunmap)
+managesplash(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state)
 {
 	struct Splash *splash;
 
 	(void)tab;
 	(void)leader;
 	(void)state;
-	(void)ignoreunmap;
 	splash = splashnew(win, rect.width, rect.height);
 	splash->mon = mon;
 	splash->desk = desk;

@@ -143,7 +143,7 @@ dialogcalcsize(struct Dialog *dial)
 
 /* create new dialog */
 static struct Dialog *
-dialognew(Window win, int maxw, int maxh, int ignoreunmap)
+dialognew(Window win, int maxw, int maxh)
 {
 	struct Dialog *dial;
 
@@ -152,7 +152,6 @@ dialognew(Window win, int maxw, int maxh, int ignoreunmap)
 		.pix = None,
 		.maxw = maxw,
 		.maxh = maxh,
-		.ignoreunmap = ignoreunmap,
 		.obj.win = win,
 		.obj.class = dialog_class,
 	};
@@ -250,13 +249,12 @@ colcalcrows(struct Column *col, int recalcfact)
 
 /* create new tab */
 static struct Tab *
-tabnew(Window win, Window leader, int ignoreunmap)
+tabnew(Window win, Window leader)
 {
 	struct Tab *tab;
 
 	tab = emalloc(sizeof(*tab));
 	*tab = (struct Tab){
-		.ignoreunmap = ignoreunmap,
 		.pix = None,
 		.pixtitle = None,
 		.title = None,
@@ -296,7 +294,7 @@ tabdel(struct Tab *tab)
 
 	while ((dial = (struct Dialog *)TAILQ_FIRST(&tab->dialq)) != NULL) {
 		XDestroyWindow(dpy, dial->obj.win);
-		unmanagedialog((struct Object *)dial, 0);
+		unmanagedialog((struct Object *)dial);
 	}
 	tabremove(tab->row, tab);
 	if (tab->pixtitle != None)
@@ -1650,7 +1648,6 @@ tabdetach(struct Tab *tab, int x, int y)
 
 	row = tab->row;
 	tabremove(row, tab);
-	tab->ignoreunmap = IGNOREUNMAP;
 	XReparentWindow(dpy, tab->title, root, x, y);
 	rowcalctabs(row);
 }
@@ -1865,13 +1862,13 @@ containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle r
 
 /* create container for tab */
 void
-managecontainer(struct Tab *prev, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state, int ignoreunmap)
+managecontainer(struct Tab *prev, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state)
 {
 	struct Tab *tab;
 	struct Container *c;
 	struct Row *row;
 
-	tab = tabnew(win, leader, ignoreunmap);
+	tab = tabnew(win, leader);
 	winupdatetitle(tab->obj.win, &tab->name);
 	if (prev == NULL) {
 		containernewwithtab(tab, mon, desk, rect, state);
@@ -1893,7 +1890,7 @@ managecontainer(struct Tab *prev, struct Monitor *mon, int desk, Window win, Win
 
 /* create container for tab */
 void
-managedialog(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state, int ignoreunmap)
+managedialog(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state)
 {
 	struct Dialog *dial;
 
@@ -1901,7 +1898,7 @@ managedialog(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window 
 	(void)desk;
 	(void)leader;
 	(void)state;
-	dial = dialognew(win, rect.width, rect.height, ignoreunmap);
+	dial = dialognew(win, rect.width, rect.height);
 	dial->tab = tab;
 	TAILQ_INSERT_HEAD(&tab->dialq, (struct Object *)dial, entry);
 	XReparentWindow(dpy, dial->frame, tab->frame, 0, 0);
@@ -1915,7 +1912,7 @@ managedialog(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window 
 
 /* unmanage tab (and delete its row if it is the only tab); return whether deletion occurred */
 int
-unmanagecontainer(struct Object *obj, int ignoreunmap)
+unmanagecontainer(struct Object *obj)
 {
 	struct Container *c, *next;
 	struct Column *col;
@@ -1927,10 +1924,6 @@ unmanagecontainer(struct Object *obj, int ignoreunmap)
 	int focus;
 
 	t = (struct Tab *)obj;
-	if (ignoreunmap && t->ignoreunmap) {
-		t->ignoreunmap--;
-		return 0;
-	}
 	row = t->row;
 	col = row->col;
 	c = col->c;
@@ -1966,15 +1959,11 @@ unmanagecontainer(struct Object *obj, int ignoreunmap)
 
 /* delete dialog; return whether dialog was deleted */
 int
-unmanagedialog(struct Object *obj, int ignoreunmap)
+unmanagedialog(struct Object *obj)
 {
 	struct Dialog *dial;
 
 	dial = (struct Dialog *)obj;
-	if (ignoreunmap && dial->ignoreunmap) {
-		dial->ignoreunmap--;
-		return 0;
-	}
 	TAILQ_REMOVE(&dial->tab->dialq, (struct Object *)dial, entry);
 	if (dial->pix != None)
 		XFreePixmap(dpy, dial->pix);

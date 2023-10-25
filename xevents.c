@@ -146,7 +146,7 @@ struct GNUHints {
 	unsigned long extra_flags;
 };
 
-void (*managefuncs[TYPE_LAST])(struct Tab *, struct Monitor *, int, Window, Window, XRectangle, int, int) = {
+void (*managefuncs[TYPE_LAST])(struct Tab *, struct Monitor *, int, Window, Window, XRectangle, int) = {
 	[TYPE_NOTIFICATION] = managenotif,
 	[TYPE_DOCKAPP] = managedockapp,
 	[TYPE_NORMAL] = managecontainer,
@@ -157,7 +157,7 @@ void (*managefuncs[TYPE_LAST])(struct Tab *, struct Monitor *, int, Window, Wind
 	[TYPE_BAR] = managebar,
 };
 
-int (*unmanagefuncs[TYPE_LAST])(struct Object *, int) = {
+int (*unmanagefuncs[TYPE_LAST])(struct Object *) = {
 	[TYPE_NOTIFICATION] = unmanagenotif,
 	[TYPE_DOCKAPP] = unmanagedockapp,
 	[TYPE_NORMAL] = unmanagecontainer,
@@ -766,7 +766,7 @@ deskfocus(struct Monitor *mon, int desk)
 
 /* call one of the manage- functions */
 static void
-manage(Window win, XRectangle rect, int ignoreunmap)
+manage(Window win, XRectangle rect)
 {
 	struct Tab *tab;
 	Window leader;
@@ -786,7 +786,7 @@ manage(Window win, XRectangle rect, int ignoreunmap)
 		return;
 	}
 	preparewin(win);
-	(*managefuncs[type])(tab, wm.selmon, desk, win, leader, rect, state, ignoreunmap);
+	(*managefuncs[type])(tab, wm.selmon, desk, win, leader, rect, state);
 }
 
 /* perform container switching (aka alt-tab) */
@@ -1785,7 +1785,7 @@ xeventdestroynotify(XEvent *e)
 		 */
 		return;
 	}
-	if ((*unmanagefuncs[obj->class->type])(obj, 0)) {
+	if ((*unmanagefuncs[obj->class->type])(obj)) {
 		/*
 		 * Client has been forgotten by shod.
 		 * Sign main loop to update client list.
@@ -1892,8 +1892,7 @@ xeventmaprequest(XEvent *e)
 			.y = wa.y,
 			.width = wa.width,
 			.height = wa.height,
-		},
-		0
+		}
 	);
 }
 
@@ -1973,7 +1972,7 @@ xeventunmapnotify(XEvent *e)
 		 */
 		return;
 	}
-	if ((*unmanagefuncs[obj->class->type])(obj, 0)) {
+	if ((*unmanagefuncs[obj->class->type])(obj)) {
 		/*
 		 * Client has been forgotten by shod.
 		 * Sign main loop to update client list.
@@ -1990,6 +1989,10 @@ scan(void)
 	Window d1, d2, transwin, *wins = NULL;
 	XWindowAttributes wa;
 
+	/*
+	 * No event can be processed while winodws are managed.
+	 */
+	XGrabServer(dpy);
 	if (XQueryTree(dpy, root, &d1, &d2, &wins, &num)) {
 		for (i = 0; i < num; i++) {
 			if (!XGetWindowAttributes(dpy, wins[i], &wa)
@@ -2003,8 +2006,7 @@ scan(void)
 						.y = wa.y,
 						.width = wa.width,
 						.height = wa.height,
-					},
-					IGNOREUNMAP
+					}
 				);
 			}
 		}
@@ -2020,8 +2022,7 @@ scan(void)
 						.y = wa.y,
 						.width = wa.width,
 						.height = wa.height,
-					},
-					IGNOREUNMAP
+					}
 				);
 			}
 		}
@@ -2029,6 +2030,8 @@ scan(void)
 			XFree(wins);
 		}
 	}
+	XSync(dpy, True);
+	XUngrabServer(dpy);
 }
 
 /* set modifier and Alt key code from given key sym */

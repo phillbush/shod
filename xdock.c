@@ -72,7 +72,7 @@ dockappinsert(struct Dockapp *dapp)
 
 /* create dockapp */
 static void
-dockappnew(Window win, int w, int h, int dockpos, int state, int ignoreunmap)
+dockappnew(Window win, int w, int h, int dockpos, int state)
 {
 	struct Dockapp *dapp;
 
@@ -84,7 +84,6 @@ dockappnew(Window win, int w, int h, int dockpos, int state, int ignoreunmap)
 		.y = 0,
 		.w = w,
 		.h = h,
-		.ignoreunmap = ignoreunmap,
 		.dockpos = dockpos,
 		.state = state,
 	};
@@ -365,29 +364,25 @@ dockupdate(void)
 
 /* map dockapp window */
 void
-managedockapp(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state, int ignoreunmap)
+managedockapp(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state)
 {
 	(void)tab;
 	(void)mon;
 	(void)desk;
 	(void)leader;
 	XReparentWindow(dpy, win, dock.win, 0, 0);
-	dockappnew(win, rect.width, rect.height, rect.x, state, ignoreunmap);
+	dockappnew(win, rect.width, rect.height, rect.x, state);
 	dockupdate();
 	monupdatearea();
 }
 
 /* delete dockapp */
 int
-unmanagedockapp(struct Object *obj, int ignoreunmap)
+unmanagedockapp(struct Object *obj)
 {
 	struct Dockapp *dapp;
 
 	dapp = (struct Dockapp *)obj;
-	if (ignoreunmap && dapp->ignoreunmap) {
-		dapp->ignoreunmap--;
-		return 0;
-	}
 	TAILQ_REMOVE(&dock.dappq, (struct Object *)dapp, entry);
 	XReparentWindow(dpy, dapp->obj.win, root, 0, 0);
 	free(dapp);

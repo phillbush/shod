@@ -121,25 +121,23 @@ notifplace(void)
 
 /* add notification window into notification queue; and update notification placement */
 void
-managenotif(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state, int ignoreunmap)
+managenotif(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state)
 {
 	(void)tab;
 	(void)mon;
 	(void)desk;
 	(void)leader;
 	(void)state;
-	(void)ignoreunmap;
 	notifnew(win, rect.width, rect.height);
 	notifplace();
 }
 
 /* delete notification */
 int
-unmanagenotif(struct Object *obj, int dummy)
+unmanagenotif(struct Object *obj)
 {
 	struct Notification *notif;
 
-	(void)dummy;
 	notif = (struct Notification *)obj;
 	TAILQ_REMOVE(&wm.notifq, (struct Object *)notif, entry);
 	if (notif->pix != None)

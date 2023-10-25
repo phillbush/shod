@@ -53,7 +53,7 @@ promptdecorate(Window frame, Pixmap *pix, int w, int h)
 
 /* map prompt, give it focus, wait for it to close, then revert focus to previously focused window */
 void
-manageprompt(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state, int ignoreunmap)
+manageprompt(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state)
 {
 	Window frame;                           /* prompt frame */
 	Pixmap pix;                             /* pixmap to draw the frame */
@@ -65,7 +65,6 @@ manageprompt(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window 
 	(void)desk;
 	(void)leader;
 	(void)state;
-	(void)ignoreunmap;
 	w = rect.width;
 	h = rect.height;
 	promptcalcgeom(&x, &y, &w, &h, &fw, &fh);
@@ -108,9 +107,8 @@ done:
 }
 
 int
-unmanageprompt(struct Object *obj, int ignoreunmap)
+unmanageprompt(struct Object *obj)
 {
 	(void)obj;
-	(void)ignoreunmap;
 	return 0;
 }

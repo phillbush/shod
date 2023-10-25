@@ -25,7 +25,7 @@ barstrut(struct Bar *bar)
 
 /* map bar window */
 void
-managebar(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state, int ignoreunmap)
+managebar(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state)
 {
 	struct Bar *bar;
 
@@ -35,7 +35,6 @@ managebar(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window lea
 	(void)leader;
 	(void)rect;
 	(void)state;
-	(void)ignoreunmap;
 	Window wins[2] = {wm.layers[LAYER_DOCK].frame, win};
 
 	bar = emalloc(sizeof(*bar));
@@ -52,11 +51,10 @@ managebar(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window lea
 
 /* delete bar */
 int
-unmanagebar(struct Object *obj, int dummy)
+unmanagebar(struct Object *obj)
 {
 	struct Bar *bar;
 
-	(void)dummy;
 	bar = (struct Bar *)obj;
 	TAILQ_REMOVE(&wm.barq, (struct Object *)bar, entry);
 	free(bar);
