@@ -1750,12 +1750,47 @@ xeventdestroynotify(XEvent *e)
 	struct Object *obj;
 
 	ev = &e->xdestroywindow;
-	if ((obj = getmanaged(ev->window)) != NULL) {
-		if (obj->win == ev->window && (*unmanagefuncs[obj->class->type])(obj, 0)) {
-			wm.setclientlist = 1;
-		}
-	} else if (ev->window == wm.checkwin) {
-		wm.running = 0;
+	if (ev->window == wm.checkwin) {
+		/*
+		 * checkwin (the dummy unmapped window used to let other
+		 * clients know that Shod is running) has been destroyed
+		 * (probably by a call to `shodc exit`).
+		 *
+		 *
+		 * We must exit.
+		 */
+		wm.running = False;
+		return;
+	}
+	obj = getmanaged(ev->window);
+	if (obj == NULL) {
+		/*
+		 * Destroyed window is not an object we handle.
+		 */
+		return;
+	}
+	if (obj->win != ev->window) {
+		/*
+		 * This SHOULD NOT HAPPEN!
+		 *
+		 * Destroyed window is a titlebar, button, border or another
+		 * part of the frame (aka "non-client area") around client's
+		 * window.
+		 *
+		 * Only shod should create or destroy frame windows.   If we
+		 * got here something has gone wrong and an unknown external
+		 * client destroyed our resources on our behalf.   Shod will
+		 * eventually terminate on a BadWindow or dangling reference
+		 * error.
+		 */
+		return;
+	}
+	if ((*unmanagefuncs[obj->class->type])(obj, 0)) {
+		/*
+		 * Client has been forgotten by shod.
+		 * Sign main loop to update client list.
+		 */
+		wm.setclientlist = true;
 	}
 }
 
@@ -1930,10 +1965,20 @@ xeventunmapnotify(XEvent *e)
 	struct Object *obj;
 
 	ev = &e->xunmap;
-	if ((obj = getmanaged(ev->window)) != NULL) {
-		if (obj->win == ev->window && (*unmanagefuncs[obj->class->type])(obj, 1)) {
-			wm.setclientlist = 1;
-		}
+	obj = getmanaged(ev->window);
+	if (obj == NULL || obj->win != ev->window) {
+		/*
+		 * Unmapped window is not the client window of an object
+		 * we handle.
+		 */
+		return;
+	}
+	if ((*unmanagefuncs[obj->class->type])(obj, 0)) {
+		/*
+		 * Client has been forgotten by shod.
+		 * Sign main loop to update client list.
+		 */
+		wm.setclientlist = true;
 	}
 }
 

@@ -566,7 +566,7 @@ struct Notification {
 };
 
 struct WM {
-	int running;
+	Bool running;
 
 	/*
 	 * The window manager maintains a list of monitors and several
