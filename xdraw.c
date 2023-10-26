@@ -629,9 +629,11 @@ reloadtheme(void)
 		FOCUSED,
 		0
 	);
-	XResizeWindow(
+	XMoveResizeWindow(
 		dpy,
 		wm.dragwin,
+		- (2 * config.borderwidth + config.titlewidth),
+		- (2 * config.borderwidth + config.titlewidth),
 		2 * config.borderwidth + config.titlewidth,
 		2 * config.borderwidth + config.titlewidth
 	);
