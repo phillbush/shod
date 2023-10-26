@@ -433,50 +433,40 @@ The options are as follows:
 Sends to a desktop on the provided monitor rather than on the currently focused monitor.
 Monitors are counted from 1, not from 0.
 .El
-.Ss Set container state
+.Ss Set window state
 The
 .Cm state
-operation sets the state of the container of the window whose ID is provided as argument.
-If no argument is provided, sets the state of the container of the active window.
+operation sets the state of a window whose ID is provided as argument.
+If no argument is provided, sets the state of the active window.
 .Pp
 The options are as follows:
 .Bl -tag -width Ds
 .It Fl a
-Above.
-Raise container above others.
+Above state.
 .It Fl b
-Below.
-Lower container below others.
+Below state.
 .It Fl f
-Fullscreen.
-Make container fullscreen.
+Fullscreen state.
 .It Fl M
-Maximized.
-Maximize container.
+Maximized state.
 .It Fl m
-Minimized.
-Minimize container.
+Minimized state.
 .It Fl s
-Shaded.
-The container is resized to fit its titlebars.
+Shaded state.
 .It Fl y
-Sticky.
-Stick container to the monitor.
+Sticky state.
 .It Fl A
-Add state.
-Force state to be set.
+Add state (force state to be set).
 .It Fl T
-Toggle state.
-Set state if it is unset, or unset it if it is set.
+Toggle state (set state if it is unset, or unset it if it is set).
 This is the default.
 .It Fl R
-Remove state.
-Force state to be unset.
+Remove state (force state to be unset).
 .El
 .Sh USAGE
 .Nm shod
 maintains one virtual monitor for each physical monitor found by
-.Xr Xinerama 3 .
+.Xr Xrandr 3 .
 One of the monitors is the focused one, where new windows go to when they are created.
 Each monitor contains a different set of virtual desktops (or "desktop" for short).
 One of the desktops of a monitor is the focused desktop for that monitor.
@@ -535,7 +525,10 @@ The upper layer (for containers above others).
 The fullscreen layer (for fullscreen containers).
 .El
 .Pp
-Each container can have one or more of the following states:
+Each container can have one or more of the following states
+(which can be set by
+.Nm shodc
+.Cm state ) .
 .Bl -tag -width Ds
 .It Maximized
 The container occupies the entire container area.
@@ -697,22 +690,36 @@ etc.
 .Pp
 .Nm shod
 can change the size and the position of notification windows.
-.Ss Bars
-Windows of type
+.Ss Docks
+Shod's internal dock and windows of type
 .Ic _NET_WM_WINDOW_TYPE_DOCK
-(called panels, bars, or external docks (to distinguish them from
-.Nm shod .Ns "'s"
-internal dock))
-are mapped on a side of a monitor.
+(called panels, bars, or external docks)
+are mapped on a side of a monitor and are called
+.Em docks .
 Dock windows cannot be manipulated,
 have no decoration and do not receive input focus.
 .Pp
-A bar window can change the size of a region of the monitor called
+Depending on ther maximized status,
+docks can change the size of a region of the monitor called
 .Dq "container area" .
 The container area is the region of the monitor that a maximized container occupies.
 The container area is also the region of the monitor inside which containers are spawned.
 .Pp
-Examples of bar are a taskbar that shows which programs are currently running,
+Each dock can have one or more of the following states
+(which can be set by
+.Nm shodc
+.Cm state ) .
+.Bl -tag -width Ds
+.It Maximized
+The dock shrinks the container area.
+.It Minimized
+The dock is hidden.
+.It Above/Below
+Those two states are mutually exclusive.
+The dock is placed above containers' upper layer, or below containers' bottom layer, respectively.
+.El
+.Pp
+Examples of docks are a taskbar that shows which programs are currently running,
 or a status bar that shows information about the system.
 .Pp
 .Nm shod
@@ -721,7 +728,7 @@ does not change the size nor the position of bar windows.
 Windows that initiate in the
 .Ic WithdrawnState
 (called dockapps)
-are mapped inside the dock.
+are mapped inside Shod's internal dock.
 The dock is a panel or bar that appears on the edge of the first monitor.
 Inside the dock, dockapps are organized by order of map request.
 .Pp
