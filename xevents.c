@@ -146,32 +146,20 @@ struct GNUHints {
 	unsigned long extra_flags;
 };
 
-void (*managefuncs[TYPE_LAST])(struct Tab *, struct Monitor *, int, Window, Window, XRectangle, int) = {
-	[TYPE_NOTIFICATION] = managenotif,
-	[TYPE_DOCKAPP] = managedockapp,
-	[TYPE_NORMAL] = managecontainer,
-	[TYPE_DIALOG] = managedialog,
-	[TYPE_SPLASH] = managesplash,
-	[TYPE_PROMPT] = manageprompt,
-	[TYPE_MENU] = managemenu,
-	[TYPE_BAR] = managebar,
-};
-
-int (*unmanagefuncs[TYPE_LAST])(struct Object *) = {
-	[TYPE_NOTIFICATION] = unmanagenotif,
-	[TYPE_DOCKAPP] = unmanagedockapp,
-	[TYPE_NORMAL] = unmanagecontainer,
-	[TYPE_DIALOG] = unmanagedialog,
-	[TYPE_SPLASH] = unmanagesplash,
-	[TYPE_PROMPT] = unmanageprompt,
-	[TYPE_MENU] = unmanagemenu,
-	[TYPE_BAR] = unmanagebar,
-};
-
 #define GETMANAGED(head, p, w)                                  \
 	TAILQ_FOREACH(p, &(head), entry)                        \
 		if (p->win == w)                                \
 			return (p);                             \
+
+static void mapwin(struct Tab *, struct Monitor *, int, Window,
+                   Window, XRectangle, enum State);
+
+static struct Class *unknown_class = &(struct Class){
+	.type           = TYPE_UNKNOWN,
+	.setstate       = NULL,
+	.manage         = mapwin,
+	.unmanage       = NULL,
+};
 
 /* check whether window was placed by the user */
 static int
@@ -284,10 +272,10 @@ getleaderof(Window leader)
 }
 
 /* get bitmask of container state from given window */
-static int
+static enum State
 getwinstate(Window win)
 {
-	int state;
+	enum State state;
 	unsigned long i, nstates;
 	unsigned char *list;
 	unsigned long dl;   /* dummy variable */
@@ -398,28 +386,44 @@ getextrahints(Window win, Atom prop, unsigned long nmemb, size_t size, void *hin
 
 #define STRCMP(a, b) ((a) != NULL && (b) != NULL && strcmp((a), (b)) == 0)
 
-/* get window info based on its type */
-int
-getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectangle *rect, int *desk)
+static void
+mapwin(struct Tab *tab, struct Monitor *mon, int desk, Window win,
+       Window leader, XRectangle rect, enum State state)
+{
+	(void)tab;
+	(void)mon;
+	(void)desk;
+	(void)leader;
+	(void)rect;
+	if (state & BELOW)
+		XLowerWindow(dpy, win);
+	else if (state & ABOVE)
+		XRaiseWindow(dpy, win);
+	XMapWindow(dpy, win);
+}
+
+struct Class *
+getwinclass(Window win, Window *leader, struct Tab **tab, enum State *state, XRectangle *rect, int *desk)
 {
 	/* rules for identifying windows */
 	enum { I_APP, I_CLASS, I_INSTANCE, I_ROLE, I_RESOURCE, I_NULL, I_LAST };
-	XrmClass class[I_LAST];
-	XrmName name[I_LAST];
+	XrmClass winclass[I_LAST];
+	XrmName winname[I_LAST];
 	struct MwmHints mwmhints = { 0 };
 	struct GNUHints gnuhints = { 0 };
+	struct Class *class;
 	XClassHint classh = { .res_class = NULL, .res_name = NULL };
 	XWMHints *wmhints;
 	Atom prop;
 	size_t i;
 	long n;
-	int type, isdockapp, pos;
+	int isdockapp, pos;
 	char *role, *value;
 
 	pos = 0;
 	*tab = NULL;
 	*state = 0;
-	type = TYPE_UNKNOWN;
+	class = NULL;
 	classh.res_class = NULL;
 	classh.res_name = NULL;
 
@@ -432,8 +436,8 @@ getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectangle 
 		if ((config.rules[i].class == NULL    || STRCMP(config.rules[i].class, classh.res_class))
 		&&  (config.rules[i].instance == NULL || STRCMP(config.rules[i].instance, classh.res_name))
 		&&  (config.rules[i].role == NULL     || STRCMP(config.rules[i].role, role))) {
-			if (config.rules[i].type != TYPE_MENU && config.rules[i].type != TYPE_DIALOG) {
-				type = config.rules[i].type;
+			if (config.rules[i].type == TYPE_DOCKAPP) {
+				class = dockapp_class;
 			}
 			if (config.rules[i].state >= 0) {
 				*state = config.rules[i].state;
@@ -445,44 +449,37 @@ getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectangle 
 	}
 
 	/* convert strings to quarks for xrm */
-	class[I_NULL] = name[I_NULL] = NULLQUARK;
-	class[I_APP] = wm.application.class;
-	name[I_APP] = wm.application.name;
+	winclass[I_NULL] = winname[I_NULL] = NULLQUARK;
+	winclass[I_APP] = wm.application.class;
+	winname[I_APP] = wm.application.name;
 	if (classh.res_class != NULL)
-		class[I_CLASS] = name[I_CLASS] = XrmStringToQuark(classh.res_class);
+		winclass[I_CLASS] = winname[I_CLASS] = XrmStringToQuark(classh.res_class);
 	else
-		class[I_CLASS] = name[I_CLASS] = wm.anyresource;
+		winclass[I_CLASS] = winname[I_CLASS] = wm.anyresource;
 	if (classh.res_name != NULL)
-		class[I_INSTANCE] = name[I_INSTANCE] = XrmStringToQuark(classh.res_name);
+		winclass[I_INSTANCE] = winname[I_INSTANCE] = XrmStringToQuark(classh.res_name);
 	else
-		class[I_INSTANCE] = name[I_INSTANCE] = wm.anyresource;
+		winclass[I_INSTANCE] = winname[I_INSTANCE] = wm.anyresource;
 	if (role != NULL)
-		class[I_ROLE] = name[I_ROLE] = XrmStringToQuark(role);
+		winclass[I_ROLE] = winname[I_ROLE] = XrmStringToQuark(role);
 	else
-		class[I_ROLE] = name[I_ROLE] = wm.anyresource;
+		winclass[I_ROLE] = winname[I_ROLE] = wm.anyresource;
 	free(role);
 	XFree(classh.res_class);
 	XFree(classh.res_name);
 
 	/* get window type from X resources */
-	class[I_RESOURCE] = wm.resources[RES_TYPE].class;
-	name[I_RESOURCE] = wm.resources[RES_TYPE].name;
-	if ((value = getresource(xdb, class, name)) != NULL) {
-		if (strcasecmp(value, "DESKTOP") == 0) {
-			type = TYPE_DESKTOP;
-		} else if (strcasecmp(value, "DOCKAPP") == 0) {
-			type = TYPE_DOCKAPP;
-		} else if (strcasecmp(value, "PROMPT") == 0) {
-			type = TYPE_PROMPT;
-		} else if (strcasecmp(value, "NORMAL") == 0) {
-			type = TYPE_NORMAL;
-		}
+	winclass[I_RESOURCE] = wm.resources[RES_TYPE].class;
+	winname[I_RESOURCE] = wm.resources[RES_TYPE].name;
+	if ((value = getresource(xdb, winclass, winname)) != NULL &&
+	    strcasecmp(value, "DESKTOP") == 0) {
+		class = dockapp_class;
 	}
 
 	/* get window state from X resources */
-	class[I_RESOURCE] = wm.resources[RES_STATE].class;
-	name[I_RESOURCE] = wm.resources[RES_STATE].name;
-	if ((value = getresource(xdb, class, name)) != NULL) {
+	winclass[I_RESOURCE] = wm.resources[RES_STATE].class;
+	winname[I_RESOURCE] = wm.resources[RES_STATE].name;
+	if ((value = getresource(xdb, winclass, winname)) != NULL) {
 		*state = 0;
 		if (strcasestr(value, "above") != NULL) {
 			*state |= ABOVE;
@@ -517,25 +514,25 @@ getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectangle 
 	}
 
 	/* get dockapp position from X resources */
-	class[I_RESOURCE] = wm.resources[RES_DOCK_POS].class;
-	name[I_RESOURCE] = wm.resources[RES_DOCK_POS].name;
-	if ((value = getresource(xdb, class, name)) != NULL) {
+	winclass[I_RESOURCE] = wm.resources[RES_DOCK_POS].class;
+	winname[I_RESOURCE] = wm.resources[RES_DOCK_POS].name;
+	if ((value = getresource(xdb, winclass, winname)) != NULL) {
 		if ((n = strtol(value, NULL, 10)) >= 0 && n < INT_MAX) {
 			pos = n;
 		}
 	}
 
 	/* get desktop id from X resources */
-	class[I_RESOURCE] = wm.resources[RES_DESKTOP].class;
-	name[I_RESOURCE] = wm.resources[RES_DESKTOP].name;
-	if ((value = getresource(xdb, class, name)) != NULL) {
+	winclass[I_RESOURCE] = wm.resources[RES_DESKTOP].class;
+	winname[I_RESOURCE] = wm.resources[RES_DESKTOP].name;
+	if ((value = getresource(xdb, winclass, winname)) != NULL) {
 		if ((n = strtol(value, NULL, 10)) > 0 && n <= config.ndesktops) {
 			*desk = n - 1;
 		}
 	}
 
 	/* we already got the type of the window, return */
-	if (type != TYPE_UNKNOWN)
+	if (class != NULL)
 		goto done;
 
 	/* try to guess window type */
@@ -560,17 +557,19 @@ getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectangle 
 	if (isdockapp ||
 	    gnuhints.window_style == GNU_STYLE_ICON ||
 	    gnuhints.window_style == GNU_STYLE_MINIWINDOW) {
-		type = TYPE_DOCKAPP;
+		class = dockapp_class;
 	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_DESKTOP]) {
-		type = TYPE_DESKTOP;
+		class = unknown_class;
+		*state = BELOW;
 	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_NOTIFICATION]) {
-		type = TYPE_NOTIFICATION;
+		class = notif_class;
 	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_PROMPT]) {
-		type = TYPE_PROMPT;
+		class = prompt_class;
 	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_SPLASH]) {
-		type = TYPE_SPLASH;
+		class = splash_class;
 	} else if (gnuhints.window_level == GNU_LEVEL_POPUP) {
-		type = TYPE_POPUP;
+		class = unknown_class;
+		*state = ABOVE;
 	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_MENU] ||
 	           prop == atoms[_NET_WM_WINDOW_TYPE_UTILITY] ||
 	           prop == atoms[_NET_WM_WINDOW_TYPE_TOOLBAR] ||
@@ -581,13 +580,13 @@ getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectangle 
                     (mwmhints.status & MWM_TEAROFF_WINDOW))) {
 		if (*tab != NULL)
 			*leader = (*tab)->obj.win;
-		type = TYPE_MENU;
+		class = menu_class;
 	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_DOCK]) {
-		type = TYPE_BAR;
+		class = bar_class;
 	} else if (*tab != NULL) {
 		if (*tab != NULL)
 			*leader = (*tab)->obj.win;
-		type = config.floatdialog ? TYPE_MENU : TYPE_DIALOG;
+		class = config.floatdialog ? menu_class : dialog_class;
 	} else {
 		if (prop != atoms[_NET_WM_WINDOW_TYPE_MENU] &&
 		    prop != atoms[_NET_WM_WINDOW_TYPE_DIALOG] &&
@@ -595,13 +594,13 @@ getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectangle 
 		    prop != atoms[_NET_WM_WINDOW_TYPE_TOOLBAR]) {
 			*tab = getleaderof(*leader);
 		}
-		type = TYPE_NORMAL;
+		class = tab_class;
 	}
 
 done:
-	if (type == TYPE_DOCKAPP)
+	if (class == dockapp_class)
 		rect->x = rect->y = pos;
-	return type;
+	return class;
 }
 
 /* select window input events, grab mouse button presses, and clear its border */
@@ -771,24 +770,16 @@ static void
 manage(Window win, XRectangle rect)
 {
 	struct Tab *tab;
+	struct Class *class;
 	Window leader;
-	int state, type;
+	enum State state;
 	int desk = wm.selmon->seldesk;
 
 	if (getmanaged(win) != NULL)
 		return;
-	type = getwintype(win, &leader, &tab, &state, &rect, &desk);
-	if (type == TYPE_DESKTOP || type == TYPE_POPUP) {
-		/* we do not handle desktop windows */
-		if (type == TYPE_DESKTOP)
-			XLowerWindow(dpy, win);
-		else if (type == TYPE_POPUP)
-			XRaiseWindow(dpy, win);
-		XMapWindow(dpy, win);
-		return;
-	}
 	preparewin(win);
-	(*managefuncs[type])(tab, wm.selmon, desk, win, leader, rect, state);
+	class = getwinclass(win, &leader, &tab, &state, &rect, &desk);
+	(*class->manage)(tab, wm.selmon, desk, win, leader, rect, state);
 }
 
 /* perform container switching (aka alt-tab) */
@@ -1787,13 +1778,7 @@ xeventdestroynotify(XEvent *e)
 		 */
 		return;
 	}
-	if ((*unmanagefuncs[obj->class->type])(obj)) {
-		/*
-		 * Client has been forgotten by shod.
-		 * Sign main loop to update client list.
-		 */
-		wm.setclientlist = true;
-	}
+	(*obj->class->unmanage)(obj);
 }
 
 /* focus window when cursor enter it (only if there is no focus button) */
@@ -1996,13 +1981,7 @@ xeventunmapnotify(XEvent *e)
 		 */
 		return;
 	}
-	if ((*unmanagefuncs[obj->class->type])(obj)) {
-		/*
-		 * Client has been forgotten by shod.
-		 * Sign main loop to update client list.
-		 */
-		wm.setclientlist = true;
-	}
+	(*obj->class->unmanage)(obj);
 }
 
 /* scan for already existing windows and adopt them */

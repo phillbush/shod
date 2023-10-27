@@ -23,9 +23,8 @@ barstrut(struct Bar *bar)
 	XFree(arr);
 }
 
-/* map bar window */
-void
-managebar(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state)
+static void
+manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
 {
 	struct Bar *bar;
 
@@ -34,15 +33,19 @@ managebar(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window lea
 	(void)desk;
 	(void)leader;
 	(void)rect;
-	(void)state;
-	Window wins[2] = {wm.layers[LAYER_DOCK].frame, win};
+	Window wins[2];
 
 	bar = emalloc(sizeof(*bar));
 	*bar = (struct Bar){
 		.obj.win = win,
 		.obj.class = bar_class,
-		.state = MAXIMIZED,
+		.state = state | MAXIMIZED,
 	};
+	if (state & BELOW)
+		wins[0] = wm.layers[LAYER_DESK].frame;
+	else
+		wins[0] = wm.layers[LAYER_DOCK].frame;
+	wins[1] = win;
 	TAILQ_INSERT_HEAD(&wm.barq, (struct Object *)bar, entry);
 	XRestackWindows(dpy, wins, 2);
 	XMapWindow(dpy, win);
@@ -50,9 +53,8 @@ managebar(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window lea
 	monupdatearea();
 }
 
-/* delete bar */
-int
-unmanagebar(struct Object *obj)
+static void
+unmanage(struct Object *obj)
 {
 	struct Bar *bar;
 
@@ -60,7 +62,6 @@ unmanagebar(struct Object *obj)
 	TAILQ_REMOVE(&wm.barq, (struct Object *)bar, entry);
 	free(bar);
 	monupdatearea();
-	return 0;
 }
 
 static void
@@ -138,7 +139,9 @@ changestate(struct Object *obj, enum State mask, int set)
 	monupdatearea();
 }
 
-Class *bar_class = &(Class){
+struct Class *bar_class = &(struct Class){
 	.type           = TYPE_BAR,
-	.setstate       = &changestate,
+	.setstate       = changestate,
+	.manage         = manage,
+	.unmanage       = unmanage,
 };

@@ -368,9 +368,8 @@ dockupdate(void)
 	XMapSubwindows(dpy, dock.obj.win);
 }
 
-/* map dockapp window */
-void
-managedockapp(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state)
+static void
+manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
 {
 	(void)tab;
 	(void)mon;
@@ -382,9 +381,8 @@ managedockapp(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window
 	monupdatearea();
 }
 
-/* delete dockapp */
-int
-unmanagedockapp(struct Object *obj)
+static void
+unmanage(struct Object *obj)
 {
 	struct Dockapp *dapp;
 
@@ -394,7 +392,6 @@ unmanagedockapp(struct Object *obj)
 	free(dapp);
 	dockupdate();
 	monupdatearea();
-	return 0;
 }
 
 void
@@ -406,7 +403,8 @@ dockreset(void)
 	Window win, dummyw;
 	struct Tab *dummyt;
 	XRectangle rect;
-	int state, desk;
+	enum State state;
+	int desk;
 
 	if (TAILQ_EMPTY(&dock.dappq)) {
 		XUnmapWindow(dpy, dock.obj.win);
@@ -421,7 +419,7 @@ dockreset(void)
 		TAILQ_REMOVE(&dappq, obj, entry);
 		win = obj->win;
 		dapp = (struct Dockapp *)obj;
-		if (getwintype(win, &dummyw, &dummyt, &state, &rect, &desk) == TYPE_DOCKAPP) {
+		if (getwinclass(win, &dummyw, &dummyt, &state, &rect, &desk) == dockapp_class) {
 			if (rect.x > 0) {
 				dapp->dockpos = rect.x;
 			}
@@ -461,12 +459,16 @@ changestate(struct Object *obj, enum State mask, int set)
 	monupdatearea();
 }
 
-Class *dock_class = &(Class){
+struct Class *dock_class = &(struct Class){
 	.type           = TYPE_DOCK,
 	.setstate       = &changestate,
+	.manage         = NULL,
+	.unmanage       = NULL,
 };
 
-Class *dockapp_class = &(Class){
+struct Class *dockapp_class = &(struct Class){
 	.type           = TYPE_DOCKAPP,
 	.setstate       = NULL,
+	.manage         = manage,
+	.unmanage       = unmanage,
 };

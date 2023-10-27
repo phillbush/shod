@@ -413,7 +413,7 @@ struct Monitor {
 	int wx, wy, ww, wh;                     /* window area */
 };
 
-typedef struct Class {
+struct Class {
 	enum Type {
 		TYPE_UNKNOWN,
 		TYPE_NORMAL,
@@ -432,7 +432,9 @@ typedef struct Class {
 
 	/* class' methods */
 	void (*setstate)(struct Object *, enum State, int);
-} Class;
+	void (*manage)(struct Tab *, struct Monitor *, int, Window, Window, XRectangle, enum State);
+	void (*unmanage)(struct Object *);
+};
 
 struct Tab {
 	struct Object obj;
@@ -634,7 +636,7 @@ struct WM {
 	 * set.  At the end of each main loop iteration, it is checked
 	 * and the list of clients is changed accordingly.
 	 */
-	bool setclientlist;
+	Bool setclientlist;
 
 	Window presswin;
 };
@@ -703,13 +705,10 @@ struct Config {
 	int divwidth;                           /* = .borderwidth */
 };
 
-typedef void Managefunc(struct Tab *, struct Monitor *, int, Window, Window, XRectangle, int);
-typedef int Unmanagefunc(struct Object *obj);
-
 /* container routines */
 struct Container *getnextfocused(struct Monitor *mon, int desk);
 struct Container *containerraisetemp(struct Container *prevc, int backward);
-void containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle rect, int state);
+void containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle rect, enum State state);
 void containerbacktoplace(struct Container *c, int restack);
 void containerdel(struct Container *c);
 void containermoveresize(struct Container *c, int checkstack);
@@ -805,30 +804,12 @@ void setresources(char *xrm);
 int settheme(void);
 
 /* window management routines */
-Managefunc managedockapp;
-Managefunc managedialog;
-Managefunc managesplash;
-Managefunc manageprompt;
-Managefunc managenotif;
-Managefunc managemenu;
-Managefunc managecontainer;
-Managefunc managebar;
-Unmanagefunc unmanagedockapp;
-Unmanagefunc unmanagedialog;
-Unmanagefunc unmanagesplash;
-Unmanagefunc unmanageprompt;
-Unmanagefunc unmanagenotif;
-Unmanagefunc unmanagemenu;
-Unmanagefunc unmanagecontainer;
-Unmanagefunc unmanagebar;
 void setmod(void);
 void scan(void);
 void deskupdate(struct Monitor *mon, int desk);
 int getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectangle *rect, int *desk);
-
-/* function tables */
-extern void (*managefuncs[])(struct Tab *, struct Monitor *, int, Window, Window, XRectangle, int);
-extern int (*unmanagefuncs[])(struct Object *);
+struct Class *getwinclass(Window win, Window *leader, struct Tab **tab,
+                          enum State *state, XRectangle *rect, int *desk);
 
 /* extern variables */
 extern XSetWindowAttributes clientswa;
@@ -839,12 +820,12 @@ extern struct WM wm;
 extern struct Dock dock;
 
 /* object classes */
-extern Class *tab_class;
-extern Class *dialog_class;
-extern Class *dock_class;
-extern Class *bar_class;
-extern Class *menu_class;
-extern Class *dialog_class;
-extern Class *dockapp_class;
-extern Class *notif_class;
-extern Class *splash_class;
+extern struct Class *bar_class;
+extern struct Class *dialog_class;
+extern struct Class *dock_class;
+extern struct Class *dockapp_class;
+extern struct Class *menu_class;
+extern struct Class *notif_class;
+extern struct Class *prompt_class;
+extern struct Class *splash_class;
+extern struct Class *tab_class;

@@ -179,9 +179,8 @@ menuhide(struct Menu *menu, int hide)
 	icccmwmstate(menu->obj.win, (hide ? IconicState : NormalState));
 }
 
-/* assign menu to tab */
-void
-managemenu(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state)
+static void
+manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
 {
 	struct Menu *menu;
 
@@ -205,9 +204,8 @@ managemenu(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window le
 	}
 }
 
-/* delete menu; return whether menu was deleted */
-int
-unmanagemenu(struct Object *obj)
+static void
+unmanage(struct Object *obj)
 {
 	struct Menu *menu;
 
@@ -226,7 +224,7 @@ unmanagemenu(struct Object *obj)
 	XDestroyWindow(dpy, menu->button);
 	free(menu->name);
 	free(menu);
-	return 1;
+	wm.setclientlist = True;
 }
 
 /* check if given tab accepts given menu */
@@ -257,7 +255,9 @@ menuupdate(void)
 	}
 }
 
-Class *menu_class = &(Class){
+struct Class *menu_class = &(struct Class){
 	.type           = TYPE_MENU,
 	.setstate       = NULL,
+	.manage         = manage,
+	.unmanage       = unmanage,
 };

@@ -119,9 +119,8 @@ notifplace(void)
 	}
 }
 
-/* add notification window into notification queue; and update notification placement */
-void
-managenotif(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state)
+static void
+manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
 {
 	(void)tab;
 	(void)mon;
@@ -132,9 +131,8 @@ managenotif(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window l
 	notifplace();
 }
 
-/* delete notification */
-int
-unmanagenotif(struct Object *obj)
+static void
+unmanage(struct Object *obj)
 {
 	struct Notification *notif;
 
@@ -146,10 +144,11 @@ unmanagenotif(struct Object *obj)
 	XDestroyWindow(dpy, notif->frame);
 	free(notif);
 	notifplace();
-	return 0;
 }
 
-Class *notif_class = &(Class){
+struct Class *notif_class = &(struct Class){
 	.type           = TYPE_NOTIFICATION,
 	.setstate       = NULL,
+	.manage         = manage,
+	.unmanage       = unmanage,
 };

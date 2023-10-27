@@ -364,13 +364,13 @@ cleanwm(void)
 	while ((c = TAILQ_FIRST(&wm.focusq)) != NULL)
 		containerdel(c);
 	while ((obj = TAILQ_FIRST(&wm.notifq)) != NULL)
-		(void)unmanagenotif(obj);
+		(*obj->class->unmanage)(obj);
 	while ((obj = TAILQ_FIRST(&wm.barq)) != NULL)
-		(void)unmanagebar(obj);
+		(*obj->class->unmanage)(obj);
 	while ((obj = TAILQ_FIRST(&wm.splashq)) != NULL)
-		(void)unmanagesplash(obj);
+		(*obj->class->unmanage)(obj);
 	while ((obj = TAILQ_FIRST(&dock.dappq)) != NULL)
-		(void)unmanagedockapp(obj);
+		(*obj->class->unmanage)(obj);
 	while ((mon = TAILQ_FIRST(&wm.monq)) != NULL)
 		mondel(mon);
 	if (dock.pix != None)

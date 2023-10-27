@@ -51,15 +51,19 @@ promptdecorate(Window frame, Pixmap *pix, int w, int h)
 	drawcommit(*pix, frame);
 }
 
-/* map prompt, give it focus, wait for it to close, then revert focus to previously focused window */
-void
-manageprompt(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state)
+static void
+manage(struct Tab *tab, struct Monitor *mon, int desk, Window win,
+       Window leader, XRectangle rect, enum State state)
 {
 	Window frame;                           /* prompt frame */
 	Pixmap pix;                             /* pixmap to draw the frame */
 	XEvent ev;
 	int x, y, w, h, fw, fh;
 
+	/*
+	 * Map prompt, give it focus, wait for it to close, then revert
+	 * focus to previously focused window.
+	 */
 	(void)tab;
 	(void)mon;
 	(void)desk;
@@ -106,9 +110,9 @@ done:
 	}
 }
 
-int
-unmanageprompt(struct Object *obj)
-{
-	(void)obj;
-	return 0;
-}
+struct Class *prompt_class = &(struct Class){
+	.type           = TYPE_PROMPT,
+	.setstate       = NULL,
+	.manage         = manage,
+	.unmanage       = NULL,
+};

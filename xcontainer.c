@@ -2,6 +2,8 @@
 
 #define DIV                     15      /* see containerplace() for details */
 
+static void unmanagedialog(struct Object *);
+
 /* get next focused container after old on given monitor and desktop */
 struct Container *
 getnextfocused(struct Monitor *mon, int desk)
@@ -1830,7 +1832,7 @@ dialogmoveresize(struct Dialog *dial)
 
 /* create container for tab */
 void
-containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle rect, int state)
+containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle rect, enum State state)
 {
 	struct Container *c;
 	struct Column *col;
@@ -1861,8 +1863,8 @@ containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle r
 }
 
 /* create container for tab */
-void
-managecontainer(struct Tab *prev, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state)
+static void
+managecontainer(struct Tab *prev, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
 {
 	struct Tab *tab;
 	struct Container *c;
@@ -1889,8 +1891,8 @@ managecontainer(struct Tab *prev, struct Monitor *mon, int desk, Window win, Win
 }
 
 /* create container for tab */
-void
-managedialog(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, int state)
+static void
+managedialog(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
 {
 	struct Dialog *dial;
 
@@ -1910,8 +1912,8 @@ managedialog(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window 
 	wm.setclientlist = 1;
 }
 
-/* unmanage tab (and delete its row if it is the only tab); return whether deletion occurred */
-int
+/* unmanage tab (and delete its row if it is the only tab) */
+static void
 unmanagecontainer(struct Object *obj)
 {
 	struct Container *c, *next;
@@ -1954,11 +1956,11 @@ unmanagecontainer(struct Object *obj)
 	if (focus) {
 		tabfocus((next != NULL) ? next->selcol->selrow->seltab : NULL, 0);
 	}
-	return 1;
+	wm.setclientlist = True;
 }
 
-/* delete dialog; return whether dialog was deleted */
-int
+/* delete dialog */
+static void
 unmanagedialog(struct Object *obj)
 {
 	struct Dialog *dial;
@@ -1971,7 +1973,7 @@ unmanagedialog(struct Object *obj)
 	XReparentWindow(dpy, dial->obj.win, root, 0, 0);
 	XDestroyWindow(dpy, dial->frame);
 	free(dial);
-	return 1;
+	wm.setclientlist = True;
 }
 
 /* get height of column without borders, divisors, title bars, etc */
@@ -1989,12 +1991,16 @@ containercontentwidth(struct Container *c)
 	return c->w - (c->ncols - 1) * config.divwidth - 2 * c->b;
 }
 
-Class *tab_class = &(Class){
+struct Class *tab_class = &(struct Class){
 	.type           = TYPE_NORMAL,
 	.setstate       = containersetstate,
+	.manage         = managecontainer,
+	.unmanage       = unmanagecontainer,
 };
 
-Class *dialog_class = &(Class){
+struct Class *dialog_class = &(struct Class){
 	.type           = TYPE_DIALOG,
 	.setstate       = NULL,
+	.manage         = managedialog,
+	.unmanage       = unmanagedialog,
 };
