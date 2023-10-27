@@ -44,6 +44,9 @@ mondel(struct Monitor *mon)
 	TAILQ_FOREACH(obj, &wm.splashq, entry)
 		if (((struct Splash *)obj)->mon == mon)
 			((struct Splash *)obj)->mon = NULL;
+	TAILQ_FOREACH(obj, &wm.barq, entry)
+		if (((struct Bar *)obj)->mon == mon)
+			((struct Bar *)obj)->mon = NULL;
 	free(mon);
 }
 
@@ -57,6 +60,73 @@ getmon(int x, int y)
 		if (x >= mon->mx && x < mon->mx + mon->mw && y >= mon->my && y < mon->my + mon->mh)
 			return mon;
 	return NULL;
+}
+
+/* return if bar is on monitor and pixels bar uses at each edge */
+static Bool
+baratmon(struct Monitor *mon, struct Bar *bar, int *l, int *r, int *t, int *b)
+{
+	int strutl, strutr, strutt, strutb;
+	Bool atmon;
+
+	if (l != NULL)
+		*l = 0;
+	if (r != NULL)
+		*r = 0;
+	if (t != NULL)
+		*t = 0;
+	if (b != NULL)
+		*b = 0;
+	if (bar->state & MINIMIZED)
+		return False;
+	if (!(bar->state & MAXIMIZED))
+		return False;
+	atmon = False;
+	strutl = bar->strut[STRUT_LEFT];
+	strutr = DisplayWidth(dpy, screen) - bar->strut[STRUT_RIGHT];
+	strutt = bar->strut[STRUT_TOP];
+	strutb = DisplayHeight(dpy, screen) - bar->strut[STRUT_BOTTOM];
+	if (strutt > 0 && strutt >= mon->my && strutt < mon->my + mon->mh &&
+	    (!bar->ispartial ||
+	     (bar->strut[STRUT_TOP_START_X] >= mon->mx &&
+	     bar->strut[STRUT_TOP_END_X] <= mon->mx + mon->mw))) {
+		if (t != NULL) {
+			*t = bar->strut[STRUT_TOP] - mon->my;
+		}
+		atmon = True;
+	}
+	if (strutb > 0 && strutb <= mon->my + mon->mh && strutb > mon->my &&
+	    (!bar->ispartial ||
+	     (bar->strut[STRUT_BOTTOM_START_X] >= mon->mx &&
+	     bar->strut[STRUT_BOTTOM_END_X] <= mon->mx + mon->mw))) {
+		if (b != NULL) {
+			*b = bar->strut[STRUT_BOTTOM];
+			*b -= DisplayHeight(dpy, screen);
+			*b -= mon->my + mon->mh;
+		}
+		atmon = True;
+	}
+	if (strutl > 0 && strutl >= mon->mx && strutl < mon->mx + mon->mw &&
+	    (!bar->ispartial ||
+	     (bar->strut[STRUT_LEFT_START_Y] >= mon->my &&
+	     bar->strut[STRUT_LEFT_END_Y] <= mon->my + mon->mh))) {
+		if (l != NULL) {
+			*l = bar->strut[STRUT_LEFT] - mon->mx;
+		}
+		atmon = True;
+	}
+	if (strutr > 0 && strutr <= mon->mx + mon->mw && strutr > mon->mx &&
+	    (!bar->ispartial ||
+	     (bar->strut[STRUT_RIGHT_START_Y] >= mon->my &&
+	     bar->strut[STRUT_RIGHT_END_Y] <= mon->my + mon->mh))) {
+		if (r != NULL) {
+			*r = bar->strut[STRUT_RIGHT];
+			*r -= DisplayWidth(dpy, screen);
+			*r -= mon->mx + mon->mw;
+		}
+		atmon = True;
+	}
+	return atmon;
 }
 
 /* update the list of monitors */
@@ -155,15 +225,16 @@ monupdatearea(void)
 	struct Bar *bar;
 	struct Object *p;
 	struct Container *c;
-	int t, b, l, r;
+	int l, r, t, b;
+	int left, right, top, bottom;
 
 	TAILQ_FOREACH(mon, &wm.monq, entry) {
 		mon->wx = mon->mx;
 		mon->wy = mon->my;
 		mon->ww = mon->mw;
 		mon->wh = mon->mh;
-		t = b = l = r = 0;
-		if (mon == TAILQ_FIRST(&wm.monq) && dock.mapped &&
+		left = right = top = bottom = 0;
+		if (mon == TAILQ_FIRST(&wm.monq) && !TAILQ_EMPTY(&dock.dappq) &&
 		    (dock.state & MAXIMIZED) && !(dock.state & MINIMIZED)) {
 			switch (config.dockgravity[0]) {
 			case 'N':
@@ -183,48 +254,17 @@ monupdatearea(void)
 		}
 		TAILQ_FOREACH(p, &wm.barq, entry) {
 			bar = (struct Bar *)p;
-			if (bar->state & MINIMIZED)
-				continue;
-			if (!(bar->state & MAXIMIZED))
-				continue;
-			if (bar->strut[STRUT_TOP] != 0) {
-				if (bar->strut[STRUT_TOP] >= mon->my &&
-				    bar->strut[STRUT_TOP] < mon->my + mon->mh &&
-				    (!bar->ispartial ||
-				     (bar->strut[STRUT_TOP_START_X] >= mon->mx &&
-				     bar->strut[STRUT_TOP_END_X] <= mon->mx + mon->mw))) {
-					t = max(t, bar->strut[STRUT_TOP] - mon->my);
-				}
-			} else if (bar->strut[STRUT_BOTTOM] != 0) {
-				if (DisplayHeight(dpy, screen) - bar->strut[STRUT_BOTTOM] <= mon->my + mon->mh &&
-				    DisplayHeight(dpy, screen) - bar->strut[STRUT_BOTTOM] > mon->my &&
-				    (!bar->ispartial ||
-				     (bar->strut[STRUT_BOTTOM_START_X] >= mon->mx &&
-				     bar->strut[STRUT_BOTTOM_END_X] <= mon->mx + mon->mw))) {
-					b = max(b, bar->strut[STRUT_BOTTOM] - (DisplayHeight(dpy, screen) - (mon->my + mon->mh)));
-				}
-			} else if (bar->strut[STRUT_LEFT] != 0) {
-				if (bar->strut[STRUT_LEFT] >= mon->mx &&
-				    bar->strut[STRUT_LEFT] < mon->mx + mon->mw &&
-				    (!bar->ispartial ||
-				     (bar->strut[STRUT_LEFT_START_Y] >= mon->my &&
-				     bar->strut[STRUT_LEFT_END_Y] <= mon->my + mon->mh))) {
-					l = max(l, bar->strut[STRUT_LEFT] - mon->mx);
-				}
-			} else if (bar->strut[STRUT_RIGHT] != 0) {
-				if (DisplayWidth(dpy, screen) - bar->strut[STRUT_RIGHT] <= mon->mx + mon->mw &&
-				    DisplayWidth(dpy, screen) - bar->strut[STRUT_RIGHT] > mon->mx &&
-				    (!bar->ispartial ||
-				     (bar->strut[STRUT_RIGHT_START_Y] >= mon->my &&
-				     bar->strut[STRUT_RIGHT_END_Y] <= mon->my + mon->mh))) {
-					r = max(r, bar->strut[STRUT_RIGHT] - (DisplayWidth(dpy, screen) - (mon->mx + mon->mw)));
-				}
-			}
+			if (baratmon(mon, bar, &l, &r, &t, &b))
+				bar->mon = mon;
+			left   = max(left, l);
+			right  = max(right, r);
+			top    = max(top, t);
+			bottom = max(bottom, b);
 		}
-		mon->wy += t;
-		mon->wh -= t + b;
-		mon->wx += l;
-		mon->ww -= l + r;
+		mon->wy += top;
+		mon->wh -= top + bottom;
+		mon->wx += left;
+		mon->ww -= left + right;
 	}
 	TAILQ_FOREACH(c, &wm.focusq, entry) {
 		if (c->state & MAXIMIZED) {

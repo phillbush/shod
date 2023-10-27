@@ -1778,7 +1778,9 @@ xeventdestroynotify(XEvent *e)
 		 */
 		return;
 	}
-	(*obj->class->unmanage)(obj);
+	if (obj->class->unmanage != NULL) {
+		(*obj->class->unmanage)(obj);
+	}
 }
 
 /* focus window when cursor enter it (only if there is no focus button) */
@@ -1981,7 +1983,9 @@ xeventunmapnotify(XEvent *e)
 		 */
 		return;
 	}
-	(*obj->class->unmanage)(obj);
+	if (obj->class->unmanage != NULL) {
+		(*obj->class->unmanage)(obj);
+	}
 }
 
 /* scan for already existing windows and adopt them */

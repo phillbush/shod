@@ -4,6 +4,16 @@
 
 static void unmanagedialog(struct Object *);
 
+static void
+restackdocks(void)
+{
+	struct Object *obj;
+
+	TAILQ_FOREACH(obj, &wm.barq, entry)
+		barstack((struct Bar *)obj);
+	dockstack();
+}
+
 /* get next focused container after old on given monitor and desktop */
 struct Container *
 getnextfocused(struct Monitor *mon, int desk)
@@ -515,18 +525,6 @@ dialogdecorate(struct Dialog *d)
 	drawcommit(d->pix, d->frame);
 }
 
-/* get focused fullscreen window in given monitor and desktop */
-static struct Container *
-getfullscreen(struct Monitor *mon, int desk)
-{
-	struct Container *c;
-
-	for (c = &wm.layers[LAYER_FULLSCREEN]; !ISDUMMY(c); c = TAILQ_NEXT(c, raiseentry))
-		if (containerisvisible(c, mon, desk))
-			return c;
-	return NULL;
-}
-
 /* add container into head of focus queue */
 static void
 containerinsertfocus(struct Container *c)
@@ -541,9 +539,7 @@ containerinsertraise(struct Container *c)
 	int layer;
 
 	layer = LAYER_NORMAL;
-	if (c->state & FULLSCREEN)
-		layer = LAYER_FULLSCREEN;
-	else if (c->state & ABOVE)
+	if (c->state & ABOVE)
 		layer = LAYER_ABOVE;
 	else if (c->state & BELOW)
 		layer = LAYER_BELOW;
@@ -650,28 +646,28 @@ containersendtodesk(struct Container *c, struct Monitor *mon, unsigned long desk
 static void
 containerfullscreen(struct Container *c, int fullscreen)
 {
-	enum State state;
-
-	state = c->state & ~FULLSCREEN;
-	if (fullscreen != REMOVE && !(c->state & FULLSCREEN))
-		containerraise(c, state | FULLSCREEN);
-	else if (fullscreen != ADD && (c->state & FULLSCREEN))
-		containerraise(c, state);
-	else
-		return;
+	if (fullscreen == REMOVE && !(c->state & FULLSCREEN))
+		return;         /* already unset */
+	if (fullscreen == ADD    &&  (c->state & FULLSCREEN))
+		return;         /* already set */
+	c->state ^= FULLSCREEN;
 	containercalccols(c);
 	containermoveresize(c, 1);
 	containerredecorate(c, NULL, NULL, 0);
 	ewmhsetstate(c);
+	if (wm.focused == c) {
+		restackdocks();
+	}
 }
 
 /* maximize a container on the monitor */
 static void
 containermaximize(struct Container *c, int maximize)
 {
-	if ((maximize == REMOVE && !(c->state & MAXIMIZED)) ||
-	    (maximize == ADD    &&  (c->state & MAXIMIZED)))
-		return;
+	if (maximize == REMOVE && !(c->state & MAXIMIZED))
+		return;         /* already unset */
+	if (maximize == ADD    &&  (c->state & MAXIMIZED))
+		return;         /* already set */
 	c->state ^= MAXIMIZED;
 	containercalccols(c);
 	containermoveresize(c, 1);
@@ -1215,19 +1211,16 @@ containerraise(struct Container *c, enum State state)
 
 	if (c == NULL || c->state & MINIMIZED)
 		return;
-	state &= (FULLSCREEN|ABOVE|BELOW);
 	containerdelraise(c);
 	wins[1] = c->frame;
 	layer = LAYER_NORMAL;
-	if (state & FULLSCREEN)
-		layer = LAYER_FULLSCREEN;
-	else if (state & ABOVE)
+	if (state & ABOVE)
 		layer = LAYER_ABOVE;
 	else if (state & BELOW)
 		layer = LAYER_BELOW;
 	TAILQ_INSERT_AFTER(&wm.stackq, &wm.layers[layer], c, raiseentry);
 	wins[0] = wm.layers[layer].frame;
-	c->state &= ~(FULLSCREEN|ABOVE|BELOW);
+	c->state &= ~(ABOVE|BELOW);
 	c->state |= state;
 	XRestackWindows(dpy, wins, 2);
 	tab = c->selcol->selrow->seltab;
@@ -1668,14 +1661,6 @@ tabfocus(struct Tab *tab, int gotodesk)
 		ewmhsetactivewindow(None);
 	} else {
 		c = tab->row->col->c;
-		if (!(c->state & FULLSCREEN) &&
-		    getfullscreen(c->mon, c->desk) != NULL) {
-			/*
-			 * Do not focus client below fullscreen client.
-			 * XXX: is it working?
-			 */
-			return;
-		}
 		wm.focused = c;
 		tab->row->seltab = tab;
 		tab->row->col->selrow = tab->row;
@@ -1710,6 +1695,7 @@ tabfocus(struct Tab *tab, int gotodesk)
 		ewmhsetstate(wm.prevfocused);
 	}
 	menuupdate();
+	restackdocks();
 }
 
 /* decorate tab */

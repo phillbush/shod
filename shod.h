@@ -127,7 +127,6 @@ enum {
 	LAYER_ABOVE,
 	LAYER_MENU,
 	LAYER_DOCK,
-	LAYER_FULLSCREEN,
 	LAYER_LAST
 };
 
@@ -534,6 +533,7 @@ struct Menu {
 
 struct Bar {
 	struct Object obj;
+	struct Monitor *mon;
 	int strut[STRUT_LAST];                  /* strut values */
 	bool ispartial;                         /* whether strut has 12 elements rather than 4 */
 	enum State state;
@@ -648,7 +648,6 @@ struct Dock {
 	Pixmap pix;                     /* dock pixmap */
 	int x, y, w, h;                 /* dock geometry */
 	int pw, ph;                     /* dock pixmap size */
-	int mapped;                     /* whether dock is mapped */
 	enum State state;
 };
 
@@ -751,6 +750,7 @@ int istabformenu(struct Tab *tab, struct Menu *menu);
 /* other object routines */
 void dockappconfigure(struct Dockapp *dapp, unsigned int valuemask, XWindowChanges *wc);
 void barstrut(struct Bar *bar);
+void barstack(struct Bar *bar);
 void notifplace(void);
 void notifdecorate(struct Notification *n);
 void splashplace(struct Monitor *mon, struct Splash *splash);
@@ -759,6 +759,7 @@ void splashrise(struct Splash *splash);
 void dockupdate(void);
 void dockdecorate(void);
 void dockreset(void);
+void dockstack(void);
 
 /* monitor routines */
 struct Monitor *getmon(int x, int y);

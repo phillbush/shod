@@ -23,6 +23,22 @@ barstrut(struct Bar *bar)
 	XFree(arr);
 }
 
+void
+barstack(struct Bar *bar)
+{
+	Window wins[2];
+
+	if (wm.focused != NULL && wm.focused->mon == bar->mon &&
+	    wm.focused->state & FULLSCREEN)
+		wins[0] = wm.focused->frame;
+	else if (bar->state & BELOW)
+		wins[0] = wm.layers[LAYER_DESK].frame;
+	else
+		wins[0] = wm.layers[LAYER_DOCK].frame;
+	wins[1] = bar->obj.win;
+	XRestackWindows(dpy, wins, 2);
+}
+
 static void
 manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
 {
@@ -33,24 +49,19 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader
 	(void)desk;
 	(void)leader;
 	(void)rect;
-	Window wins[2];
 
 	bar = emalloc(sizeof(*bar));
 	*bar = (struct Bar){
 		.obj.win = win,
 		.obj.class = bar_class,
 		.state = state | MAXIMIZED,
+		.mon = NULL,
 	};
-	if (state & BELOW)
-		wins[0] = wm.layers[LAYER_DESK].frame;
-	else
-		wins[0] = wm.layers[LAYER_DOCK].frame;
-	wins[1] = win;
-	TAILQ_INSERT_HEAD(&wm.barq, (struct Object *)bar, entry);
-	XRestackWindows(dpy, wins, 2);
-	XMapWindow(dpy, win);
+	TAILQ_INSERT_TAIL(&wm.barq, (struct Object *)bar, entry);
 	barstrut(bar);
 	monupdatearea();
+	barstack(bar);
+	XMapWindow(dpy, win);
 }
 
 static void

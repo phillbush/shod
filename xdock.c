@@ -1,5 +1,21 @@
 #include "shod.h"
 
+void
+dockstack(void)
+{
+	Window wins[2];
+
+	if (wm.focused != NULL && wm.focused->state & FULLSCREEN &&
+	    wm.focused->mon == TAILQ_FIRST(&wm.monq))
+		wins[0] = wm.focused->frame;
+	else if (dock.state & BELOW)
+		wins[0] = wm.layers[LAYER_DESK].frame;
+	else
+		wins[0] = wm.layers[LAYER_DOCK].frame;
+	wins[1] = dock.obj.win;
+	XRestackWindows(dpy, wins, 2);
+}
+
 /* decorate dock */
 void
 dockdecorate(void)
@@ -141,10 +157,8 @@ dockupdateresizeable(void)
 	}
 	if (size == 0) {
 		XUnmapWindow(dpy, dock.obj.win);
-		dock.mapped = 0;
 		return;
 	}
-	dock.mapped = 1;
 	size += DOCKBORDER * 2;
 	switch (config.dockgravity[0]) {
 	case 'N':
@@ -227,12 +241,6 @@ dockupdatefull(void)
 	int i, n;
 
 	mon = TAILQ_FIRST(&wm.monq);
-	if (TAILQ_FIRST(&dock.dappq) == NULL) {
-		XUnmapWindow(dpy, dock.obj.win);
-		dock.mapped = 0;
-		return;
-	}
-	dock.mapped = 1;
 	switch (config.dockgravity[0]) {
 	case 'N':
 		dock.x = mon->mx;
@@ -342,25 +350,18 @@ dockupdatefull(void)
 void
 dockupdate(void)
 {
-	Window wins[2];
-
 	if (TAILQ_EMPTY(&dock.dappq)) {
 		XUnmapWindow(dpy, dock.obj.win);
 		return;
 	}
-	if (config.dockgravity[0] != '\0' && (config.dockgravity[1] == 'F' || config.dockgravity[1] == 'f')) {
+	if (config.dockgravity[0] != '\0' &&
+	    (config.dockgravity[1] == 'F' || config.dockgravity[1] == 'f'))
 		dockupdatefull();
-	} else {
-		dockupdateresizeable();
-	}
-	dockdecorate();
-	if (dock.state & BELOW)
-		wins[0] = wm.layers[LAYER_DESK].frame;
 	else
-		wins[0] = wm.layers[LAYER_DOCK].frame;
-	wins[1] = dock.obj.win;
+		dockupdateresizeable();
+	dockdecorate();
 	XMoveResizeWindow(dpy, dock.obj.win, dock.x, dock.y, dock.w, dock.h);
-	XRestackWindows(dpy, wins, 2);
+	dockstack();
 	if (dock.state & MINIMIZED)
 		XUnmapWindow(dpy, dock.obj.win);
 	else
@@ -406,10 +407,6 @@ dockreset(void)
 	enum State state;
 	int desk;
 
-	if (TAILQ_EMPTY(&dock.dappq)) {
-		XUnmapWindow(dpy, dock.obj.win);
-		return;
-	}
 	TAILQ_INIT(&dappq);
 	while ((obj = TAILQ_FIRST(&dock.dappq)) != NULL) {
 		TAILQ_REMOVE(&dock.dappq, obj, entry);
