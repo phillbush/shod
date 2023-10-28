@@ -21,9 +21,9 @@ static int (*xerrorxlib)(Display *, XErrorEvent *);
 /* shared variables */
 unsigned long clientmask = CWEventMask | CWColormap | CWBackPixel | CWBorderPixel;
 XSetWindowAttributes clientswa = {
-	.event_mask = StructureNotifyMask | ButtonReleaseMask
-	            | ButtonPressMask | FocusChangeMask
-	            | Button1MotionMask
+	.event_mask = StructureNotifyMask | SubstructureRedirectMask
+	            | ButtonReleaseMask | ButtonPressMask
+	            | FocusChangeMask | Button1MotionMask
 };
 struct WM wm = { .running = 1 };
 struct Dock dock;
