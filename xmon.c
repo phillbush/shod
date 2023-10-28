@@ -238,17 +238,17 @@ monupdatearea(void)
 		    (dock.state & MAXIMIZED) && !(dock.state & MINIMIZED)) {
 			switch (config.dockgravity[0]) {
 			case 'N':
-				t = config.dockwidth;
+				top = config.dockwidth;
 				break;
 			case 'S':
-				b = config.dockwidth;
+				bottom = config.dockwidth;
 				break;
 			case 'W':
-				l = config.dockwidth;
+				left = config.dockwidth;
 				break;
 			case 'E':
 			default:
-				r = config.dockwidth;
+				right = config.dockwidth;
 				break;
 			}
 		}
