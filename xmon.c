@@ -102,7 +102,7 @@ baratmon(struct Monitor *mon, struct Bar *bar, int *l, int *r, int *t, int *b)
 		if (b != NULL) {
 			*b = bar->strut[STRUT_BOTTOM];
 			*b -= DisplayHeight(dpy, screen);
-			*b -= mon->my + mon->mh;
+			*b += mon->my + mon->mh;
 		}
 		atmon = True;
 	}
@@ -122,7 +122,7 @@ baratmon(struct Monitor *mon, struct Bar *bar, int *l, int *r, int *t, int *b)
 		if (r != NULL) {
 			*r = bar->strut[STRUT_RIGHT];
 			*r -= DisplayWidth(dpy, screen);
-			*r -= mon->mx + mon->mw;
+			*r += mon->mx + mon->mw;
 		}
 		atmon = True;
 	}
