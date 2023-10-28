@@ -1964,15 +1964,22 @@ xeventunmapnotify(XEvent *e)
 	if (ev->event == root) {
 		/*
 		 * Ignore unmap notifications reported relative the root
-		 * window.
+		 * window (if we have selected SubstructureNotifyMask on
+		 * the root window at shod.c).
 		 *
 		 * Since we select StructureNotifyMask on client windows,
 		 * unmap notifications are reported to us relative to the
 		 * client window itself.
 		 *
-		 * If we get a unmap notification relative to root window,
+		 * If we get a unmap notification relative to root window
+		 * (supposed we had selected SubstructureNotifyMask on it),
 		 * we have most likely unselected StructureNotifyMask on
 		 * the client window temporarily.
+		 *
+		 * [SubstructureNotifyMask is not selected on the root
+		 *  window anymore for it seemed redundant; so we will
+		 *  probably never reach this point of the function.
+		 *  Check shod.c:/checkotherwm/ for more information.]
 		 */
 		return;
 	}
