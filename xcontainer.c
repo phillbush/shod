@@ -9,9 +9,9 @@ restackdocks(void)
 {
 	struct Object *obj;
 
+	dockstack();
 	TAILQ_FOREACH(obj, &wm.barq, entry)
 		barstack((struct Bar *)obj);
-	dockstack();
 }
 
 /* get next focused container after old on given monitor and desktop */
