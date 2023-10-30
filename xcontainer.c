@@ -1652,6 +1652,8 @@ tabfocus(struct Tab *tab, int gotodesk)
 	struct Container *c;
 	struct Dialog *dial;
 
+	if (wm.focused != NULL && tab == wm.focused->selcol->selrow->seltab)
+		return;
 	wm.prevfocused = wm.focused;
 	if (tab == NULL) {
 		wm.focused = NULL;
