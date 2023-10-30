@@ -536,14 +536,7 @@ containerinsertfocus(struct Container *c)
 static void
 containerinsertraise(struct Container *c)
 {
-	int layer;
-
-	layer = LAYER_NORMAL;
-	if (c->state & ABOVE)
-		layer = LAYER_ABOVE;
-	else if (c->state & BELOW)
-		layer = LAYER_BELOW;
-	TAILQ_INSERT_AFTER(&wm.stackq, &wm.layers[layer], c, raiseentry);
+	TAILQ_INSERT_HEAD(&wm.stackq, c, raiseentry);
 }
 
 /* remove container from the focus list */
@@ -637,6 +630,7 @@ containersendtodesk(struct Container *c, struct Monitor *mon, unsigned long desk
 	} else {
 		return 0;
 	}
+	wm.setclientlist = True;
 	ewmhsetwmdesktop(c);
 	ewmhsetstate(c);
 	return 1;
@@ -959,7 +953,7 @@ containermoveresize(struct Container *c, int checkstack)
 		}
 	}
 	if (!config.disablehidden && checkstack) {
-		wm.setclientlist = 1;
+		wm.setclientlist = True;
 	}
 }
 
@@ -1211,15 +1205,19 @@ containerraise(struct Container *c, enum State state)
 
 	if (c == NULL || c->state & MINIMIZED)
 		return;
-	containerdelraise(c);
-	wins[1] = c->frame;
 	layer = LAYER_NORMAL;
 	if (state & ABOVE)
 		layer = LAYER_ABOVE;
 	else if (state & BELOW)
 		layer = LAYER_BELOW;
+	if (c == TAILQ_NEXT(&wm.layers[layer], raiseentry)) {
+		/* container already at top of stack */
+		return;
+	}
+	containerdelraise(c);
 	TAILQ_INSERT_AFTER(&wm.stackq, &wm.layers[layer], c, raiseentry);
 	wins[0] = wm.layers[layer].frame;
+	wins[1] = c->frame;
 	c->state &= ~(ABOVE|BELOW);
 	c->state |= state;
 	XRestackWindows(dpy, wins, 2);
@@ -1236,7 +1234,7 @@ containerraise(struct Container *c, enum State state)
 		XRestackWindows(dpy, wins, 2);
 		wins[0] = menu->frame;
 	}
-	wm.setclientlist = 1;
+	wm.setclientlist = True;
 }
 
 /* configure container size and position */
@@ -1845,7 +1843,7 @@ containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle r
 	}
 	/* no need to call shodgrouptab() and shodgroupcontainer(); tabfocus() already calls them */
 	ewmhsetwmdesktop(c);
-	wm.setclientlist = 1;
+	wm.setclientlist = True;
 }
 
 /* create container for tab */
@@ -1866,7 +1864,7 @@ managecontainer(struct Tab *prev, struct Monitor *mon, int desk, Window win, Win
 		rowaddtab(row, tab, prev);
 		rowcalctabs(row);
 		ewmhsetdesktop(win, c->desk);
-		wm.setclientlist = 1;
+		wm.setclientlist = True;
 		containermoveresize(c, 0);
 		containerredecorate(c, NULL, NULL, 0);
 		XMapSubwindows(dpy, c->frame);
@@ -1895,7 +1893,6 @@ managedialog(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window 
 	XMapRaised(dpy, dial->frame);
 	if (wm.focused != NULL && wm.focused->selcol->selrow->seltab == tab)
 		tabfocus(tab, 0);
-	wm.setclientlist = 1;
 }
 
 /* unmanage tab (and delete its row if it is the only tab) */
