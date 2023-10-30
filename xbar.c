@@ -58,6 +58,7 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader
 		.mon = NULL,
 	};
 	TAILQ_INSERT_TAIL(&wm.barq, (struct Object *)bar, entry);
+	shoddocks();
 	barstrut(bar);
 	monupdatearea();
 	barstack(bar);
@@ -71,6 +72,7 @@ unmanage(struct Object *obj)
 
 	bar = (struct Bar *)obj;
 	TAILQ_REMOVE(&wm.barq, (struct Object *)bar, entry);
+	shoddocks();
 	free(bar);
 	monupdatearea();
 }

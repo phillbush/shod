@@ -352,7 +352,7 @@ dockupdate(void)
 {
 	if (TAILQ_EMPTY(&dock.dappq)) {
 		XUnmapWindow(dpy, dock.obj.win);
-		return;
+		goto done;
 	}
 	if (config.dockgravity[0] != '\0' &&
 	    (config.dockgravity[1] == 'F' || config.dockgravity[1] == 'f'))
@@ -367,6 +367,8 @@ dockupdate(void)
 	else
 		XMapWindow(dpy, dock.obj.win);
 	XMapSubwindows(dpy, dock.obj.win);
+done:
+	shoddocks();
 }
 
 static void

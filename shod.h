@@ -782,6 +782,7 @@ void ewmhsetwmdesktop(struct Container *c);
 void ewmhsetactivewindow(Window w);
 void ewmhsetcurrentdesktop(unsigned long n);
 void ewmhsetshowingdesktop(int n);
+void shoddocks(void);
 void shodgrouptab(struct Container *c);
 void shodgroupcontainer(struct Container *c);
 void winupdatetitle(Window win, char **name);

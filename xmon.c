@@ -214,7 +214,7 @@ next:
 			splashplace(wm.selmon, (struct Splash *)s);
 	if (focus != NULL)              /* if a contained changed desktop, focus it */
 		tabfocus(focus->selcol->selrow->seltab, 1);
-	wm.setclientlist = 1;
+	wm.setclientlist = True;
 }
 
 /* update window area and dock area of monitor */
@@ -273,7 +273,6 @@ monupdatearea(void)
 			containerredecorate(c, NULL, NULL, 0);
 		}
 	}
-	wm.setclientlist = 1;
 }
 
 /* if window is bigger than monitor, resize it while maintaining proportion */

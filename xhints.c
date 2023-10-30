@@ -101,15 +101,15 @@ clearprop(Atom prop)
 }
 
 static void
-prependprop(Atom prop, Window win)
+setwinprop(Atom prop, Window wins[], int nwins)
 {
 	XChangeProperty(
 		dpy, root,
 		prop,
 		XA_WINDOW, 32,
-		PropModePrepend,
-		(unsigned char *)&win,
-		1
+		PropModeReplace,
+		(const unsigned char *)wins,
+		nwins
 	);
 }
 
@@ -120,19 +120,21 @@ ewmhsetclients(void)
 	struct Column *col;
 	struct Row *row;
 	struct Object *obj;
-	int prevobscured;
+	Window *wins;
+	int prevobscured, i;
 
-	clearprop(atoms[_NET_CLIENT_LIST]);
-	clearprop(atoms[_NET_CLIENT_LIST_STACKING]);
-	clearprop(atoms[_SHOD_CONTAINER_LIST]);
-	clearprop(atoms[_SHOD_DOCK_LIST]);
+	if (wm.nclients < 1) {
+		clearprop(atoms[_NET_CLIENT_LIST]);
+		clearprop(atoms[_NET_CLIENT_LIST_STACKING]);
+		clearprop(atoms[_SHOD_CONTAINER_LIST]);
+		clearprop(atoms[_SHOD_DOCK_LIST]);
+		return;
+	}
+	i = wm.nclients;
+	wins = ecalloc(wm.nclients, sizeof(*wins));
 	TAILQ_FOREACH(c, &wm.stackq, raiseentry) {
 		if (ISDUMMY(c))
 			continue;
-		prependprop(
-			atoms[_SHOD_CONTAINER_LIST],
-			c->selcol->selrow->seltab->obj.win
-		);
 		prevobscured = c->isobscured;
 		if (!config.disablehidden) {
 			c->isobscured = isobscured(
@@ -142,46 +144,29 @@ ewmhsetclients(void)
 			);
 		}
 		TAILQ_FOREACH(col, &c->colq, entry) {
-			if (col->selrow->seltab != NULL) {
-				prependprop(
-					atoms[_NET_CLIENT_LIST],
-					col->selrow->seltab->obj.win
-				);
-				prependprop(
-					atoms[_NET_CLIENT_LIST_STACKING],
-					col->selrow->seltab->obj.win
-				);
-			}
+			if (col->selrow->seltab != NULL)
+				wins[--i] = col->selrow->seltab->obj.win;
 			TAILQ_FOREACH(row, &col->rowq, entry)
 			TAILQ_FOREACH(obj, &row->tabq, entry) {
 				if ((struct Tab *)obj == col->selrow->seltab)
 					continue;
-				prependprop(
-					atoms[_NET_CLIENT_LIST],
-					obj->win
-				);
-				prependprop(
-					atoms[_NET_CLIENT_LIST_STACKING],
-					obj->win
-				);
+				wins[--i] = obj->win;
 			}
 		}
 		if (prevobscured != c->isobscured) {
 			ewmhsetstate(c);
 		}
 	}
-	TAILQ_FOREACH(obj, &wm.barq, entry) {
-		prependprop(
-			atoms[_SHOD_DOCK_LIST],
-			obj->win
-		);
+	setwinprop(atoms[_NET_CLIENT_LIST], wins, wm.nclients - i);
+	setwinprop(atoms[_NET_CLIENT_LIST_STACKING], wins, wm.nclients - i);
+	i = wm.nclients;
+	TAILQ_FOREACH(c, &wm.stackq, raiseentry) {
+		if (ISDUMMY(c))
+			continue;
+		wins[--i] = c->selcol->selrow->seltab->obj.win;
 	}
-	if (!TAILQ_EMPTY(&dock.dappq)) {
-		prependprop(
-			atoms[_SHOD_DOCK_LIST],
-			dock.obj.win
-		);
-	}
+	setwinprop(atoms[_SHOD_CONTAINER_LIST], wins, wm.nclients - i);
+	free(wins);
 }
 
 /* set active window hint */
@@ -289,6 +274,27 @@ shodgroupcontainer(struct Container *c)
 	TAB_FOREACH_BEGIN(c, t){
 		XChangeProperty(dpy, t->win, atoms[_SHOD_GROUP_CONTAINER], XA_WINDOW, 32, PropModeReplace, (unsigned char *)&c->selcol->selrow->seltab->obj.win, 1);
 	}TAB_FOREACH_END
+}
+
+/* set list of docks & bars for `shodc docks` */
+void
+shoddocks(void)
+{
+	struct Object *obj;
+	Window *wins;
+	int i, ndocks;
+
+	ndocks = 1;     /* +1 for the internal dock */
+	TAILQ_FOREACH(obj, &wm.barq, entry)
+		ndocks++;
+	i = 0;
+	wins = ecalloc(ndocks, sizeof(*wins));
+	if (!TAILQ_EMPTY(&dock.dappq))
+		wins[i++] = dock.obj.win;
+	TAILQ_FOREACH(obj, &wm.barq, entry)
+		wins[i++] = obj->win;
+	setwinprop(atoms[_SHOD_DOCK_LIST], wins, i);
+	free(wins);
 }
 
 /* update tab title */

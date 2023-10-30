@@ -87,7 +87,6 @@ menuincrmove(struct Menu *menu, int x, int y)
 {
 	menu->x += x;
 	menu->y += y;
-	//snaptoedge(&menu->x, &menu->y, menu->w, menu->h);
 	XMoveWindow(dpy, menu->frame, menu->x, menu->y);
 	menunotify(menu);
 }
