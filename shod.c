@@ -307,7 +307,7 @@ static void
 checkotherwm(void)
 {
 	/*
-	 * XXX: Do we need to select SubstructureNotifyMask on the root window?
+	 * NOTE: Do we need to select SubstructureNotifyMask on the root window?
 	 *
 	 * We will always select StructureNotifyMask on the client windows we
 	 * are requested to map, so selecting StructureNotifyMask on the root
