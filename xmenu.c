@@ -223,7 +223,6 @@ unmanage(struct Object *obj)
 	XDestroyWindow(dpy, menu->button);
 	free(menu->name);
 	free(menu);
-	wm.setclientlist = True;
 }
 
 /* check if given tab accepts given menu */
