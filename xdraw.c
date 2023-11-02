@@ -39,6 +39,17 @@ pixmapnew(Pixmap *pix, Window win, int w, int h)
 }
 
 void
+drawrectangle(Pixmap pix, int x, int y, int w, int h, unsigned long color)
+{
+	XChangeGC(
+		dpy, gc,
+		GCForeground,
+		&(XGCValues){ .foreground = color }
+	);
+	XFillRectangle(dpy, pix, gc, x, y, w, h);
+}
+
+void
 drawcommit(Pixmap pix, Window win)
 {
 	XSetWindowBackgroundPixmap(dpy, win, pix);
@@ -67,7 +78,7 @@ drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int p
 	len = strlen(text);
 	XftTextExtentsUtf8(dpy, theme.font, (FcChar8 *)text, len, &box);
 	x = max(0, (w - box.width) / 2 + box.x);
-	y = (config.titlewidth - box.height) / 2 + box.y;
+	y = (config.titlewidth - theme.font->ascent) / 2 + theme.font->ascent;
 	for (i = 3; drawlines && i < config.titlewidth - 3; i += 3) {
 		val.foreground = top;
 		XChangeGC(dpy, gc, GCForeground, &val);
@@ -137,11 +148,7 @@ drawborders(Pixmap pix, int w, int h, int style)
 void
 drawbackground(Pixmap pix, int x, int y, int w, int h, int style)
 {
-	XGCValues val;
-
-	val.foreground = theme.colors[style][COLOR_MID].pixel;
-	XChangeGC(dpy, gc, GCForeground, &val);
-	XFillRectangle(dpy, pix, gc, x, y, w, h);
+	drawrectangle(pix, x, y, w, h, theme.colors[style][COLOR_MID].pixel);
 }
 
 /* draw rectangle shadows */

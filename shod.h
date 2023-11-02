@@ -736,7 +736,6 @@ int containercontentwidth(struct Container *c);
 
 /* menu */
 void menufocus(struct Menu *menu);
-void menuhide(struct Menu *menu, int hide);
 void menuincrmove(struct Menu *menu, int x, int y);
 void menuconfigure(struct Menu *menu, unsigned int valuemask, XWindowChanges *wc);
 void menumoveresize(struct Menu *menu);

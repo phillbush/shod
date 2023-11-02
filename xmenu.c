@@ -1,11 +1,18 @@
 #include "shod.h"
 
-/* create new menu */
+#define BORDER          1       /* pixel size of decoration around menus */
+
 static struct Menu *
 menunew(Window win, int x, int y, int w, int h)
 {
 	struct Menu *menu;
+	int framex, framey, framew, frameh;
 
+	/* adjust geometry for border on all sides and titlebar on top */
+	framex = x - BORDER;
+	framey = y - config.titlewidth;
+	framew = w + 2 * BORDER;
+	frameh = h + BORDER + config.titlewidth;
 	menu = emalloc(sizeof(*menu));
 	*menu = (struct Menu){
 		.titlebar = None,
@@ -15,28 +22,33 @@ menunew(Window win, int x, int y, int w, int h)
 		.pix = None,
 		.pixbutton = None,
 		.pixtitlebar = None,
-		.x = x - config.borderwidth,
-		.y = y - config.borderwidth,
-		.w = w + config.borderwidth * 2,
-		.h = h + config.borderwidth * 2 + config.titlewidth,
+		.x = framex,
+		.y = framey,
+		.w = framew,
+		.h = frameh,
 	};
-	menu->frame = XCreateWindow(dpy, root, 0, 0,
-	                            w + config.borderwidth * 2,
-	                            h + config.borderwidth * 2 + config.titlewidth, 0,
+	menu->frame = XCreateWindow(dpy, root, 0, 0, framew, frameh, 0,
 	                            depth, CopyFromParent, visual,
 	                            clientmask, &clientswa),
-	menu->titlebar = XCreateWindow(dpy, menu->frame, config.borderwidth, config.borderwidth,
-	                               max(1, menu->w - 2 * config.borderwidth - config.titlewidth),
+	menu->titlebar = XCreateWindow(dpy, menu->frame, 0, 0,
+	                               max(1, framew - config.titlewidth),
 	                               config.titlewidth, 0,
 	                               depth, CopyFromParent, visual,
 	                               clientmask, &clientswa);
-	menu->button = XCreateWindow(dpy, menu->frame, menu->w - config.borderwidth - config.titlewidth, config.borderwidth,
+	menu->button = XCreateWindow(dpy, menu->frame,
+	                             framew - config.titlewidth, 0,
 	                             config.titlewidth, config.titlewidth, 0,
 	                             depth, CopyFromParent, visual,
 	                             clientmask, &clientswa);
-	menu->pixbutton = XCreatePixmap(dpy, menu->button, config.titlewidth, config.titlewidth, depth);
+	menu->pixbutton = XCreatePixmap(dpy, menu->button,
+	                                config.titlewidth, config.titlewidth,
+	                                depth);
 	XDefineCursor(dpy, menu->button, wm.cursors[CURSOR_PIRATE]);
-	XReparentWindow(dpy, menu->obj.win, menu->frame, config.borderwidth, config.borderwidth + config.titlewidth);
+	XReparentWindow(
+		dpy,
+		menu->obj.win, menu->frame,
+		BORDER, config.titlewidth
+	);
 	XMapWindow(dpy, menu->obj.win);
 	XMapWindow(dpy, menu->button);
 	XMapWindow(dpy, menu->titlebar);
@@ -59,13 +71,13 @@ menuconfigure(struct Menu *menu, unsigned int valuemask, XWindowChanges *wc)
 	if (menu == NULL)
 		return;
 	if (valuemask & CWX)
-		menu->x = wc->x;
+		menu->x = wc->x - BORDER;
 	if (valuemask & CWY)
-		menu->y = wc->y;
+		menu->y = wc->y - config.titlewidth;
 	if (valuemask & CWWidth)
-		menu->w = wc->width;
+		menu->w = wc->width + 2 * BORDER;
 	if (valuemask & CWHeight)
-		menu->h = wc->height;
+		menu->h = wc->height + BORDER + config.titlewidth;
 	menumoveresize(menu);
 	menudecorate(menu, 0);
 }
@@ -75,10 +87,10 @@ menunotify(struct Menu *menu)
 {
 	winnotify(
 		menu->obj.win,
-		menu->x + config.borderwidth,
-		menu->y + config.borderwidth + config.titlewidth,
-		menu->w - config.borderwidth * 2,
-		menu->h - config.borderwidth * 2 - config.titlewidth
+		menu->x + BORDER,
+		menu->y + config.titlewidth,
+		menu->w - 2 * BORDER,
+		menu->h - BORDER - config.titlewidth
 	);
 }
 
@@ -96,9 +108,17 @@ void
 menumoveresize(struct Menu *menu)
 {
 	XMoveResizeWindow(dpy, menu->frame, menu->x, menu->y, menu->w, menu->h);
-	XMoveWindow(dpy, menu->button, menu->w - config.borderwidth - config.titlewidth, config.borderwidth);
-	XResizeWindow(dpy, menu->titlebar, max(1, menu->w - 2 * config.borderwidth - config.titlewidth), config.titlewidth);
-	XResizeWindow(dpy, menu->obj.win, menu->w - 2 * config.borderwidth, menu->h - 2 * config.borderwidth - config.titlewidth);
+	XMoveWindow(dpy, menu->button, menu->w - config.titlewidth, 0);
+	XResizeWindow(
+		dpy, menu->titlebar,
+		max(1, menu->w - config.titlewidth),
+		config.titlewidth
+	);
+	XResizeWindow(
+		dpy, menu->obj.win,
+		max(1, menu->w - 2 * BORDER),
+		max(1, menu->h - BORDER - config.titlewidth)
+	);
 	menu->mon = getmon(menu->x, menu->y);
 	menunotify(menu);
 }
@@ -113,15 +133,14 @@ menudecorate(struct Menu *menu, int titlepressed)
 		pixmapnew(&menu->pix, menu->frame, menu->w, menu->h);
 	menu->pw = menu->w;
 	menu->ph = menu->h;
-	tw = max(1, menu->w - 2 * config.borderwidth - config.titlewidth);
+	tw = max(1, menu->w - config.titlewidth);
 	th = config.titlewidth;
 	if (menu->tw != tw || menu->th != th || menu->pixtitlebar == None)
 		pixmapnew(&menu->pixtitlebar, menu->titlebar, tw, th);
 	menu->tw = tw;
 	menu->th = th;
 
-	drawbackground(menu->pix, 0, 0, menu->w, menu->h, FOCUSED);
-	drawborders(menu->pix, menu->w, menu->h, FOCUSED);
+	drawshadow(menu->pix, 0, 0, menu->w, menu->h, UNFOCUSED, False);
 
 	drawbackground(menu->pixtitlebar, 0, 0, menu->tw, menu->th, FOCUSED);
 	drawshadow(menu->pixtitlebar, 0, 0, menu->tw, config.titlewidth, FOCUSED, titlepressed);
@@ -165,17 +184,6 @@ menuraise(struct Menu *menu)
 	wins[1] = menu->frame;
 	wins[0] = wm.layers[LAYER_MENU].frame;
 	XRestackWindows(dpy, wins, 2);
-}
-
-/* (un)hide menu */
-void
-menuhide(struct Menu *menu, int hide)
-{
-	if (hide)
-		XUnmapWindow(dpy, menu->frame);
-	else
-		XMapWindow(dpy, menu->frame);
-	icccmwmstate(menu->obj.win, (hide ? IconicState : NormalState));
 }
 
 static void
