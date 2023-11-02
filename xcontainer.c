@@ -1694,6 +1694,7 @@ tabfocus(struct Tab *tab, int gotodesk)
 	}
 	menuupdate();
 	restackdocks();
+	wm.setclientlist = True;
 }
 
 /* decorate tab */
