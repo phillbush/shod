@@ -1713,8 +1713,10 @@ xeventconfigurerequest(XEvent *e)
 	wc.sibling = ev->above;
 	wc.stack_mode = ev->detail;
 	obj = getmanaged(ev->window);
-	if (obj == NULL)
+	if (obj == NULL) {
 		XConfigureWindow(dpy, ev->window, ev->value_mask, &wc);
+		return;
+	}
 	if (!config.honorconfig)
 		return;
 	switch (obj->class->type) {
