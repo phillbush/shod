@@ -1855,7 +1855,7 @@ xeventkeypress(XEvent *e)
 	XKeyPressedEvent *ev;
 
 	ev = &e->xkey;
-	if (!config.disablealttab && ev->keycode == config.tabkeycode) {
+	if (!config.disablealttab && ev->keycode == config.tabkeycode && isvalidstate(ev->state)) {
 		alttab(ev->state & ShiftMask);
 	}
 	if (ev->window == wm.checkwin) {
