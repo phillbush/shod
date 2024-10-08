@@ -551,9 +551,8 @@ struct Dockapp {
 struct Splash {
 	struct Object obj;
 	struct Monitor *mon;
-	Window frame;
 	int desk;
-	int x, y, w, h;                         /* splash screen geometry */
+	int x, y, w, h;
 };
 
 struct Notification {
