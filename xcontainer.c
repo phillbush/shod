@@ -153,7 +153,6 @@ dialogcalcsize(struct Dialog *dial)
 	dial->y = tab->winh / 2 - dial->h / 2;
 }
 
-/* create new dialog */
 static struct Dialog *
 dialognew(Window win, int maxw, int maxh)
 {
@@ -167,7 +166,7 @@ dialognew(Window win, int maxw, int maxh)
 		.obj.win = win,
 		.obj.class = dialog_class,
 	};
-	dial->frame = XCreateWindow(dpy, root, 0, 0, maxw, maxh, 0, depth, CopyFromParent, visual, clientmask, &clientswa);
+	dial->frame = createframe((XRectangle){0, 0, maxw, maxh});
 	XReparentWindow(dpy, dial->obj.win, dial->frame, 0, 0);
 	XMapWindow(dpy, dial->obj.win);
 	return dial;
@@ -259,7 +258,6 @@ colcalcrows(struct Column *col, int recalcfact)
 	}
 }
 
-/* create new tab */
 static struct Tab *
 tabnew(Window win, Window leader)
 {
@@ -275,7 +273,8 @@ tabnew(Window win, Window leader)
 		.obj.class = tab_class,
 	};
 	TAILQ_INIT(&tab->dialq);
-	tab->frame = XCreateWindow(dpy, root, 0, 0, 1, 1, 0, depth, CopyFromParent, visual, clientmask, &clientswa),
+	tab->frame = createframe((XRectangle){0, 0, 1, 1});
+	tab->title = createdecoration(root, (XRectangle){0, 0, 1, 1});
 	XReparentWindow(dpy, tab->obj.win, tab->frame, 0, 0);
 	mapwin(tab->obj.win);
 	clientsincr();
@@ -321,6 +320,21 @@ tabdel(struct Tab *tab)
 	free(tab);
 }
 
+static Window
+createcursorwin(Window frame, Cursor cursor)
+{
+	Window win;
+
+	win = XCreateWindow(
+		dpy, frame, 0, 0, 1, 1, 0,
+		CopyFromParent, InputOnly, CopyFromParent,
+		CWCursor,
+		&(XSetWindowAttributes){ .cursor = cursor }
+	);
+	XMapWindow(dpy, win);
+	return win;
+}
+
 /* create new row */
 struct Row *
 rownew(void)
@@ -333,23 +347,27 @@ rownew(void)
 		.isunmapped = 0,
 	};
 	TAILQ_INIT(&row->tabq);
-	row->frame = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
-	                           depth, CopyFromParent, visual,
-	                           clientmask, &clientswa);
-	row->bar = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
-	                         depth, CopyFromParent, visual,
-	                         clientmask, &clientswa);
-	row->bl = XCreateWindow(dpy, row->bar, 0, 0, config.titlewidth, config.titlewidth, 0,
-	                        depth, CopyFromParent, visual,
-	                        clientmask, &clientswa);
-	row->pixbl = XCreatePixmap(dpy, row->bl, config.titlewidth, config.titlewidth, depth);
-	row->br = XCreateWindow(dpy, row->bar, 0, 0, config.titlewidth, config.titlewidth, 0,
-	                        depth, CopyFromParent, visual,
-	                        clientmask, &clientswa);
-	row->div = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
-	                         CopyFromParent, InputOnly, CopyFromParent, CWCursor,
-	                         &(XSetWindowAttributes){.cursor = wm.cursors[CURSOR_V]});
-	row->pixbr = XCreatePixmap(dpy, row->bl, config.titlewidth, config.titlewidth, depth);
+	row->frame = createframe((XRectangle){0, 0, 1, 1});
+	row->bar = createdecoration(root, (XRectangle){0, 0, 1, 1});
+	row->bl = createdecoration(
+		row->bar,
+		(XRectangle){0, 0, config.titlewidth, config.titlewidth}
+	);
+	row->br = createdecoration(
+		row->bar,
+		(XRectangle){0, 0, config.titlewidth, config.titlewidth}
+	);
+	row->div = createcursorwin(root, wm.cursors[CURSOR_V]);
+	row->pixbl = XCreatePixmap(
+		dpy, row->bl,
+		config.titlewidth, config.titlewidth,
+		depth
+	);
+	row->pixbr = XCreatePixmap(
+		dpy, row->br,
+		config.titlewidth, config.titlewidth,
+		depth
+	);
 	XMapWindow(dpy, row->bl);
 	XMapWindow(dpy, row->br);
 	XDefineCursor(dpy, row->bl, wm.cursors[CURSOR_HAND]);
@@ -407,9 +425,7 @@ colnew(void)
 	col = emalloc(sizeof(*col));
 	*col = (struct Column){ 0 };
 	TAILQ_INIT(&col->rowq);
-	col->div = XCreateWindow(dpy, root, 0, 0, 1, 1, 0,
-	                         CopyFromParent, InputOnly, CopyFromParent, CWCursor,
-	                         &(XSetWindowAttributes){.cursor = wm.cursors[CURSOR_H]});
+	col->div = createcursorwin(root, wm.cursors[CURSOR_H]);
 	return col;
 }
 
@@ -486,13 +502,7 @@ rowaddtab(struct Row *row, struct Tab *tab, struct Tab *prev)
 	else
 		TAILQ_INSERT_AFTER(&row->tabq, (struct Object *)prev, (struct Object *)tab, entry);
 	rowcalctabs(row);               /* set tab->x, tab->w, etc */
-	if (tab->title == None) {
-		tab->title = XCreateWindow(dpy, row->bar, tab->x, 0, tab->w, config.titlewidth, 0,
-		                         depth, CopyFromParent, visual,
-		                         clientmask, &clientswa);
-	} else {
-		XReparentWindow(dpy, tab->title, row->bar, tab->x, 0);
-	}
+	XReparentWindow(dpy, tab->title, row->bar, tab->x, 0);
 	XReparentWindow(dpy, tab->frame, row->frame, 0, 0);
 	XMapWindow(dpy, tab->frame);
 	XMapWindow(dpy, tab->title);
@@ -762,7 +772,6 @@ struct Container *
 containernew(int x, int y, int w, int h, enum State state)
 {
 	struct Container *c;
-	int i;
 	Cursor sw, se, nw, ne;
 
 	if (state & SHADED) {
@@ -789,73 +798,15 @@ containernew(int x, int y, int w, int h, enum State state)
 		.isobscured = 0,
 	};
 	TAILQ_INIT(&c->colq);
-	c->frame = XCreateWindow(dpy, root, c->x, c->y, c->w, c->h, 0, depth, InputOutput, visual, clientmask, &clientswa);
-	c->curswin[BORDER_N] = XCreateWindow(
-		dpy, c->frame, 0, 0, 1, 1, 0,
-		CopyFromParent, InputOnly, CopyFromParent,
-		CWCursor,
-		&(XSetWindowAttributes){
-			.cursor = wm.cursors[CURSOR_N],
-		}
-	);
-	c->curswin[BORDER_S] = XCreateWindow(
-		dpy, c->frame, 0, 0, 1, 1, 0,
-		CopyFromParent, InputOnly, CopyFromParent,
-		CWCursor,
-		&(XSetWindowAttributes){
-			.cursor = wm.cursors[CURSOR_S],
-		}
-	);
-	c->curswin[BORDER_W] = XCreateWindow(
-		dpy, c->frame, 0, 0, 1, 1, 0,
-		CopyFromParent, InputOnly, CopyFromParent,
-		CWCursor,
-		&(XSetWindowAttributes){
-			.cursor = wm.cursors[CURSOR_W],
-		}
-	);
-	c->curswin[BORDER_E] = XCreateWindow(
-		dpy, c->frame, 0, 0, 1, 1, 0,
-		CopyFromParent, InputOnly, CopyFromParent,
-		CWCursor,
-		&(XSetWindowAttributes){
-			.cursor = wm.cursors[CURSOR_E],
-		}
-	);
-	c->curswin[BORDER_NW] = XCreateWindow(
-		dpy, c->frame, 0, 0, 1, 1, 0,
-		CopyFromParent, InputOnly, CopyFromParent,
-		CWCursor,
-		&(XSetWindowAttributes){
-			.cursor = nw,
-		}
-	);
-	c->curswin[BORDER_SW] = XCreateWindow(
-		dpy, c->frame, 0, 0, 1, 1, 0,
-		CopyFromParent, InputOnly, CopyFromParent,
-		CWCursor,
-		&(XSetWindowAttributes){
-			.cursor = sw,
-		}
-	);
-	c->curswin[BORDER_NE] = XCreateWindow(
-		dpy, c->frame, 0, 0, 1, 1, 0,
-		CopyFromParent, InputOnly, CopyFromParent,
-		CWCursor,
-		&(XSetWindowAttributes){
-			.cursor = ne,
-		}
-	);
-	c->curswin[BORDER_SE] = XCreateWindow(
-		dpy, c->frame, 0, 0, 1, 1, 0,
-		CopyFromParent, InputOnly, CopyFromParent,
-		CWCursor,
-		&(XSetWindowAttributes){
-			.cursor = se,
-		}
-	);
-	for (i = 0; i < BORDER_LAST; i++)
-		XMapWindow(dpy, c->curswin[i]);
+	c->frame = createframe((XRectangle){c->x, c->y, c->w, c->h});
+	c->curswin[BORDER_N] = createcursorwin(c->frame, wm.cursors[CURSOR_N]);
+	c->curswin[BORDER_S] = createcursorwin(c->frame, wm.cursors[CURSOR_S]);
+	c->curswin[BORDER_W] = createcursorwin(c->frame, wm.cursors[CURSOR_W]);
+	c->curswin[BORDER_E] = createcursorwin(c->frame, wm.cursors[CURSOR_E]);
+	c->curswin[BORDER_NW] = createcursorwin(c->frame, nw);
+	c->curswin[BORDER_NE] = createcursorwin(c->frame, sw);
+	c->curswin[BORDER_SW] = createcursorwin(c->frame, ne);
+	c->curswin[BORDER_SE] = createcursorwin(c->frame, se);
 	containerinsertfocus(c);
 	containerinsertraise(c);
 	return c;

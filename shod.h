@@ -791,6 +791,8 @@ void unmapwin(Window win);
 void mapwin(Window win);
 
 /* decoration routines */
+Window createframe(XRectangle geom);
+Window createdecoration(Window frame, XRectangle geom);
 void pixmapnew(Pixmap *pix, Window win, int w, int h);
 void drawcommit(Pixmap pix, Window win);
 void drawborders(Pixmap pix, int w, int h, int style);
@@ -815,8 +817,6 @@ struct Class *getwinclass(Window win, Window *leader, struct Tab **tab,
                           enum State *state, XRectangle *rect, int *desk);
 
 /* extern variables */
-extern XSetWindowAttributes clientswa;
-extern unsigned long clientmask;
 extern void (*xevents[LASTEvent])(XEvent *);
 extern struct Config config;
 extern struct WM wm;

@@ -13,15 +13,7 @@ splashnew(Window win, int w, int h)
 		.w = w,
 		.h = h,
 	};
-	splash->frame = XCreateWindow(
-		dpy,
-		root,
-		0, 0,
-		w, h,
-		0,
-		depth, CopyFromParent, visual,
-		clientmask, &clientswa
-	);
+	splash->frame = createframe((XRectangle){0, 0, w, h});
 	XReparentWindow(dpy, win, splash->frame, 0, 0);
 	XMapWindow(dpy, win);
 	TAILQ_INSERT_HEAD(&wm.splashq, (struct Object *)splash, entry);

@@ -15,15 +15,7 @@ notifnew(Window win, int w, int h)
 		.obj.win = win,
 	};
 	TAILQ_INSERT_TAIL(&wm.notifq, (struct Object *)notif, entry);
-	notif->frame = XCreateWindow(
-		dpy, root, 0, 0, 1, 1, 0,
-		depth, CopyFromParent, visual,
-		clientmask,
-		&(XSetWindowAttributes){
-			.event_mask = SubstructureNotifyMask | SubstructureRedirectMask,
-			.colormap = colormap
-		}
-	);
+	notif->frame = createframe((XRectangle){0, 0, 1, 1});
 	XReparentWindow(dpy, notif->obj.win, notif->frame, 0, 0);
 	XMapWindow(dpy, notif->obj.win);
 }

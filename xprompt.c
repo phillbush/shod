@@ -72,7 +72,7 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win,
 	w = rect.width;
 	h = rect.height;
 	promptcalcgeom(&x, &y, &w, &h, &fw, &fh);
-	frame = XCreateWindow(dpy, root, x, y, fw, fh, 0, depth, CopyFromParent, visual, clientmask, &clientswa);
+	frame = createframe((XRectangle){x, y, fw, fh});
 	pix = None;
 	XReparentWindow(dpy, win, frame, config.borderwidth, 0);
 	XMapWindow(dpy, win);

@@ -30,6 +30,44 @@ openfont(const char *s)
 	return font;
 }
 
+static Window
+createwindow(Window parent, XRectangle geom, long event_mask)
+{
+	return XCreateWindow(
+		dpy, parent,
+		geom.x, geom.y, geom.width, geom.height, 0,
+		depth, InputOutput, visual,
+		CWEventMask | CWColormap | CWBackPixel | CWBorderPixel,
+		&(XSetWindowAttributes){
+			.event_mask = event_mask,
+			.colormap = colormap,
+			.border_pixel = BlackPixel(dpy, screen),
+			.background_pixel = BlackPixel(dpy, screen),
+		}
+	);
+}
+
+Window
+createframe(XRectangle geom)
+{
+	long events = StructureNotifyMask | SubstructureRedirectMask
+		| FocusChangeMask | ButtonReleaseMask | ButtonPressMask
+		| Button1MotionMask;
+
+	if (config.sloppyfocus || config.sloppytiles)
+		events |= EnterWindowMask;
+	return createwindow(root, geom, events);
+}
+
+Window
+createdecoration(Window frame, XRectangle geom)
+{
+	return createwindow(
+		frame, geom,
+		ButtonReleaseMask|ButtonPressMask|Button1MotionMask
+	);
+}
+
 void
 pixmapnew(Pixmap *pix, Window win, int w, int h)
 {

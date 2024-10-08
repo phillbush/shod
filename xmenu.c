@@ -6,13 +6,16 @@ static struct Menu *
 menunew(Window win, int x, int y, int w, int h)
 {
 	struct Menu *menu;
-	int framex, framey, framew, frameh;
+	int framex, framey, framew, frameh, titlew;
 
 	/* adjust geometry for border on all sides and titlebar on top */
 	framex = x - BORDER;
 	framey = y - config.titlewidth;
 	framew = w + 2 * BORDER;
 	frameh = h + BORDER + config.titlewidth;
+	titlew = framew - config.titlewidth;
+	if (titlew < 0)
+		titlew = framew;
 	menu = emalloc(sizeof(*menu));
 	*menu = (struct Menu){
 		.titlebar = None,
@@ -27,22 +30,19 @@ menunew(Window win, int x, int y, int w, int h)
 		.w = framew,
 		.h = frameh,
 	};
-	menu->frame = XCreateWindow(dpy, root, 0, 0, framew, frameh, 0,
-	                            depth, CopyFromParent, visual,
-	                            clientmask, &clientswa),
-	menu->titlebar = XCreateWindow(dpy, menu->frame, 0, 0,
-	                               max(1, framew - config.titlewidth),
-	                               config.titlewidth, 0,
-	                               depth, CopyFromParent, visual,
-	                               clientmask, &clientswa);
-	menu->button = XCreateWindow(dpy, menu->frame,
-	                             framew - config.titlewidth, 0,
-	                             config.titlewidth, config.titlewidth, 0,
-	                             depth, CopyFromParent, visual,
-	                             clientmask, &clientswa);
-	menu->pixbutton = XCreatePixmap(dpy, menu->button,
-	                                config.titlewidth, config.titlewidth,
-	                                depth);
+	menu->frame = createframe((XRectangle){0, 0, framew, frameh});
+	menu->titlebar = createdecoration(
+		menu->frame,
+		(XRectangle){0, 0, titlew, config.titlewidth}
+	);
+	menu->button = createdecoration(
+		menu->frame,
+		(XRectangle){titlew, 0, config.titlewidth, config.titlewidth}
+	);
+	menu->pixbutton = XCreatePixmap(
+		dpy, menu->button,
+		config.titlewidth, config.titlewidth, depth
+	);
 	XDefineCursor(dpy, menu->button, wm.cursors[CURSOR_PIRATE]);
 	XReparentWindow(
 		dpy,
