@@ -127,22 +127,13 @@ menumoveresize(struct Menu *menu)
 void
 menudecorate(struct Menu *menu, int titlepressed)
 {
-	int tw, th;
+	int tw;
 
-	if (menu->pw != menu->w || menu->ph != menu->h || menu->pix == None)
-		pixmapnew(&menu->pix, menu->frame, menu->w, menu->h);
-	menu->pw = menu->w;
-	menu->ph = menu->h;
+	updatepixmap(&menu->pix, &menu->pw, &menu->ph, menu->w, menu->h);
 	tw = max(1, menu->w - config.titlewidth);
-	th = config.titlewidth;
-	if (menu->tw != tw || menu->th != th || menu->pixtitlebar == None)
-		pixmapnew(&menu->pixtitlebar, menu->titlebar, tw, th);
-	menu->tw = tw;
-	menu->th = th;
-
+	updatepixmap(&menu->pixtitlebar, &menu->tw, NULL, tw, config.titlewidth);
 	drawshadow(menu->pix, 0, 0, menu->w, menu->h, UNFOCUSED, False);
-
-	drawbackground(menu->pixtitlebar, 0, 0, menu->tw, menu->th, FOCUSED);
+	drawbackground(menu->pixtitlebar, 0, 0, menu->tw, config.titlewidth, FOCUSED);
 	drawshadow(menu->pixtitlebar, 0, 0, menu->tw, config.titlewidth, FOCUSED, titlepressed);
 	/* write menu title */
 	if (menu->name != NULL)

@@ -524,7 +524,7 @@ struct Menu {
 	Pixmap pixbutton;                       /* pixmap to draw the button */
 	Pixmap pixtitlebar;                     /* pixmap to draw the titlebar */
 	int pw, ph;                             /* pixmap size */
-	int tw, th;                             /* titlebar pixmap size */
+	int tw;                                 /* titlebar pixmap size */
 
 	int x, y, w, h;                         /* geometry of the menu window + the frame */
 	int ignoreunmap;                        /* number of unmapnotifys to ignore */
@@ -792,7 +792,7 @@ void mapwin(Window win);
 /* decoration routines */
 Window createframe(XRectangle geom);
 Window createdecoration(Window frame, XRectangle geom);
-void pixmapnew(Pixmap *pix, Window win, int w, int h);
+void updatepixmap(Pixmap *pix, int *pixw, int *pixh, int w, int h);
 void drawcommit(Pixmap pix, Window win);
 void drawborders(Pixmap pix, int w, int h, int style);
 void drawbackground(Pixmap pix, int x, int y, int w, int h, int style);

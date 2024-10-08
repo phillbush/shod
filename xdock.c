@@ -20,10 +20,7 @@ dockstack(void)
 void
 dockdecorate(void)
 {
-	if (dock.pw != dock.w || dock.ph != dock.h || dock.pix == None)
-		pixmapnew(&dock.pix, dock.obj.win, dock.w, dock.h);
-	dock.pw = dock.w;
-	dock.ph = dock.h;
+	updatepixmap(&dock.pix, &dock.pw, &dock.ph, dock.w, dock.h);
 	drawdock(dock.pix, dock.w, dock.h);
 	drawcommit(dock.pix, dock.obj.win);
 }

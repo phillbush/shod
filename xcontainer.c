@@ -523,13 +523,7 @@ dialogdecorate(struct Dialog *d)
 
 	fullw = d->w + 2 * config.borderwidth;
 	fullh = d->h + 2 * config.borderwidth;
-
-	/* (re)create pixmap */
-	if (d->pw != fullw || d->ph != fullh || d->pix == None)
-		pixmapnew(&d->pix, d->frame, fullw, fullh);
-	d->pw = fullw;
-	d->ph = fullh;
-
+	updatepixmap(&d->pix, &d->pw, &d->ph, fullw, fullh);
 	drawborders(d->pix, fullw, fullh, tabgetstyle(d->tab));
 	drawcommit(d->pix, d->frame);
 }
@@ -921,14 +915,7 @@ containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, in
 		return;
 	isshaded = containerisshaded(c);
 	style = containergetstyle(c);
-
-	/* (re)create pixmap */
-	if (c->pw != c->w || c->ph != c->h || c->pix == None)
-		pixmapnew(&c->pix, c->frame, c->w, c->h);
-	c->pw = c->w;
-	c->ph = c->h;
-
-	/* draw background */
+	updatepixmap(&c->pix, &c->pw, &c->ph, c->w, c->h);
 	drawbackground(c->pix, 0, 0, c->w, c->h, style);
 
 	if (c->b > 0)
@@ -943,12 +930,8 @@ containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, in
 			if (TAILQ_NEXT(row, entry) != NULL)
 				drawshadow(c->pix, col->x, row->y + row->h, col->w, config.divwidth, style, row == rdiv);
 
-			/* (re)create titlebar pixmap */
-			if (row->pw != col->w || row->pixbar == None)
-				pixmapnew(&row->pixbar, row->bar, col->w, config.titlewidth);
-			row->pw = col->w;
-
 			/* draw background of titlebar pixmap */
+			updatepixmap(&row->pixbar, &row->pw, NULL, col->w, config.titlewidth);
 			drawbackground(row->pixbar, 0, 0, col->w, config.titlewidth, style);
 			drawcommit(row->pixbar, row->bar);
 
@@ -1666,19 +1649,9 @@ tabdecorate(struct Tab *t, int pressed)
 		drawlines = 1;
 	}
 
-	/* (re)create pixmap */
-	if (t->ptw != t->w || t->pixtitle == None)
-		pixmapnew(&t->pixtitle, t->title, t->w, config.titlewidth);
-	if (t->pw != t->winw || t->ph != t->winh || t->pix == None)
-		pixmapnew(&t->pix, t->frame, t->winw, t->winh);
-	t->ptw = t->w;
-	t->pw = t->winw;
-	t->ph = t->winh;
-
-	/* draw background */
+	updatepixmap(&t->pixtitle, &t->ptw, NULL, t->w, config.titlewidth);
+	updatepixmap(&t->pix, &t->pw, &t->ph, t->winw, t->winh);
 	drawbackground(t->pixtitle, 0, 0, t->w, config.titlewidth, style);
-
-	/* draw shadows */
 	drawshadow(t->pixtitle, 0, 0, t->w, config.titlewidth, style, pressed);
 
 	/* write tab title */

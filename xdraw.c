@@ -69,11 +69,20 @@ createdecoration(Window frame, XRectangle geom)
 }
 
 void
-pixmapnew(Pixmap *pix, Window win, int w, int h)
+updatepixmap(Pixmap *pix, int *pixw, int *pixh, int w, int h)
 {
-	if (*pix != None)
+#define PIXMAP_INCREMENT        64
+
+	if (*pix != None) {
+		if ((pixw == NULL || w <= *pixw) && (pixh == NULL || h <= *pixh))
+			return;
 		XFreePixmap(dpy, *pix);
-	*pix = XCreatePixmap(dpy, win, w, h, depth);
+	}
+	if (pixw != NULL && w > *pixw)
+		*pixw = w += PIXMAP_INCREMENT;
+	if (pixh != NULL && h > *pixh)
+		*pixh = h += PIXMAP_INCREMENT;
+	*pix = XCreatePixmap(dpy, wm.checkwin, w, h, depth);
 }
 
 void
