@@ -787,6 +787,8 @@ void shodgroupcontainer(struct Container *c);
 void winupdatetitle(Window win, char **name);
 void winnotify(Window win, int x, int y, int w, int h);
 void winclose(Window win);
+void unmapwin(Window win);
+void mapwin(Window win);
 
 /* decoration routines */
 void pixmapnew(Pixmap *pix, Window win, int w, int h);

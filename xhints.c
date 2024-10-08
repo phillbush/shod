@@ -345,3 +345,19 @@ winclose(Window win)
 	 */
 	XSendEvent(dpy, win, False, NoEventMask, &ev);
 }
+
+void
+mapwin(Window win)
+{
+	XMapWindow(dpy, win);
+	icccmwmstate(win, NormalState);
+}
+
+void
+unmapwin(Window win)
+{
+	XSelectInput(dpy, win, CLIENT_EVENTS & ~StructureNotifyMask);
+	XUnmapWindow(dpy, win);
+	XSelectInput(dpy, win, CLIENT_EVENTS);
+	icccmwmstate(win, IconicState);
+}

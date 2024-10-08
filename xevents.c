@@ -151,13 +151,13 @@ struct GNUHints {
 		if (p->win == w)                                \
 			return (p);                             \
 
-static void mapwin(struct Tab *, struct Monitor *, int, Window,
-                   Window, XRectangle, enum State);
+static void manageunknown(struct Tab *, struct Monitor *, int, Window,
+		Window, XRectangle, enum State);
 
 static struct Class *unknown_class = &(struct Class){
 	.type           = TYPE_UNKNOWN,
 	.setstate       = NULL,
-	.manage         = mapwin,
+	.manage         = manageunknown,
 	.unmanage       = NULL,
 };
 
@@ -216,7 +216,7 @@ getmanaged(Window win)
 	GETMANAGED(wm.barq, p, win)
 	GETMANAGED(wm.notifq, p, win)
 	TAILQ_FOREACH(p, &wm.splashq, entry)
-		if (p->win == win || ((struct Splash *)p)->frame == win)
+		if (p->win == win)
 			return p;
 	TAILQ_FOREACH(menu, &wm.menuq, entry) {
 		if (menu->win == win ||
@@ -387,8 +387,8 @@ getextrahints(Window win, Atom prop, unsigned long nmemb, size_t size, void *hin
 #define STRCMP(a, b) ((a) != NULL && (b) != NULL && strcmp((a), (b)) == 0)
 
 static void
-mapwin(struct Tab *tab, struct Monitor *mon, int desk, Window win,
-       Window leader, XRectangle rect, enum State state)
+manageunknown(struct Tab *tab, struct Monitor *mon, int desk, Window win,
+		Window leader, XRectangle rect, enum State state)
 {
 	(void)tab;
 	(void)mon;

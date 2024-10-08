@@ -43,10 +43,9 @@ void
 splashhide(struct Splash *splash, int hide)
 {
 	if (hide)
-		XUnmapWindow(dpy, splash->frame);
+		unmapwin(splash->frame);
 	else
-		XMapWindow(dpy, splash->frame);
-	icccmwmstate(splash->frame, (hide ? IconicState : NormalState));
+		mapwin(splash->frame);
 }
 
 void

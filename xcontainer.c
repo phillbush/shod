@@ -277,8 +277,7 @@ tabnew(Window win, Window leader)
 	TAILQ_INIT(&tab->dialq);
 	tab->frame = XCreateWindow(dpy, root, 0, 0, 1, 1, 0, depth, CopyFromParent, visual, clientmask, &clientswa),
 	XReparentWindow(dpy, tab->obj.win, tab->frame, 0, 0);
-	XMapWindow(dpy, tab->obj.win);
-	icccmwmstate(win, NormalState);
+	mapwin(tab->obj.win);
 	clientsincr();
 	return tab;
 }

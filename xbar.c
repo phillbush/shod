@@ -111,14 +111,10 @@ toggleminimized(struct Bar *bar)
 	Window win;
 
 	win = bar->obj.win;
-	if (bar->state & MINIMIZED) {
-		/* bar is hidden; show it */
-		XMapWindow(dpy, win);
-	} else {
-		XSelectInput(dpy, win, CLIENT_EVENTS & ~StructureNotifyMask);
-		XUnmapWindow(dpy, bar->obj.win);
-		XSelectInput(dpy, win, CLIENT_EVENTS);
-	}
+	if (bar->state & MINIMIZED)
+		mapwin(win);
+	else
+		unmapwin(win);
 	bar->state ^= MINIMIZED;
 }
 
