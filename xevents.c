@@ -1054,7 +1054,7 @@ done:
 
 /* move floating entity (container or menu) with mouse */
 static void
-mousemove(Window win, int type, void *p, int xroot, int yroot)
+mousemove(int type, void *p, int xroot, int yroot)
 {
 	struct Object *obj;
 	struct Container *c;
@@ -1076,9 +1076,7 @@ mousemove(Window win, int type, void *p, int xroot, int yroot)
 		obj = (struct Object *)c->selcol->selrow->seltab;
 	}
 	lasttime = 0;
-	if (win != None)
-		XDefineCursor(dpy, win, wm.cursors[CURSOR_MOVE]);
-	else if (XGrabPointer(dpy, frame, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, wm.cursors[CURSOR_MOVE], CurrentTime) != GrabSuccess)
+	if (XGrabPointer(dpy, frame, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, wm.cursors[CURSOR_MOVE], CurrentTime) != GrabSuccess)
 		goto done;
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
 		switch (ev.type) {
@@ -1115,11 +1113,7 @@ mousemove(Window win, int type, void *p, int xroot, int yroot)
 		}
 	}
 done:
-	if (win != None) {
-		XUndefineCursor(dpy, win);
-	} else {
-		XUngrabPointer(dpy, CurrentTime);
-	}
+	XUngrabPointer(dpy, CurrentTime);
 }
 
 /* resize tiles by dragging division with mouse */
@@ -1340,13 +1334,13 @@ xeventbuttonpress(XEvent *e)
 	/* do action performed by mouse */
 	if (menu != NULL) {
 		if (ev->window == menu->titlebar && ev->button == Button1) {
-			mousemove(menu->titlebar, FLOAT_MENU, menu, ev->x_root, ev->y_root);
+			mousemove(FLOAT_MENU, menu, ev->x_root, ev->y_root);
 		} else if (ev->window == menu->button && ev->button == Button1) {
 			drawcommit(menu->button, wm.decorations[PRESSED].btn_right);
 		} else if (isvalidstate(ev->state) && ev->button == Button1) {
-			mousemove(None, FLOAT_MENU, menu, ev->x_root, ev->y_root);
+			mousemove(FLOAT_MENU, menu, ev->x_root, ev->y_root);
 		} else if (ev->window == menu->frame && ev->button == Button3) {
-			mousemove(None, FLOAT_MENU, menu, ev->x_root, ev->y_root);
+			mousemove(FLOAT_MENU, menu, ev->x_root, ev->y_root);
 		} else if (isvalidstate(ev->state) && ev->button == Button3) {
 			if (!XTranslateCoordinates(dpy, ev->window, menu->frame, ev->x, ev->y, &x, &y, &pressed))
 				goto done;
@@ -1383,30 +1377,38 @@ xeventbuttonpress(XEvent *e)
 		} else if (c->state & (FULLSCREEN|MINIMIZED)) {
 			goto done;
 		} else if (isvalidstate(ev->state) && ev->button == Button1) {
-			mousemove(None, FLOAT_CONTAINER, c, ev->x_root, ev->y_root);
+			mousemove(FLOAT_CONTAINER, c, ev->x_root, ev->y_root);
 		} else if (ev->window == c->frame && ev->button == Button3) {
-			mousemove(None, FLOAT_CONTAINER, c, ev->x_root, ev->y_root);
+			mousemove(FLOAT_CONTAINER, c, ev->x_root, ev->y_root);
 		} else if (isvalidstate(ev->state) && ev->button == Button3) {
 			mouseresize(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, pressed, o); 
-		} else if (ev->button != Button1) {
-			goto done;
-		} else if (ev->window == tab->title) {
-			mousemove(tab->title, FLOAT_CONTAINER, c, ev->x_root, ev->y_root);
-		} else {
+		} else if (ev->button == Button1 && ev->window == tab->title) {
+			mousemove(FLOAT_CONTAINER, c, ev->x_root, ev->y_root);
+		} else if (ev->button == Button1) {
 			getdivisions(c, &cdiv, &rdiv, ev->window);
 			if (cdiv != NULL || rdiv != NULL) {
 				mouseretile(c, cdiv, rdiv, ev->x, ev->y);
-				goto done;
 			}
-			for (int border = 0; border < BORDER_LAST; border++) {
-				if (ev->window == c->curswin[border]) {
-					mouseresize(
-						FLOAT_CONTAINER, c,
-						ev->x_root, ev->y_root,
-						ev->window, o
-					);
-					goto done;
-				}
+		} else if (ev->button == Button1 || ev->button == Button3) {
+			int border;
+
+			for (border = 0; border < BORDER_LAST; border++)
+				if (ev->window == c->curswin[border])
+					break;
+			if (border == BORDER_LAST)
+				goto done;
+			if (ev->button == Button3) {
+				mousemove(
+					FLOAT_CONTAINER, c,
+					ev->x_root, ev->y_root
+				);
+			}
+			if (ev->button == Button1) {
+				mouseresize(
+					FLOAT_CONTAINER, c,
+					ev->x_root, ev->y_root,
+					ev->window, o
+				);
 			}
 		}
 	}
