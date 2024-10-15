@@ -195,7 +195,11 @@ getmanaged(Window win)
 			if (c->curswin[i] == win)
 				return (struct Object *)c->selcol->selrow->seltab;
 		TAILQ_FOREACH(col, &(c)->colq, entry) {
+			if (col->div == win)
+				return (struct Object *)c->selcol->selrow->seltab;
 			TAILQ_FOREACH(row, &col->rowq, entry) {
+				if (row->div == win)
+					return (struct Object *)row->seltab;
 				if (row->bar == win || row->bl == win || row->br == win)
 					return (struct Object *)row->seltab;
 				TAILQ_FOREACH(tab, &row->tabq, entry) {
@@ -630,7 +634,7 @@ getwinurgency(Window win)
 
 /* get row or column next to division the pointer is on */
 static void
-getdivisions(struct Container *c, struct Column **cdiv, struct Row **rdiv, int x, int y)
+getdivisions(struct Container *c, struct Column **cdiv, struct Row **rdiv, Window win)
 {
 	struct Column *col;
 	struct Row *row;
@@ -638,23 +642,21 @@ getdivisions(struct Container *c, struct Column **cdiv, struct Row **rdiv, int x
 	*cdiv = NULL;
 	*rdiv = NULL;
 	TAILQ_FOREACH(col, &c->colq, entry) {
-		if (TAILQ_NEXT(col, entry) != NULL && x >= col->x + col->w && x < col->x + col->w + config.divwidth) {
+		if (col->div == win) {
 			*cdiv = col;
 			return;
 		}
-		if (x >= col->x && x < col->x + col->w) {
-			TAILQ_FOREACH(row, &col->rowq, entry) {
-				if (TAILQ_NEXT(row, entry) != NULL && y >= row->y + row->h && y < row->y + row->h + config.divwidth) {
-					*rdiv = row;
-					return;
-				}
+		TAILQ_FOREACH(row, &col->rowq, entry) {
+			if (row->div == win) {
+				*rdiv = row;
+				return;
 			}
 		}
 	}
 }
 
 /* get frame handle (NW/N/NE/W/E/SW/S/SE) the pointer is on */
-static enum Octant
+static Window
 getframehandle(int w, int h, int x, int y)
 {
 	if ((y < config.borderwidth && x <= config.corner) || (x < config.borderwidth && y <= config.corner))
@@ -903,11 +905,10 @@ error:
 
 /* resize container with mouse */
 static void
-mouseresize(int type, void *obj, int xroot, int yroot, enum Octant o)
+mouseresize(int type, void *obj, int xroot, int yroot, Window pressed, enum Octant o)
 {
 	struct Container *c;
 	struct Menu *menu;
-	Window frame;
 	Cursor curs;
 	XEvent ev;
 	Time lasttime;
@@ -920,11 +921,12 @@ mouseresize(int type, void *obj, int xroot, int yroot, enum Octant o)
 		ny = &menu->y;
 		nw = &menu->w;
 		nh = &menu->h;
-		frame = menu->frame;
-		menudecorate(menu, o != C);
+		pressed = menu->frame;
 	} else {
 		c = (struct Container *)obj;
 		if (c->state & FULLSCREEN || c->b == 0)
+			return;
+		if (pressed == None)
 			return;
 		if (containerisshaded(c)) {
 			if (o & W) {
@@ -939,8 +941,6 @@ mouseresize(int type, void *obj, int xroot, int yroot, enum Octant o)
 		ny = &c->ny;
 		nw = &c->nw;
 		nh = &c->nh;
-		frame = c->frame;
-		containerdecorate(c, NULL, NULL, 0, o);
 	}
 	switch (o) {
 	case NW:
@@ -983,7 +983,7 @@ mouseresize(int type, void *obj, int xroot, int yroot, enum Octant o)
 		y = *ny + *nh - config.borderwidth - yroot;
 	else
 		y = 0;
-	if (XGrabPointer(dpy, frame, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, curs, CurrentTime) != GrabSuccess)
+	if (XGrabPointer(dpy, pressed, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, curs, CurrentTime) != GrabSuccess)
 		goto done;
 	lasttime = 0;
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
@@ -1031,11 +1031,9 @@ mouseresize(int type, void *obj, int xroot, int yroot, enum Octant o)
 			if (ev.xmotion.time - lasttime > (unsigned)config.resizetime) {
 				if (type == FLOAT_MENU) {
 					menumoveresize(menu);
-					menudecorate(menu, 0);
 				} else {
 					containercalccols(c);
 					containermoveresize(c, 0);
-					containerredecorate(c, NULL, NULL, o);
 				}
 				lasttime = ev.xmotion.time;
 			}
@@ -1047,18 +1045,16 @@ mouseresize(int type, void *obj, int xroot, int yroot, enum Octant o)
 done:
 	if (type == FLOAT_MENU) {
 		menumoveresize(menu);
-		menudecorate(menu, 0);
 	} else {
 		containercalccols(c);
 		containermoveresize(c, 1);
-		containerdecorate(c, NULL, NULL, 0, 0);
 	}
 	XUngrabPointer(dpy, CurrentTime);
 }
 
 /* move floating entity (container or menu) with mouse */
 static void
-mousemove(Window win, int type, void *p, int xroot, int yroot, enum Octant o)
+mousemove(Window win, int type, void *p, int xroot, int yroot)
 {
 	struct Object *obj;
 	struct Container *c;
@@ -1072,12 +1068,10 @@ mousemove(Window win, int type, void *p, int xroot, int yroot, enum Octant o)
 	unmaximize = 0;
 	if (type == FLOAT_MENU) {
 		menu = (struct Menu *)p;
-		menudecorate(menu, o);
 		frame = menu->frame;
 		obj = (struct Object *)menu;
 	} else {
 		c = (struct Container *)p;
-		containerdecorate(c, NULL, NULL, 0, o);
 		frame = c->frame;
 		obj = (struct Object *)c->selcol->selrow->seltab;
 	}
@@ -1121,11 +1115,6 @@ mousemove(Window win, int type, void *p, int xroot, int yroot, enum Octant o)
 		}
 	}
 done:
-	if (type == FLOAT_MENU) {
-		menudecorate(menu, 0);
-	} else {
-		containerdecorate(c, NULL, NULL, 0, 0);
-	}
 	if (win != None) {
 		XUndefineCursor(dpy, win);
 	} else {
@@ -1144,14 +1133,15 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xpre
 	double fact;
 	int ignore, len, x, y;
 
-	if (cdiv != NULL && TAILQ_NEXT(cdiv, entry) != NULL)
+	if (cdiv != NULL && TAILQ_NEXT(cdiv, entry) != NULL) {
 		curs = wm.cursors[CURSOR_H];
-	else if (rdiv != NULL && TAILQ_NEXT(rdiv, entry) != NULL)
+	}
+	else if (rdiv != NULL && TAILQ_NEXT(rdiv, entry) != NULL) {
 		curs = wm.cursors[CURSOR_V];
-	else
+	} else {
 		return;
+	}
 	lasttime = 0;
-	containerdecorate(c, cdiv, rdiv, 0, 0);
 	if (XGrabPointer(dpy, c->frame, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, curs, CurrentTime) != GrabSuccess)
 		goto done;
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
@@ -1209,7 +1199,6 @@ mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xpre
 			if (ev.xmotion.time - lasttime > (unsigned)config.resizetime) {
 				containercalccols(c);
 				containermoveresize(c, 0);
-				containerdecorate(c, cdiv, rdiv, 0, 0);
 				lasttime = ev.xmotion.time;
 			}
 			xprev = ev.xmotion.x;
@@ -1287,7 +1276,7 @@ xeventbuttonpress(XEvent *e)
 	struct Menu *menu;
 	enum Octant o;
 	XButtonPressedEvent *ev;
-	Window dw;
+	Window pressed;
 	int x, y;
 
 	ev = &e->xbutton;
@@ -1351,21 +1340,21 @@ xeventbuttonpress(XEvent *e)
 	/* do action performed by mouse */
 	if (menu != NULL) {
 		if (ev->window == menu->titlebar && ev->button == Button1) {
-			mousemove(menu->titlebar, FLOAT_MENU, menu, ev->x_root, ev->y_root, 1);
+			mousemove(menu->titlebar, FLOAT_MENU, menu, ev->x_root, ev->y_root);
 		} else if (ev->window == menu->button && ev->button == Button1) {
-			buttonrightdecorate(menu->button, menu->pixbutton, FOCUSED, 1);
+			drawcommit(menu->button, wm.decorations[PRESSED].btn_right);
 		} else if (isvalidstate(ev->state) && ev->button == Button1) {
-			mousemove(None, FLOAT_MENU, menu, ev->x_root, ev->y_root, 0);
+			mousemove(None, FLOAT_MENU, menu, ev->x_root, ev->y_root);
 		} else if (ev->window == menu->frame && ev->button == Button3) {
-			mousemove(None, FLOAT_MENU, menu, ev->x_root, ev->y_root, 0);
+			mousemove(None, FLOAT_MENU, menu, ev->x_root, ev->y_root);
 		} else if (isvalidstate(ev->state) && ev->button == Button3) {
-			if (!XTranslateCoordinates(dpy, ev->window, menu->frame, ev->x, ev->y, &x, &y, &dw))
+			if (!XTranslateCoordinates(dpy, ev->window, menu->frame, ev->x, ev->y, &x, &y, &pressed))
 				goto done;
 			o = getquadrant(menu->w, menu->h, x, y);
-			mouseresize(FLOAT_MENU, menu, ev->x_root, ev->y_root, o);
+			mouseresize(FLOAT_MENU, menu, ev->x_root, ev->y_root, None, o);
 		}
 	} else if (tab != NULL && c != NULL) {
-		if (!XTranslateCoordinates(dpy, ev->window, c->frame, ev->x, ev->y, &x, &y, &dw))
+		if (!XTranslateCoordinates(dpy, ev->window, c->frame, ev->x, ev->y, &x, &y, &pressed))
 			goto done;
 		if (ev->window == tab->title && ev->button == Button1) {
 			if (lastc == c && ev->time - lasttime < DOUBLECLICK) {
@@ -1387,30 +1376,37 @@ xeventbuttonpress(XEvent *e)
 			mouseretab(tab, ev->x_root, ev->y_root, ev->x, ev->y);
 		} else if (ev->window == tab->row->bl && ev->button == Button1) {
 			wm.presswin = ev->window;
-			buttonleftdecorate(tab->row->bl, tab->row->pixbl, FOCUSED, 1);
+			drawcommit(tab->row->bl, wm.decorations[PRESSED].btn_left);
 		} else if (ev->window == tab->row->br && ev->button == Button1) {
 			wm.presswin = ev->window;
-			buttonrightdecorate(tab->row->br, tab->row->pixbr, FOCUSED, 1);
-		} else if (ev->window == c->frame && ev->button == Button1 && o == C) {
-			getdivisions(c, &cdiv, &rdiv, x, y);
+			drawcommit(tab->row->bl, wm.decorations[PRESSED].btn_right);
+		} else if (c->state & (FULLSCREEN|MINIMIZED)) {
+			goto done;
+		} else if (isvalidstate(ev->state) && ev->button == Button1) {
+			mousemove(None, FLOAT_CONTAINER, c, ev->x_root, ev->y_root);
+		} else if (ev->window == c->frame && ev->button == Button3) {
+			mousemove(None, FLOAT_CONTAINER, c, ev->x_root, ev->y_root);
+		} else if (isvalidstate(ev->state) && ev->button == Button3) {
+			mouseresize(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, pressed, o); 
+		} else if (ev->button != Button1) {
+			goto done;
+		} else if (ev->window == tab->title) {
+			mousemove(tab->title, FLOAT_CONTAINER, c, ev->x_root, ev->y_root);
+		} else {
+			getdivisions(c, &cdiv, &rdiv, ev->window);
 			if (cdiv != NULL || rdiv != NULL) {
 				mouseretile(c, cdiv, rdiv, ev->x, ev->y);
+				goto done;
 			}
-		} else if (!(c->state & (FULLSCREEN|MINIMIZED))) {
-			if (isvalidstate(ev->state) && ev->button == Button1) {
-				mousemove(None, FLOAT_CONTAINER, c, ev->x_root, ev->y_root, 0);
-			} else if (ev->window == c->frame && ev->button == Button3) {
-				mousemove(None, FLOAT_CONTAINER, c, ev->x_root, ev->y_root, o);
-			} else if (!(c->state & MINIMIZED) &&
-			           ((isvalidstate(ev->state) && ev->button == Button3) ||
-			           (o != C && ev->window == c->frame && ev->button == Button1))) {
-				if (o == C)
-					o = getquadrant(c->w, c->h, x, y);
-				mouseresize(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, o);
-			} else if (ev->window == tab->title && ev->button == Button1) {
-				tabdecorate(tab, 1);
-				mousemove(tab->title, FLOAT_CONTAINER, c, ev->x_root, ev->y_root, 0);
-				tabdecorate(tab, 0);
+			for (int border = 0; border < BORDER_LAST; border++) {
+				if (ev->window == c->curswin[border]) {
+					mouseresize(
+						FLOAT_CONTAINER, c,
+						ev->x_root, ev->y_root,
+						ev->window, o
+					);
+					goto done;
+				}
 			}
 		}
 	}
@@ -1428,7 +1424,6 @@ xeventbuttonrelease(XEvent *e)
 	struct Menu *menu;
 	XButtonReleasedEvent *ev;
 	Window win, button;
-	Pixmap pix;
 	int perform;
 	char buf[16];
 	enum { PRESS_CLOSE, PRESS_STACK } action;
@@ -1446,11 +1441,9 @@ xeventbuttonrelease(XEvent *e)
 		if (ev->window == row->br) {
 			action = PRESS_CLOSE;
 			button = row->br;
-			pix = row->pixbr;
 		} else if (ev->window == row->bl) {
 			action = PRESS_STACK;
 			button = row->bl;
-			pix = row->pixbl;
 		} else {
 			return;
 		}
@@ -1464,7 +1457,6 @@ xeventbuttonrelease(XEvent *e)
 			action = PRESS_CLOSE;
 			button = menu->button;
 			win = menu->obj.win;
-			pix = menu->pixbutton;
 		} else {
 			return;
 		}
@@ -1478,7 +1470,7 @@ xeventbuttonrelease(XEvent *e)
 	case PRESS_CLOSE:
 		if (perform)
 			winclose(win);
-		buttonrightdecorate(button, pix, FOCUSED, 0);
+		drawcommit(button, wm.decorations[FOCUSED].btn_right);
 		break;
 	case PRESS_STACK:
 		(void)snprintf(
@@ -1504,7 +1496,7 @@ xeventbuttonrelease(XEvent *e)
 			(char *[]){ config.menucmd, NULL },
 			environ
 		);
-		buttonleftdecorate(button, pix, FOCUSED, 0);
+		drawcommit(button, wm.decorations[FOCUSED].btn_left);
 		break;
 	}
 }
@@ -1519,8 +1511,8 @@ xeventclientmessage(XEvent *e)
 	XClientMessageEvent *ev;
 	XWindowChanges wc;
 	unsigned value_mask = 0;
-	int floattype;
-	void *p;
+	//int floattype;
+	//void *p;
 
 	ev = &e->xclient;
 	if ((obj = getmanaged(ev->window)) != NULL) {
@@ -1646,53 +1638,53 @@ xeventclientmessage(XEvent *e)
 			);
 		}
 	} else if (ev->message_type == atoms[_NET_WM_MOVERESIZE]) {
-		/*
-		 * Client-side decorated Gtk3 windows emit this signal when being
-		 * dragged by their GtkHeaderBar
-		 */
-		if (obj == NULL)
-			return;
-		if (obj->class->type == TYPE_MENU) {
-			p = obj;
-			floattype = FLOAT_MENU;
-		} else if (obj->class->type == TYPE_NORMAL) {
-			p = c;
-			floattype = FLOAT_CONTAINER;
-		} else {
-			return;
-		}
-		switch (ev->data.l[2]) {
-		case _NET_WM_MOVERESIZE_SIZE_TOPLEFT:
-			mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], NW);
-			break;
-		case _NET_WM_MOVERESIZE_SIZE_TOP:
-			mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], N);
-			break;
-		case _NET_WM_MOVERESIZE_SIZE_TOPRIGHT:
-			mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], NE);
-			break;
-		case _NET_WM_MOVERESIZE_SIZE_RIGHT:
-			mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], E);
-			break;
-		case _NET_WM_MOVERESIZE_SIZE_BOTTOMRIGHT:
-			mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], SE);
-			break;
-		case _NET_WM_MOVERESIZE_SIZE_BOTTOM:
-			mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], S);
-			break;
-		case _NET_WM_MOVERESIZE_SIZE_BOTTOMLEFT:
-			mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], SW);
-			break;
-		case _NET_WM_MOVERESIZE_SIZE_LEFT:
-			mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], W);
-			break;
-		case _NET_WM_MOVERESIZE_MOVE:
-			mousemove(None, floattype, p, ev->data.l[0], ev->data.l[1], C);
-			break;
-		default:
-			XUngrabPointer(dpy, CurrentTime);
-			break;
-		}
+	//	/*
+	//	 * Client-side decorated Gtk3 windows emit this signal when being
+	//	 * dragged by their GtkHeaderBar
+	//	 */
+	//	if (obj == NULL)
+	//		return;
+	//	if (obj->class->type == TYPE_MENU) {
+	//		p = obj;
+	//		floattype = FLOAT_MENU;
+	//	} else if (obj->class->type == TYPE_NORMAL) {
+	//		p = c;
+	//		floattype = FLOAT_CONTAINER;
+	//	} else {
+	//		return;
+	//	}
+	//	switch (ev->data.l[2]) {
+	//	case _NET_WM_MOVERESIZE_SIZE_TOPLEFT:
+	//		mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], NW);
+	//		break;
+	//	case _NET_WM_MOVERESIZE_SIZE_TOP:
+	//		mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], N);
+	//		break;
+	//	case _NET_WM_MOVERESIZE_SIZE_TOPRIGHT:
+	//		mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], NE);
+	//		break;
+	//	case _NET_WM_MOVERESIZE_SIZE_RIGHT:
+	//		mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], E);
+	//		break;
+	//	case _NET_WM_MOVERESIZE_SIZE_BOTTOMRIGHT:
+	//		mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], SE);
+	//		break;
+	//	case _NET_WM_MOVERESIZE_SIZE_BOTTOM:
+	//		mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], S);
+	//		break;
+	//	case _NET_WM_MOVERESIZE_SIZE_BOTTOMLEFT:
+	//		mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], SW);
+	//		break;
+	//	case _NET_WM_MOVERESIZE_SIZE_LEFT:
+	//		mouseresize(floattype, p, ev->data.l[0], ev->data.l[1], W);
+	//		break;
+	//	case _NET_WM_MOVERESIZE_MOVE:
+	//		mousemove(None, floattype, p, ev->data.l[0], ev->data.l[1]);
+	//		break;
+	//	default:
+	//		XUngrabPointer(dpy, CurrentTime);
+	//		break;
+	//	}
 	}
 }
 
@@ -1916,7 +1908,7 @@ xeventpropertynotify(XEvent *e)
 		setresources(str);
 		free(str);
 		TAILQ_FOREACH(c, &wm.focusq, entry)
-			containerdecorate(c, NULL, NULL, 1, C);
+			containerdecorate(c);
 		TAILQ_FOREACH(obj, &wm.menuq, entry)
 			menudecorate((struct Menu *)obj, 0);
 		TAILQ_FOREACH(obj, &wm.notifq, entry)
@@ -1931,7 +1923,6 @@ xeventpropertynotify(XEvent *e)
 		tab = (struct Tab *)obj;
 		if (ev->atom == XA_WM_NAME || ev->atom == atoms[_NET_WM_NAME]) {
 			winupdatetitle(tab->obj.win, &tab->name);
-			tabdecorate(tab, 0);
 		} else if (ev->atom == XA_WM_HINTS) {
 			tabupdateurgency(tab, getwinurgency(tab->obj.win));
 		}
@@ -1942,7 +1933,6 @@ xeventpropertynotify(XEvent *e)
 		menu = (struct Menu *)obj;
 		if (ev->atom == XA_WM_NAME || ev->atom == atoms[_NET_WM_NAME]) {
 			winupdatetitle(menu->obj.win, &menu->name);
-			menudecorate(menu, 0);
 		}
 	}
 }

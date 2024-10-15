@@ -270,7 +270,7 @@ monupdatearea(void)
 		if (c->state & MAXIMIZED) {
 			containercalccols(c);
 			containermoveresize(c, 0);
-			containerredecorate(c, NULL, NULL, 0);
+			containerdecorate(c);
 		}
 	}
 }

@@ -66,7 +66,7 @@ enum Resource {
 #undef  X
 };
 
-enum {
+enum border {
 	/* border array indices */
 	BORDER_N,
 	BORDER_S,
@@ -112,11 +112,14 @@ enum {
 
 enum {
 	/* decoration style array indices */
-	FOCUSED,
-	UNFOCUSED,
-	URGENT,
-	STYLE_OTHER,
-	STYLE_LAST
+	FOCUSED    = 0,
+	UNFOCUSED  = 1,
+	URGENT     = 2,
+	PRESSED    = 3,
+	STYLE_LAST = 4,
+
+	/* XXX: TODO */
+	STYLE_OTHER = PRESSED,
 };
 
 enum {
@@ -266,19 +269,6 @@ struct Row {
 	int y, h;                               /* row geometry */
 
 	/*
-	 * Three of the windows of the row must be drawn.  First we draw
-	 * into their pixmap, and then copy the contents of the pixmap
-	 * into the windows thenselves whenever they are damaged.  It is
-	 * necessary to redraw on the pixmap only when the row resizes;
-	 * so we save the previous width of the row to compare with the
-	 * row's current width.
-	 */
-	Pixmap pixbar;                          /* pixmap for the title bar */
-	Pixmap pixbl;                           /* pixmap for left button */
-	Pixmap pixbr;                           /* pixmap for right button */
-	int pw;
-
-	/*
 	 * Whether the frame is unmapped
 	 */
 	int isunmapped;
@@ -363,18 +353,6 @@ struct Container {
 	 */
 	Window frame;                           /* window to reparent the contents of the container */
 	Window curswin[BORDER_LAST];            /* dummy window used for change cursor while hovering borders */
-
-	/*
-	 * The frame must be drawn, with all its borders and corner
-	 * handles.  First we draw into a pixmap, and then copy the
-	 * contents of the pixmap into the frame window itself whenever
-	 * the frame window is damaged.  It is necessary to redraw on
-	 * the pixmap only when the container resizes; so we save the
-	 * width and height of the pixmap to compare with the size of
-	 * the container.
-	 */
-	Pixmap pix;                             /* pixmap to draw the frame */
-	int pw, ph;                             /* pixmap width and height */
 
 	/*
 	 * A container has three geometries (position and size): one for
@@ -520,8 +498,6 @@ struct Menu {
 	Window titlebar;                        /* close button */
 	Window button;                          /* close button */
 	Window frame;                           /* frame window */
-	Pixmap pix;                             /* pixmap to draw the frame */
-	Pixmap pixbutton;                       /* pixmap to draw the button */
 	Pixmap pixtitlebar;                     /* pixmap to draw the titlebar */
 	int pw, ph;                             /* pixmap size */
 	int tw;                                 /* titlebar pixmap size */
@@ -638,6 +614,17 @@ struct WM {
 	Bool setclientlist;
 
 	Window presswin;
+
+	struct {
+		Pixmap btn_left;
+		Pixmap btn_right;
+		Pixmap bar_vert;
+		Pixmap bar_horz;
+		Pixmap corner_nw;
+		Pixmap corner_ne;
+		Pixmap corner_sw;
+		Pixmap corner_se;
+	} decorations[STYLE_LAST];
 };
 
 struct Dock {
@@ -710,8 +697,7 @@ void containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectan
 void containerbacktoplace(struct Container *c, int restack);
 void containerdel(struct Container *c);
 void containermoveresize(struct Container *c, int checkstack);
-void containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, int recursive, enum Octant o);
-void containerredecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, enum Octant o);
+void containerdecorate(struct Container *c);
 void containercalccols(struct Container *c);
 void containermove(struct Container *c, int x, int y, int relative);
 void containerraise(struct Container *c, enum State state);
@@ -791,9 +777,10 @@ void mapwin(Window win);
 
 /* decoration routines */
 Window createframe(XRectangle geom);
-Window createdecoration(Window frame, XRectangle geom);
+Window createdecoration(Window frame, XRectangle geom, Cursor curs, int gravity);
 void updatepixmap(Pixmap *pix, int *pixw, int *pixh, int w, int h);
 void drawcommit(Pixmap pix, Window win);
+void backgroundcommit(Window, int style);
 void drawborders(Pixmap pix, int w, int h, int style);
 void drawbackground(Pixmap pix, int x, int y, int w, int h, int style);
 void drawframe(Pixmap pix, int isshaded, int w, int h, enum Octant o, int style);
@@ -801,11 +788,11 @@ void drawshadow(Pixmap pix, int x, int y, int w, int h, int style, int pressed);
 void drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int pressed, int ismenu);
 void drawprompt(Pixmap pix, int w, int h);
 void drawdock(Pixmap pix, int w, int h);
-void buttonleftdecorate(Window button, Pixmap pix, int style, int pressed);
-void buttonrightdecorate(Window button, Pixmap pix, int style, int pressed);
+void redecorate(Window win, int border, int style, Bool pressed);
 void cleantheme(void);
 void setresources(char *xrm);
-int settheme(void);
+void initdepth(void);
+void inittheme(void);
 
 /* window management routines */
 void setmod(void);

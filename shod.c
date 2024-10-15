@@ -184,51 +184,6 @@ initcursors(void)
 	wm.cursors[CURSOR_PIRATE] = XCreateFontCursor(dpy, XC_pirate);
 }
 
-static void
-initxrm(void)
-{
-	static struct {
-		const char *class, *name;
-	} resourceids[NRESOURCES] = {
-#define X(res, s1, s2) [res] = { .class = s1, .name = s2, },
-		RESOURCES
-#undef  X
-	};
-	long n;
-	int i;
-	char *value;
-
-	XrmInitialize();
-	wm.application.class = XrmPermStringToQuark("Shod");
-	wm.application.name = XrmPermStringToQuark("shod");
-	wm.anyresource = XrmPermStringToQuark("?");
-	for (i = 0; i < NRESOURCES; i++) {
-		wm.resources[i].class = XrmPermStringToQuark(resourceids[i].class);
-		wm.resources[i].name = XrmPermStringToQuark(resourceids[i].name);
-	}
-	if (!settheme())
-		exit(EXIT_FAILURE);
-	setresources(XResourceManagerString(dpy));
-	if (xdb != NULL) {
-		value = getresource(
-			xdb,
-			(XrmClass[]){
-				wm.application.class,
-				wm.resources[RES_NDESKTOPS].class,
-				NULLQUARK,
-			},
-			(XrmName[]){
-				wm.application.name,
-				wm.resources[RES_NDESKTOPS].name,
-				NULLQUARK,
-			}
-		);
-		if (value != NULL && (n = strtol(value, NULL, 10)) > 0 && n < 100) {
-			config.ndesktops = n;
-		}
-	}
-}
-
 /* create dock window */
 static void
 initdock(void)
@@ -390,7 +345,7 @@ main(int argc, char *argv[])
 	xinit();
 	checkotherwm();
 	moninit();
-	xinitvisual();
+	initdepth();
 	clientswa.colormap = colormap;
 	clientswa.border_pixel = BlackPixel(dpy, screen);
 	clientswa.background_pixel = BlackPixel(dpy, screen);
@@ -422,7 +377,7 @@ main(int argc, char *argv[])
 	initatoms();
 	initdummywindows();
 	initdock();
-	initxrm();
+	inittheme();
 
 	/* set up list of monitors */
 	monupdate();

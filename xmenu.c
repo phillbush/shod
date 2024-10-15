@@ -22,8 +22,6 @@ menunew(Window win, int x, int y, int w, int h)
 		.button = None,
 		.obj.win = win,
 		.obj.class = menu_class,
-		.pix = None,
-		.pixbutton = None,
 		.pixtitlebar = None,
 		.x = framex,
 		.y = framey,
@@ -33,17 +31,14 @@ menunew(Window win, int x, int y, int w, int h)
 	menu->frame = createframe((XRectangle){0, 0, framew, frameh});
 	menu->titlebar = createdecoration(
 		menu->frame,
-		(XRectangle){0, 0, titlew, config.titlewidth}
+		(XRectangle){0, 0, titlew, config.titlewidth},
+		None, None
 	);
 	menu->button = createdecoration(
 		menu->frame,
-		(XRectangle){titlew, 0, config.titlewidth, config.titlewidth}
+		(XRectangle){titlew, 0, config.titlewidth, config.titlewidth},
+		wm.cursors[CURSOR_PIRATE], NorthEastGravity
 	);
-	menu->pixbutton = XCreatePixmap(
-		dpy, menu->button,
-		config.titlewidth, config.titlewidth, depth
-	);
-	XDefineCursor(dpy, menu->button, wm.cursors[CURSOR_PIRATE]);
 	XReparentWindow(
 		dpy,
 		menu->obj.win, menu->frame,
@@ -129,17 +124,12 @@ menudecorate(struct Menu *menu, int titlepressed)
 {
 	int tw;
 
-	updatepixmap(&menu->pix, &menu->pw, &menu->ph, menu->w, menu->h);
 	tw = max(1, menu->w - config.titlewidth);
 	updatepixmap(&menu->pixtitlebar, &menu->tw, NULL, tw, config.titlewidth);
-	drawshadow(menu->pix, 0, 0, menu->w, menu->h, UNFOCUSED, False);
-	drawbackground(menu->pixtitlebar, 0, 0, menu->tw, config.titlewidth, FOCUSED);
 	drawshadow(menu->pixtitlebar, 0, 0, menu->tw, config.titlewidth, FOCUSED, titlepressed);
-	/* write menu title */
 	if (menu->name != NULL)
 		drawtitle(menu->pixtitlebar, menu->name, menu->tw, 0, FOCUSED, 0, 1);
-	buttonrightdecorate(menu->button, menu->pixbutton, FOCUSED, 0);
-	drawcommit(menu->pix, menu->frame);
+	drawcommit(menu->button, wm.decorations[FOCUSED].btn_right);
 	drawcommit(menu->pixtitlebar, menu->titlebar);
 }
 
@@ -209,10 +199,6 @@ unmanage(struct Object *obj)
 
 	menu = (struct Menu *)obj;
 	menudelraise(menu);
-	if (menu->pix != None)
-		XFreePixmap(dpy, menu->pix);
-	if (menu->pixbutton != None)
-		XFreePixmap(dpy, menu->pixbutton);
 	if (menu->pixtitlebar != None)
 		XFreePixmap(dpy, menu->pixtitlebar);
 	icccmdeletestate(menu->obj.win);

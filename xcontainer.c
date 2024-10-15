@@ -274,7 +274,10 @@ tabnew(Window win, Window leader)
 	};
 	TAILQ_INIT(&tab->dialq);
 	tab->frame = createframe((XRectangle){0, 0, 1, 1});
-	tab->title = createdecoration(root, (XRectangle){0, 0, 1, 1});
+	tab->title = createdecoration(
+		root, (XRectangle){0, 0, 1, 1},
+		None, NorthWestGravity
+	);
 	XReparentWindow(dpy, tab->obj.win, tab->frame, 0, 0);
 	mapwin(tab->obj.win);
 	clientsincr();
@@ -320,21 +323,6 @@ tabdel(struct Tab *tab)
 	free(tab);
 }
 
-static Window
-createcursorwin(Window frame, Cursor cursor)
-{
-	Window win;
-
-	win = XCreateWindow(
-		dpy, frame, 0, 0, 1, 1, 0,
-		CopyFromParent, InputOnly, CopyFromParent,
-		CWCursor,
-		&(XSetWindowAttributes){ .cursor = cursor }
-	);
-	XMapWindow(dpy, win);
-	return win;
-}
-
 /* create new row */
 struct Row *
 rownew(void)
@@ -343,35 +331,32 @@ rownew(void)
 
 	row = emalloc(sizeof(*row));
 	*row = (struct Row){
-		.pixbar = None,
 		.isunmapped = 0,
 	};
 	TAILQ_INIT(&row->tabq);
 	row->frame = createframe((XRectangle){0, 0, 1, 1});
-	row->bar = createdecoration(root, (XRectangle){0, 0, 1, 1});
+	row->bar = createdecoration(
+		root,
+		(XRectangle){0, 0, config.titlewidth, config.titlewidth},
+		None, NorthGravity
+	);
 	row->bl = createdecoration(
 		row->bar,
-		(XRectangle){0, 0, config.titlewidth, config.titlewidth}
+		(XRectangle){0, 0, config.titlewidth, config.titlewidth},
+		wm.cursors[CURSOR_HAND], WestGravity
 	);
 	row->br = createdecoration(
 		row->bar,
-		(XRectangle){0, 0, config.titlewidth, config.titlewidth}
+		(XRectangle){0, 0, config.titlewidth, config.titlewidth},
+		wm.cursors[CURSOR_PIRATE], EastGravity
 	);
-	row->div = createcursorwin(root, wm.cursors[CURSOR_V]);
-	row->pixbl = XCreatePixmap(
-		dpy, row->bl,
-		config.titlewidth, config.titlewidth,
-		depth
-	);
-	row->pixbr = XCreatePixmap(
-		dpy, row->br,
-		config.titlewidth, config.titlewidth,
-		depth
+	row->div = createdecoration(
+		root,
+		(XRectangle){0, 0, 1, 1},
+		wm.cursors[CURSOR_V], WestGravity
 	);
 	XMapWindow(dpy, row->bl);
 	XMapWindow(dpy, row->br);
-	XDefineCursor(dpy, row->bl, wm.cursors[CURSOR_HAND]);
-	XDefineCursor(dpy, row->br, wm.cursors[CURSOR_PIRATE]);
 	return row;
 }
 
@@ -409,10 +394,6 @@ rowdel(struct Row *row)
 	XDestroyWindow(dpy, row->bl);
 	XDestroyWindow(dpy, row->br);
 	XDestroyWindow(dpy, row->div);
-	if (row->pixbar != None)
-		XFreePixmap(dpy, row->pixbar);
-	XFreePixmap(dpy, row->pixbl);
-	XFreePixmap(dpy, row->pixbr);
 	free(row);
 }
 
@@ -425,7 +406,11 @@ colnew(void)
 	col = emalloc(sizeof(*col));
 	*col = (struct Column){ 0 };
 	TAILQ_INIT(&col->rowq);
-	col->div = createcursorwin(root, wm.cursors[CURSOR_H]);
+	col->div = createdecoration(
+		root,
+		(XRectangle){0, 0, 1, 1},
+		wm.cursors[CURSOR_H], NorthGravity
+	);
 	return col;
 }
 
@@ -650,7 +635,7 @@ containerfullscreen(struct Container *c, int fullscreen)
 	c->state ^= FULLSCREEN;
 	containercalccols(c);
 	containermoveresize(c, 1);
-	containerredecorate(c, NULL, NULL, 0);
+	containerdecorate(c);
 	ewmhsetstate(c);
 	if (wm.focused == c) {
 		restackdocks();
@@ -668,7 +653,7 @@ containermaximize(struct Container *c, int maximize)
 	c->state ^= MAXIMIZED;
 	containercalccols(c);
 	containermoveresize(c, 1);
-	containerredecorate(c, NULL, NULL, 0);
+	containerdecorate(c);
 }
 
 /* minimize container; optionally focus another container */
@@ -716,7 +701,7 @@ containershade(struct Container *c, int shade)
 	c->state ^= SHADED;
 	containercalccols(c);
 	containermoveresize(c, 1);
-	containerredecorate(c, NULL, NULL, 0);
+	containerdecorate(c);
 	if (c == wm.focused) {
 		tabfocus(c->selcol->selrow->seltab, 0);
 	}
@@ -766,17 +751,18 @@ struct Container *
 containernew(int x, int y, int w, int h, enum State state)
 {
 	struct Container *c;
-	Cursor sw, se, nw, ne;
+	int corner = config.corner + config.shadowthickness;
+	struct { int window, cursor, gravity, x, y; } table[] = {
+		{ BORDER_N,  CURSOR_N,  NorthWestGravity, 0, 0,                  },
+		{ BORDER_W,  CURSOR_W,  NorthWestGravity, 0, 0,                  },
+		{ BORDER_S,  CURSOR_S,  SouthWestGravity, 0, config.borderwidth, },
+		{ BORDER_E,  CURSOR_E,  NorthEastGravity, config.borderwidth, 0, },
+		{ BORDER_NW, CURSOR_NW, NorthWestGravity, 0, 0,                  },
+		{ BORDER_SW, CURSOR_SW, SouthWestGravity, 0, corner,             },
+		{ BORDER_NE, CURSOR_NE, NorthEastGravity, corner, 0,             },
+		{ BORDER_SE, CURSOR_SE, SouthEastGravity, corner, corner,        },
+	};
 
-	if (state & SHADED) {
-		sw = nw = wm.cursors[CURSOR_W];
-		se = ne = wm.cursors[CURSOR_E];
-	} else {
-		sw = wm.cursors[CURSOR_SW];
-		nw = wm.cursors[CURSOR_NW];
-		se = wm.cursors[CURSOR_SE];
-		ne = wm.cursors[CURSOR_NE];
-	}
 	x -= config.borderwidth,
 	y -= config.borderwidth,
 	w += 2 * config.borderwidth,
@@ -786,21 +772,29 @@ containernew(int x, int y, int w, int h, enum State state)
 		.x  = x, .y  = y, .w  = w, .h  = h,
 		.nx = x, .ny = y, .nw = w, .nh = h,
 		.b = config.borderwidth,
-		.pix = None,
 		.state = state,
 		.ishidden = 0,
 		.isobscured = 0,
 	};
 	TAILQ_INIT(&c->colq);
 	c->frame = createframe((XRectangle){c->x, c->y, c->w, c->h});
-	c->curswin[BORDER_N] = createcursorwin(c->frame, wm.cursors[CURSOR_N]);
-	c->curswin[BORDER_S] = createcursorwin(c->frame, wm.cursors[CURSOR_S]);
-	c->curswin[BORDER_W] = createcursorwin(c->frame, wm.cursors[CURSOR_W]);
-	c->curswin[BORDER_E] = createcursorwin(c->frame, wm.cursors[CURSOR_E]);
-	c->curswin[BORDER_NW] = createcursorwin(c->frame, nw);
-	c->curswin[BORDER_NE] = createcursorwin(c->frame, sw);
-	c->curswin[BORDER_SW] = createcursorwin(c->frame, ne);
-	c->curswin[BORDER_SE] = createcursorwin(c->frame, se);
+	for (size_t i = 0; i < LEN(table); i++) {
+		int x = table[i].x != 0 ? c->w - table[i].x : 0;
+		int y = table[i].y != 0 ? c->h - table[i].y : 0;
+
+		c->curswin[table[i].window] = createdecoration(
+			c->frame,
+			(XRectangle){
+				/*
+				 * Corners have fixed size, set it now.
+				 * Edges are resized at will.
+				 */
+				x, y, corner, corner
+			},
+			wm.cursors[table[i].cursor], table[i].gravity
+		);
+		XMapRaised(dpy, c->curswin[table[i].window]);
+	}
 	containerinsertfocus(c);
 	containerinsertraise(c);
 	return c;
@@ -820,8 +814,6 @@ containerdel(struct Container *c)
 	TAILQ_REMOVE(&wm.focusq, c, entry);
 	while ((col = TAILQ_FIRST(&c->colq)) != NULL)
 		coldel(col);
-	if (c->pix != None)
-		XFreePixmap(dpy, c->pix);
 	XDestroyWindow(dpy, c->frame);
 	for (i = 0; i < BORDER_LAST; i++)
 		XDestroyWindow(dpy, c->curswin[i]);
@@ -843,14 +835,10 @@ containermoveresize(struct Container *c, int checkstack)
 	if (c == NULL)
 		return;
 	XMoveResizeWindow(dpy, c->frame, c->x, c->y, c->w, c->h);
-	XMoveResizeWindow(dpy, c->curswin[BORDER_N], config.corner, 0, c->w - 2 * config.corner, c->b);
-	XMoveResizeWindow(dpy, c->curswin[BORDER_S], config.corner, c->h - c->b, c->w - 2 * config.corner, c->b);
-	XMoveResizeWindow(dpy, c->curswin[BORDER_W], 0, config.corner, c->b, c->h - 2 * config.corner);
-	XMoveResizeWindow(dpy, c->curswin[BORDER_E], c->w - c->b, config.corner, c->b, c->h - 2 * config.corner);
-	XMoveResizeWindow(dpy, c->curswin[BORDER_NW], 0, 0, config.corner, config.corner);
-	XMoveResizeWindow(dpy, c->curswin[BORDER_NE], c->w - config.corner, 0, config.corner, config.corner);
-	XMoveResizeWindow(dpy, c->curswin[BORDER_SW], 0, c->h - config.corner, config.corner, config.corner);
-	XMoveResizeWindow(dpy, c->curswin[BORDER_SE], c->w - config.corner, c->h - config.corner, config.corner, config.corner);
+	XResizeWindow(dpy, c->curswin[BORDER_N], c->w, config.borderwidth);
+	XResizeWindow(dpy, c->curswin[BORDER_S], c->w, config.borderwidth);
+	XResizeWindow(dpy, c->curswin[BORDER_W], config.borderwidth, c->h);
+	XResizeWindow(dpy, c->curswin[BORDER_E], config.borderwidth, c->h);
 	isshaded = containerisshaded(c);
 	TAILQ_FOREACH(col, &c->colq, entry) {
 		rowy = c->b;
@@ -865,6 +853,8 @@ containermoveresize(struct Container *c, int checkstack)
 				if (TAILQ_NEXT(row, entry) != NULL) {
 					XMoveResizeWindow(dpy, row->div, col->x, row->y + row->h, col->w, config.divwidth);
 					XMapWindow(dpy, row->div);
+				} else {
+					XUnmapWindow(dpy, row->div);
 				}
 				titlebarmoveresize(row, col->x, row->y, col->w);
 				if (row->h - config.titlewidth > 0) {
@@ -901,65 +891,40 @@ containermoveresize(struct Container *c, int checkstack)
 	}
 }
 
-/* draw decoration on container frame */
 void
-containerdecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, int recursive, enum Octant o)
+containerdecorate(struct Container *c)
 {
+	struct Object *t, *d;
 	struct Column *col;
 	struct Row *row;
-	struct Object *t, *d;
 	int style;
-	int isshaded;
 
 	if (c == NULL)
 		return;
-	isshaded = containerisshaded(c);
 	style = containergetstyle(c);
-	updatepixmap(&c->pix, &c->pw, &c->ph, c->w, c->h);
-	drawbackground(c->pix, 0, 0, c->w, c->h, style);
-
-	if (c->b > 0)
-		drawframe(c->pix, isshaded, c->w, c->h, o, style);
-
+	backgroundcommit(c->frame, style);
+	drawcommit(wm.decorations[style].bar_horz, c->curswin[BORDER_N]);
+	drawcommit(wm.decorations[style].bar_horz, c->curswin[BORDER_S]);
+	drawcommit(wm.decorations[style].bar_vert, c->curswin[BORDER_W]);
+	drawcommit(wm.decorations[style].bar_vert, c->curswin[BORDER_E]);
+	drawcommit(wm.decorations[style].corner_nw, c->curswin[BORDER_NW]);
+	drawcommit(wm.decorations[style].corner_ne, c->curswin[BORDER_NE]);
+	drawcommit(wm.decorations[style].corner_sw, c->curswin[BORDER_SW]);
+	drawcommit(wm.decorations[style].corner_se, c->curswin[BORDER_SE]);
 	TAILQ_FOREACH(col, &c->colq, entry) {
-		/* draw column division */
-		if (TAILQ_NEXT(col, entry) != NULL)
-			drawshadow(c->pix, col->x + col->w, c->b, config.divwidth, c->h - 2 * c->b, style, col == cdiv);
+		drawcommit(wm.decorations[style].bar_vert, col->div);
 		TAILQ_FOREACH(row, &col->rowq, entry) {
-			/* draw row division */
-			if (TAILQ_NEXT(row, entry) != NULL)
-				drawshadow(c->pix, col->x, row->y + row->h, col->w, config.divwidth, style, row == rdiv);
-
-			/* draw background of titlebar pixmap */
-			updatepixmap(&row->pixbar, &row->pw, NULL, col->w, config.titlewidth);
-			drawbackground(row->pixbar, 0, 0, col->w, config.titlewidth, style);
-			drawcommit(row->pixbar, row->bar);
-
-			/* draw buttons */
-			buttonleftdecorate(row->bl, row->pixbl, style, 0);
-			buttonrightdecorate(row->br, row->pixbr, style, 0);
-
-			/* decorate tabs, if necessary */
-			if (recursive) {
-				TAILQ_FOREACH(t, &row->tabq, entry) {
-					tabdecorate((struct Tab *)t, 0);
-					TAILQ_FOREACH(d, &((struct Tab *)t)->dialq, entry) {
-						dialogdecorate((struct Dialog *)d);
-					}
+			drawcommit(wm.decorations[style].bar_horz, row->div);
+			drawcommit(wm.decorations[style].btn_left, row->bl);
+			drawcommit(wm.decorations[style].btn_right, row->br);
+			backgroundcommit(row->bar, style);
+			TAILQ_FOREACH(t, &row->tabq, entry) {
+				tabdecorate((struct Tab *)t, 0);
+				TAILQ_FOREACH(d, &((struct Tab *)t)->dialq, entry) {
+					dialogdecorate((struct Dialog *)d);
 				}
 			}
 		}
-	}
-
-	drawcommit(c->pix, c->frame);
-}
-
-/* check if container needs to be redecorated and redecorate it */
-void
-containerredecorate(struct Container *c, struct Column *cdiv, struct Row *rdiv, enum Octant o)
-{
-	if (c->pw != c->w || c->ph != c->h) {
-		containerdecorate(c, cdiv, rdiv, 0, o);
 	}
 }
 
@@ -1186,7 +1151,7 @@ containerconfigure(struct Container *c, unsigned int valuemask, XWindowChanges *
 		c->nh = wc->height;
 	containercalccols(c);
 	containermoveresize(c, 1);
-	containerredecorate(c, NULL, NULL, 0);
+	containerdecorate(c);
 }
 
 /* set container state from client message */
@@ -1448,7 +1413,7 @@ found:
 	/* no need to call shodgrouptab() and shodgroupcontainer(); tabfocus() already calls them */
 	ewmhsetdesktop(det->obj.win, c->desk);
 	containermoveresize(c, 0);
-	containerredecorate(c, NULL, NULL, 0);
+	containerdecorate(c);
 	return 1;
 }
 
@@ -1458,20 +1423,15 @@ containerdelrow(struct Row *row)
 {
 	struct Container *c;
 	struct Column *col;
-	int recalc, redraw;
+	int recalc;
 
 	col = row->col;
 	c = col->c;
 	recalc = 1;
-	redraw = 0;
-	if (row->ntabs == 0) {
+	if (row->ntabs == 0)
 		rowdel(row);
-		redraw = 1;
-	}
-	if (col->nrows == 0) {
+	if (col->nrows == 0)
 		coldel(col);
-		redraw = 1;
-	}
 	if (c->ncols == 0) {
 		containerdel(c);
 		recalc = 0;
@@ -1481,9 +1441,6 @@ containerdelrow(struct Row *row)
 		containermoveresize(c, 0);
 		shodgrouptab(c);
 		shodgroupcontainer(c);
-		if (redraw) {
-			containerdecorate(c, NULL, NULL, 0, 0);
-		}
 	}
 }
 
@@ -1541,7 +1498,7 @@ containerraisetemp(struct Container *prevc, int backward)
 	XRestackWindows(dpy, wins, 2);
 	XRaiseWindow(dpy, newc->frame);
 	wm.focused = newc;
-	containerdecorate(newc, NULL, NULL, 1, 0);
+	containerdecorate(newc);
 	ewmhsetactivewindow(newc->selcol->selrow->seltab->obj.win);
 	return newc;
 }
@@ -1555,7 +1512,7 @@ containerbacktoplace(struct Container *c, int restack)
 	if (c == NULL)
 		return;
 	wm.focused = NULL;
-	containerdecorate(c, NULL, NULL, 1, 0);
+	containerdecorate(c);
 	if (restack) {
 		wins[0] = wm.restackwin;
 		wins[1] = c->frame;
@@ -1614,7 +1571,7 @@ tabfocus(struct Tab *tab, int gotodesk)
 		ewmhsetactivewindow(tab->obj.win);
 		tabclearurgency(tab);
 		containeraddfocus(c);
-		containerdecorate(c, NULL, NULL, 1, 0);
+		containerdecorate(c);
 		c->state &= ~MINIMIZED;
 		containerhide(c, 0);
 		shodgrouptab(c);
@@ -1622,7 +1579,7 @@ tabfocus(struct Tab *tab, int gotodesk)
 		ewmhsetstate(c);
 	}
 	if (wm.prevfocused != NULL && wm.prevfocused != wm.focused) {
-		containerdecorate(wm.prevfocused, NULL, NULL, 1, 0);
+		containerdecorate(wm.prevfocused);
 		ewmhsetstate(wm.prevfocused);
 	}
 	menuupdate();
@@ -1756,7 +1713,7 @@ containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle r
 	containeraddcol(c, col, NULL);
 	coladdrow(col, row, NULL);
 	rowaddtab(row, tab, NULL);
-	containerredecorate(c, NULL, NULL, 0);
+	containerdecorate(c);
 	XMapSubwindows(dpy, c->frame);
 	containerplace(c, mon, desk, (state & USERPLACED));
 	containermoveresize(c, 0);
@@ -1790,7 +1747,7 @@ managecontainer(struct Tab *prev, struct Monitor *mon, int desk, Window win, Win
 		ewmhsetdesktop(win, c->desk);
 		wm.setclientlist = True;
 		containermoveresize(c, 0);
-		containerredecorate(c, NULL, NULL, 0);
+		containerdecorate(c);
 		XMapSubwindows(dpy, c->frame);
 		if (wm.focused == c) {
 			tabfocus(tab, 1);
@@ -1856,7 +1813,7 @@ unmanagecontainer(struct Object *obj)
 	if (moveresize) {
 		containercalccols(c);
 		containermoveresize(c, 0);
-		containerredecorate(c, NULL, NULL, 0);
+		containerdecorate(c);
 		shodgrouptab(c);
 		shodgroupcontainer(c);
 	}

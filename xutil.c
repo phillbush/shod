@@ -8,10 +8,6 @@
 
 #include <X11/extensions/Xrender.h>
 
-Visual *visual;
-Colormap colormap;
-unsigned int depth;
-XrmDatabase xdb = NULL;
 Display *dpy;
 Window root;
 Atom atoms[NATOMS];
@@ -56,19 +52,6 @@ estrndup(const char *s, size_t maxlen)
 	if ((p = strndup(s, maxlen)) == NULL)
 		err(1, "strndup");
 	return p;
-}
-
-char *
-getresource(XrmDatabase xdb, XrmClass *class, XrmName *name)
-{
-	XrmRepresentation tmp;
-	XrmValue xval;
-
-	if (xdb == NULL)
-		return NULL;
-	if (XrmQGetResource(xdb, name, class, &tmp, &xval))
-		return xval.addr;
-	return NULL;
 }
 
 unsigned long
@@ -219,39 +202,5 @@ xinit(void)
 		if (errno == EINTR)
 			continue;
 		err(EXIT_FAILURE, "fcntl");
-	}
-}
-
-void
-xinitvisual(void)
-{
-	XVisualInfo tpl = {
-		.screen = screen,
-		.depth = 32,
-		.class = TrueColor
-	};
-	XVisualInfo *infos;
-	XRenderPictFormat *fmt;
-	long masks = VisualScreenMask | VisualDepthMask | VisualClassMask;
-	int nitems;
-	int i;
-
-	visual = NULL;
-	if ((infos = XGetVisualInfo(dpy, masks, &tpl, &nitems)) != NULL) {
-		for (i = 0; i < nitems; i++) {
-			fmt = XRenderFindVisualFormat(dpy, infos[i].visual);
-			if (fmt->type == PictTypeDirect && fmt->direct.alphaMask) {
-				depth = infos[i].depth;
-				visual = infos[i].visual;
-				colormap = XCreateColormap(dpy, root, visual, AllocNone);
-				break;
-			}
-		}
-		XFree(infos);
-	}
-	if (visual == NULL) {
-		depth = DefaultDepth(dpy, screen);
-		visual = DefaultVisual(dpy, screen);
-		colormap = DefaultColormap(dpy, screen);
 	}
 }
