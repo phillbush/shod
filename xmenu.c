@@ -32,7 +32,7 @@ menunew(Window win, int x, int y, int w, int h)
 	menu->titlebar = createdecoration(
 		menu->frame,
 		(XRectangle){0, 0, titlew, config.titlewidth},
-		None, None
+		None, NorthWestGravity
 	);
 	menu->button = createdecoration(
 		menu->frame,
@@ -74,7 +74,7 @@ menuconfigure(struct Menu *menu, unsigned int valuemask, XWindowChanges *wc)
 	if (valuemask & CWHeight)
 		menu->h = wc->height + BORDER + config.titlewidth;
 	menumoveresize(menu);
-	menudecorate(menu, 0);
+	menudecorate(menu);
 }
 
 static void
@@ -115,21 +115,25 @@ menumoveresize(struct Menu *menu)
 		max(1, menu->h - BORDER - config.titlewidth)
 	);
 	menu->mon = getmon(menu->x, menu->y);
+	menudecorate(menu);
 	menunotify(menu);
 }
 
 /* decorate menu */
 void
-menudecorate(struct Menu *menu, int titlepressed)
+menudecorate(struct Menu *menu)
 {
 	int tw;
 
 	tw = max(1, menu->w - config.titlewidth);
 	updatepixmap(&menu->pixtitlebar, &menu->tw, NULL, tw, config.titlewidth);
-	drawshadow(menu->pixtitlebar, 0, 0, menu->tw, config.titlewidth, FOCUSED, titlepressed);
-	if (menu->name != NULL)
-		drawtitle(menu->pixtitlebar, menu->name, menu->tw, 0, FOCUSED, 0, 1);
-	drawcommit(menu->button, wm.decorations[FOCUSED].btn_right);
+	drawshadow(
+		menu->pixtitlebar,
+		0, 0, tw, config.titlewidth,
+		FOCUSED, False, config.shadowthickness
+	);
+	drawtitle(menu->pixtitlebar, menu->name, tw, 0, FOCUSED, 0, 1);
+	drawcommit(wm.decorations[FOCUSED].btn_right, menu->button);
 	drawcommit(menu->pixtitlebar, menu->titlebar);
 }
 
@@ -182,7 +186,7 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader
 	TAILQ_INSERT_HEAD(&wm.menuq, (struct Object *)menu, entry);
 	icccmwmstate(menu->obj.win, NormalState);
 	menuplace(mon, menu);           /* this will set menu->mon for us */
-	menudecorate(menu, 0);
+	menudecorate(menu);
 	menuraise(menu);
 	if (menu->leader == None ||
 	    (wm.focused != NULL &&

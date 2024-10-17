@@ -53,8 +53,8 @@ execshell(char *filename)
 {
 	char *argv[3];
 
-	if ((argv[0] = getenv(SHELL)) == NULL)
-		argv[0] = DEF_SHELL;
+	if ((argv[0] = getenv("SHELL")) == NULL)
+		argv[0] = "sh";
 	if (filename[0] == '-' && filename[1] == '\0')
 		argv[1] = NULL;         /* read commands from stdin */
 	else
@@ -415,7 +415,7 @@ main(int argc, char *argv[])
 			monevent(&ev);
 		if (wm.setclientlist)
 			ewmhsetclients();
-		wm.setclientlist = false;
+		wm.setclientlist = False;
 	}
 
 	/* clean up */

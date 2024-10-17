@@ -1,11 +1,9 @@
 #include <err.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <unistd.h>
 
 #include "xutil.h"
 
-#define NAMEMAXLEN                      512
 #define DIRECT_ACTION                   2
 #define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
 
@@ -138,42 +136,6 @@ getdesknames(char **desknames)
 	}
 
 	return len;
-}
-
-/* get window name */
-char *
-getwinname(Window win)
-{
-	XTextProperty tprop;
-	char **list = NULL;
-	char *name = NULL;
-	unsigned char *p = NULL;
-	unsigned long size, dl;
-	int status, di;
-	Atom da;
-
-	status = XGetWindowProperty(
-		dpy, win,
-		atoms[_NET_WM_NAME],
-		0L, NAMEMAXLEN,
-		False,
-		atoms[UTF8_STRING],
-		&da, &di, &size, &dl, &p
-	);
-	if (status == Success && p != NULL) {
-		name = estrndup((char *)p, NAMEMAXLEN);
-		XFree(p);
-		return name;
-	}
-	XFree(p);
-	if (XGetWMName(dpy, win, &tprop) &&
-	    XmbTextPropertyToTextList(dpy, &tprop, &list, &di) == Success &&
-	    di > 0 && list && *list) {
-		name = estrndup(*list, NAMEMAXLEN);
-	}
-	XFreeStringList(list);
-	XFree(tprop.value);
-	return name;
 }
 
 /* close window */
@@ -487,15 +449,15 @@ listdesks(int argc, char *argv[])
 }
 
 /* check if win is in on wins[nwins] */
-static bool
+static Bool
 iswininarr(Window win, Window *wins, size_t nwins)
 {
 	size_t i;
 
 	for (i = 0; i < nwins; i++)
 		if (win == wins[i])
-			return true;
-	return false;
+			return True;
+	return False;
 }
 
 /* list windows */

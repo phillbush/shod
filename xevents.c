@@ -5,6 +5,7 @@
 
 #include <X11/XKBlib.h>
 
+#define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
 #define MOUSEEVENTMASK          (ButtonReleaseMask | PointerMotionMask)
 #define ALTTABMASK              (KeyPressMask | KeyReleaseMask)
 #define DOUBLECLICK     250     /* time in miliseconds of a double click */
@@ -611,7 +612,7 @@ done:
 static void
 preparewin(Window win)
 {
-	XSelectInput(dpy, win, CLIENT_EVENTS);
+	XSelectInput(dpy, win, StructureNotifyMask|PropertyChangeMask|FocusChangeMask);
 	XGrabButton(dpy, AnyButton, AnyModifier, win, False, ButtonPressMask,
 	            GrabModeSync, GrabModeSync, None, None);
 	XSetWindowBorderWidth(dpy, win, 0);
@@ -633,7 +634,7 @@ getwinurgency(Window win)
 }
 
 /* get row or column next to division the pointer is on */
-static void
+static Bool
 getdivisions(struct Container *c, struct Column **cdiv, struct Row **rdiv, Window win)
 {
 	struct Column *col;
@@ -644,15 +645,16 @@ getdivisions(struct Container *c, struct Column **cdiv, struct Row **rdiv, Windo
 	TAILQ_FOREACH(col, &c->colq, entry) {
 		if (col->div == win) {
 			*cdiv = col;
-			return;
+			return True;
 		}
 		TAILQ_FOREACH(row, &col->rowq, entry) {
 			if (row->div == win) {
 				*rdiv = row;
-				return;
+				return True;
 			}
 		}
 	}
+	return False;
 }
 
 /* get frame handle (NW/N/NE/W/E/SW/S/SE) the pointer is on */
@@ -829,6 +831,7 @@ done:
 static void
 mouseretab(struct Tab *tab, int xroot, int yroot, int x, int y)
 {
+#define DND_POS 10      /* pixels from pointer cursor to drag-and-drop icon */
 	struct Monitor *mon;
 	struct Object *obj;
 	struct Row *row;        /* row to be deleted, if emptied */
@@ -845,8 +848,8 @@ mouseretab(struct Tab *tab, int xroot, int yroot, int x, int y)
 	XUnmapWindow(dpy, tab->title);
 	XMoveWindow(
 		dpy, wm.dragwin,
-		xroot - DNDDIFF - (2 * config.borderwidth + config.titlewidth),
-		yroot - DNDDIFF - (2 * config.borderwidth + config.titlewidth)
+		xroot - DND_POS - (2 * config.borderwidth + config.titlewidth),
+		yroot - DND_POS - (2 * config.borderwidth + config.titlewidth)
 	);
 	XRaiseWindow(dpy, wm.dragwin);
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
@@ -854,8 +857,8 @@ mouseretab(struct Tab *tab, int xroot, int yroot, int x, int y)
 		case MotionNotify:
 			XMoveWindow(
 				dpy, wm.dragwin,
-				ev.xmotion.x_root - DNDDIFF - (2 * config.borderwidth + config.titlewidth),
-				ev.xmotion.y_root - DNDDIFF - (2 * config.borderwidth + config.titlewidth)
+				ev.xmotion.x_root - DND_POS - (2 * config.borderwidth + config.titlewidth),
+				ev.xmotion.y_root - DND_POS - (2 * config.borderwidth + config.titlewidth)
 			);
 			break;
 		case ButtonRelease:
@@ -905,12 +908,13 @@ error:
 
 /* resize container with mouse */
 static void
-mouseresize(int type, void *obj, int xroot, int yroot, Window pressed, enum Octant o)
+mouseresize(int type, void *obj, int xroot, int yroot, enum Octant o)
 {
 	struct Container *c;
 	struct Menu *menu;
 	Cursor curs;
 	XEvent ev;
+	Window frame;
 	Time lasttime;
 	int *nx, *ny, *nw, *nh;
 	int x, y, dx, dy;
@@ -921,13 +925,12 @@ mouseresize(int type, void *obj, int xroot, int yroot, Window pressed, enum Octa
 		ny = &menu->y;
 		nw = &menu->w;
 		nh = &menu->h;
-		pressed = menu->frame;
+		frame = menu->frame;
 	} else {
 		c = (struct Container *)obj;
 		if (c->state & FULLSCREEN || c->b == 0)
 			return;
-		if (pressed == None)
-			return;
+		frame = c->frame;
 		if (containerisshaded(c)) {
 			if (o & W) {
 				o = W;
@@ -983,7 +986,7 @@ mouseresize(int type, void *obj, int xroot, int yroot, Window pressed, enum Octa
 		y = *ny + *nh - config.borderwidth - yroot;
 	else
 		y = 0;
-	if (XGrabPointer(dpy, pressed, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, curs, CurrentTime) != GrabSuccess)
+	if (XGrabPointer(dpy, frame, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, curs, CurrentTime) != GrabSuccess)
 		goto done;
 	lasttime = 0;
 	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
@@ -1345,7 +1348,7 @@ xeventbuttonpress(XEvent *e)
 			if (!XTranslateCoordinates(dpy, ev->window, menu->frame, ev->x, ev->y, &x, &y, &pressed))
 				goto done;
 			o = getquadrant(menu->w, menu->h, x, y);
-			mouseresize(FLOAT_MENU, menu, ev->x_root, ev->y_root, None, o);
+			mouseresize(FLOAT_MENU, menu, ev->x_root, ev->y_root, o);
 		}
 	} else if (tab != NULL && c != NULL) {
 		if (!XTranslateCoordinates(dpy, ev->window, c->frame, ev->x, ev->y, &x, &y, &pressed))
@@ -1381,14 +1384,11 @@ xeventbuttonpress(XEvent *e)
 		} else if (ev->window == c->frame && ev->button == Button3) {
 			mousemove(FLOAT_CONTAINER, c, ev->x_root, ev->y_root);
 		} else if (isvalidstate(ev->state) && ev->button == Button3) {
-			mouseresize(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, pressed, o); 
+			mouseresize(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, o);
 		} else if (ev->button == Button1 && ev->window == tab->title) {
 			mousemove(FLOAT_CONTAINER, c, ev->x_root, ev->y_root);
-		} else if (ev->button == Button1) {
-			getdivisions(c, &cdiv, &rdiv, ev->window);
-			if (cdiv != NULL || rdiv != NULL) {
-				mouseretile(c, cdiv, rdiv, ev->x, ev->y);
-			}
+		} else if (ev->button == Button1 && getdivisions(c, &cdiv, &rdiv, ev->window)) {
+			mouseretile(c, cdiv, rdiv, ev->x, ev->y);
 		} else if (ev->button == Button1 || ev->button == Button3) {
 			int border;
 
@@ -1402,12 +1402,10 @@ xeventbuttonpress(XEvent *e)
 					FLOAT_CONTAINER, c,
 					ev->x_root, ev->y_root
 				);
-			}
-			if (ev->button == Button1) {
+			} else if (ev->button == Button1) {
 				mouseresize(
 					FLOAT_CONTAINER, c,
-					ev->x_root, ev->y_root,
-					ev->window, o
+					ev->x_root, ev->y_root, o
 				);
 			}
 		}
@@ -1624,21 +1622,7 @@ xeventclientmessage(XEvent *e)
 			return;
 		containersendtodeskandfocus(c, c->mon, ev->data.l[0]);
 	} else if (ev->message_type == atoms[_NET_REQUEST_FRAME_EXTENTS]) {
-		if (c == NULL) {
-			/*
-			 * A client can request an estimate for the frame size
-			 * which the window manager will put around it before
-			 * actually mapping its window. Java does this (as of
-			 * openjdk-7).
-			 */
-			ewmhsetframeextents(ev->window, config.borderwidth, config.titlewidth);
-		} else {
-			ewmhsetframeextents(
-				ev->window,
-				c->b,
-				(obj->class->type == TYPE_DIALOG ? 0 : TITLEWIDTH(c))
-			);
-		}
+		ewmhsetframeextents(ev->window, config.borderwidth, config.titlewidth);
 	} else if (ev->message_type == atoms[_NET_WM_MOVERESIZE]) {
 	//	/*
 	//	 * Client-side decorated Gtk3 windows emit this signal when being
@@ -1912,7 +1896,7 @@ xeventpropertynotify(XEvent *e)
 		TAILQ_FOREACH(c, &wm.focusq, entry)
 			containerdecorate(c);
 		TAILQ_FOREACH(obj, &wm.menuq, entry)
-			menudecorate((struct Menu *)obj, 0);
+			menudecorate((struct Menu *)obj);
 		TAILQ_FOREACH(obj, &wm.notifq, entry)
 			notifdecorate((struct Notification *)obj);
 		dockreset();
@@ -1925,6 +1909,7 @@ xeventpropertynotify(XEvent *e)
 		tab = (struct Tab *)obj;
 		if (ev->atom == XA_WM_NAME || ev->atom == atoms[_NET_WM_NAME]) {
 			winupdatetitle(tab->obj.win, &tab->name);
+			tabdecorate(tab, 0);
 		} else if (ev->atom == XA_WM_HINTS) {
 			tabupdateurgency(tab, getwinurgency(tab->obj.win));
 		}
@@ -1935,6 +1920,7 @@ xeventpropertynotify(XEvent *e)
 		menu = (struct Menu *)obj;
 		if (ev->atom == XA_WM_NAME || ev->atom == atoms[_NET_WM_NAME]) {
 			winupdatetitle(menu->obj.win, &menu->name);
+			menudecorate(menu);
 		}
 	}
 }

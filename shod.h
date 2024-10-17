@@ -1,21 +1,6 @@
 #include <sys/queue.h>
 
-#include <stdbool.h>
-
 #include "xutil.h"
-
-#define SHELL                   "SHELL"
-#define DEF_SHELL               "sh"
-#define DNDDIFF                 10      /* pixels from pointer to place dnd marker */
-#define IGNOREUNMAP             6       /* number of unmap notifies to ignore while scanning existing clients */
-#define NAMEMAXLEN              256     /* maximum length of window's name */
-#define DROPPIXELS              30      /* number of pixels from the border where a tab can be dropped in */
-#define DOCKBORDER              1
-#define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
-#define ISDUMMY(c)              ((c)->ncols == 0)
-#define CLIENT_EVENTS           (StructureNotifyMask | PropertyChangeMask | FocusChangeMask)
-
-#define TITLEWIDTH(c)   ((c)->state & FULLSCREEN ? 0 : config.titlewidth)
 
 #define TAB_FOREACH_BEGIN(c, tab) {                             \
 	struct Column *col;                                     \
@@ -370,8 +355,8 @@ struct Container {
 	 * Container state bitmask.
 	 */
 	enum State state;
-	bool ishidden;                          /* whether container is hidden */
-	bool isobscured;                        /* whether container is obscured */
+	Bool ishidden;                          /* whether container is hidden */
+	Bool isobscured;                        /* whether container is obscured */
 };
 
 TAILQ_HEAD(MonitorQueue, Monitor);
@@ -461,7 +446,7 @@ struct Tab {
 	 * Name of the tab's application window, its size and urgency.
 	 */
 	int winw, winh;                         /* window geometry */
-	bool isurgent;                          /* whether tab is urgent */
+	Bool isurgent;                          /* whether tab is urgent */
 	char *name;                             /* client name */
 };
 
@@ -511,7 +496,7 @@ struct Bar {
 	struct Object obj;
 	struct Monitor *mon;
 	int strut[STRUT_LAST];                  /* strut values */
-	bool ispartial;                         /* whether strut has 12 elements rather than 4 */
+	Bool ispartial;                         /* whether strut has 12 elements rather than 4 */
 	enum State state;
 };
 
@@ -724,7 +709,7 @@ void menufocus(struct Menu *menu);
 void menuincrmove(struct Menu *menu, int x, int y);
 void menuconfigure(struct Menu *menu, unsigned int valuemask, XWindowChanges *wc);
 void menumoveresize(struct Menu *menu);
-void menudecorate(struct Menu *menu, int titlepressed);
+void menudecorate(struct Menu *menu);
 void menufocusraise(struct Menu *menu);
 void menuraise(struct Menu *menu);
 void menuplace(struct Monitor *mon, struct Menu *menu);
@@ -784,10 +769,9 @@ void backgroundcommit(Window, int style);
 void drawborders(Pixmap pix, int w, int h, int style);
 void drawbackground(Pixmap pix, int x, int y, int w, int h, int style);
 void drawframe(Pixmap pix, int isshaded, int w, int h, enum Octant o, int style);
-void drawshadow(Pixmap pix, int x, int y, int w, int h, int style, int pressed);
+void drawshadow(Pixmap pix, int x, int y, int w, int h, int style, int pressed, int thickness);
 void drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int pressed, int ismenu);
 void drawprompt(Pixmap pix, int w, int h);
-void drawdock(Pixmap pix, int w, int h);
 void redecorate(Window win, int border, int style, Bool pressed);
 void cleantheme(void);
 void setresources(char *xrm);

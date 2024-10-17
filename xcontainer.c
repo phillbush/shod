@@ -881,7 +881,7 @@ containermoveresize(struct Container *c, int checkstack)
 					ewmhsetframeextents(dial->obj.win, c->b, 0);
 				}
 				XResizeWindow(dpy, tab->obj.win, tab->winw, tab->winh);
-				ewmhsetframeextents(tab->obj.win, c->b, TITLEWIDTH(c));
+				ewmhsetframeextents(tab->obj.win, config.borderwidth, config.titlewidth);
 				tabmoveresize(tab);
 			}
 		}
@@ -1609,7 +1609,7 @@ tabdecorate(struct Tab *t, int pressed)
 	updatepixmap(&t->pixtitle, &t->ptw, NULL, t->w, config.titlewidth);
 	updatepixmap(&t->pix, &t->pw, &t->ph, t->winw, t->winh);
 	drawbackground(t->pixtitle, 0, 0, t->w, config.titlewidth, style);
-	drawshadow(t->pixtitle, 0, 0, t->w, config.titlewidth, style, pressed);
+	drawshadow(t->pixtitle, 0, 0, t->w, config.titlewidth, style, pressed, config.shadowthickness);
 
 	/* write tab title */
 	if (t->name != NULL)

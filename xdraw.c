@@ -85,7 +85,12 @@ draw_button_left(Pixmap pix, int style)
 		bot = theme.colors[style][COLOR_DARK].pixel;
 	}
 
-	drawshadow(pix, 0, 0, config.titlewidth, config.titlewidth, style, pressed);
+	drawshadow(
+		pix, 0, 0,
+		config.titlewidth, config.titlewidth,
+		style, pressed,
+		config.shadowthickness
+	);
 
 	if (w > 0) {
 		x = 4;
@@ -124,7 +129,12 @@ draw_button_right(Pixmap pix, int style)
 		bot = theme.colors[style][COLOR_DARK].pixel;
 	}
 
-	drawshadow(pix, 0, 0, config.titlewidth, config.titlewidth, style, pressed);
+	drawshadow(
+		pix, 0, 0,
+		config.titlewidth, config.titlewidth,
+		style, pressed,
+		config.shadowthickness
+	);
 
 	if (w > 0) {
 		pts[0] = (XPoint){.x = 3, .y = config.titlewidth - 5};
@@ -201,7 +211,7 @@ reloadtheme(void)
 			wm.decorations[style].bar_horz,
 			-config.shadowthickness, 0,
 			config.borderwidth, config.borderwidth,
-			style, False
+			style, False, config.shadowthickness
 		);
 
 		/* background pixmap of vertical (west and east) borders */
@@ -213,7 +223,7 @@ reloadtheme(void)
 			wm.decorations[style].bar_vert,
 			0, -config.shadowthickness,
 			config.borderwidth, config.borderwidth,
-			style, False
+			style, False, config.shadowthickness
 		);
 
 		/*
@@ -264,13 +274,13 @@ reloadtheme(void)
 			wm.decorations[style].corner_nw,
 			0, config.corner,
 			config.borderwidth, config.borderwidth,
-			style, 0
+			style, 0, config.shadowthickness
 		);
 		drawshadow(
 			wm.decorations[style].corner_nw,
 			config.corner, 0,
 			config.borderwidth, config.borderwidth,
-			style, 0
+			style, 0, config.shadowthickness
 		);
 
 		/* bottom left corner */
@@ -308,14 +318,14 @@ reloadtheme(void)
 			wm.decorations[style].corner_sw,
 			0, config.shadowthickness - config.borderwidth,
 			config.borderwidth, config.borderwidth,
-			style, 0
+			style, 0, config.shadowthickness
 		);
 		drawshadow(
 			wm.decorations[style].corner_sw,
 			wholesize - config.shadowthickness,
 			wholesize - config.borderwidth,
 			config.borderwidth, config.borderwidth,
-			style, 0
+			style, 0, config.shadowthickness
 		);
 
 		/* top right corner */
@@ -353,13 +363,13 @@ reloadtheme(void)
 			wm.decorations[style].corner_ne,
 			wholesize - config.borderwidth, config.corner,
 			config.borderwidth, config.borderwidth,
-			style, 0
+			style, 0, config.shadowthickness
 		);
 		drawshadow(
 			wm.decorations[style].corner_ne,
 			config.shadowthickness - config.borderwidth, 0,
 			config.borderwidth, config.borderwidth,
-			style, 0
+			style, 0, config.shadowthickness
 		);
 
 		/* bottom right corner */
@@ -398,14 +408,14 @@ reloadtheme(void)
 			wholesize - config.borderwidth,
 			config.shadowthickness - config.borderwidth,
 			config.borderwidth, config.borderwidth,
-			style, 0
+			style, 0, config.shadowthickness
 		);
 		drawshadow(
 			wm.decorations[style].corner_se,
 			config.shadowthickness - config.borderwidth,
 			wholesize - config.borderwidth,
 			config.borderwidth, config.borderwidth,
-			style, 0
+			style, 0, config.shadowthickness
 		);
 	}
 
@@ -435,8 +445,7 @@ reloadtheme(void)
 		config.borderwidth,
 		config.titlewidth,
 		config.titlewidth,
-		FOCUSED,
-		0
+		FOCUSED, 0, config.shadowthickness
 	);
 	XMoveResizeWindow(
 		dpy,
@@ -542,6 +551,8 @@ drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int p
 	unsigned int top, bot;
 	int i, x, y;
 
+	if (text == NULL)
+		return;
 	if (pressed) {
 		top = theme.colors[style][COLOR_DARK].pixel;
 		bot = theme.colors[style][COLOR_LIGHT].pixel;
@@ -628,7 +639,7 @@ drawbackground(Pixmap pix, int x, int y, int w, int h, int style)
 
 /* draw rectangle shadows */
 void
-drawshadow(Pixmap pix, int x, int y, int w, int h, int style, int pressed)
+drawshadow(Pixmap pix, int x, int y, int w, int h, int style, int pressed, int thickness)
 {
 	XGCValues val;
 	XRectangle rects[MAX_SHADOW_THICKNESS * 2];
@@ -649,22 +660,22 @@ drawshadow(Pixmap pix, int x, int y, int w, int h, int style, int pressed)
 	drawbackground(pix, x, y, w, h, style);
 
 	/* draw light shadow */
-	for(i = 0; i < config.shadowthickness; i++) {
+	for(i = 0; i < thickness; i++) {
 		rects[i * 2]     = (XRectangle){.x = x + i, .y = y + i, .width = 1, .height = h - (i * 2 + 1)};
 		rects[i * 2 + 1] = (XRectangle){.x = x + i, .y = y + i, .width = w - (i * 2 + 1), .height = 1};
 	}
 	val.foreground = top;
 	XChangeGC(dpy, gc, GCForeground, &val);
-	XFillRectangles(dpy, pix, gc, rects, config.shadowthickness * 2);
+	XFillRectangles(dpy, pix, gc, rects, thickness * 2);
 
 	/* draw dark shadow */
-	for(i = 0; i < config.shadowthickness; i++) {
+	for(i = 0; i < thickness; i++) {
 		rects[i * 2]     = (XRectangle){.x = x + w - 1 - i, .y = y + i,         .width = 1,     .height = h - i * 2};
 		rects[i * 2 + 1] = (XRectangle){.x = x + i,         .y = y + h - 1 - i, .width = w - i * 2, .height = 1};
 	}
 	val.foreground = bot;
 	XChangeGC(dpy, gc, GCForeground, &val);
-	XFillRectangles(dpy, pix, gc, rects, config.shadowthickness * 2);
+	XFillRectangles(dpy, pix, gc, rects, thickness * 2);
 }
 
 void
@@ -696,136 +707,6 @@ drawprompt(Pixmap pix, int w, int h)
 	val.foreground = theme.colors[FOCUSED][COLOR_DARK].pixel;
 	XChangeGC(dpy, gc, GCForeground, &val);
 	XFillRectangles(dpy, pix, gc, rects, config.shadowthickness * 3);
-}
-
-void
-drawdock(Pixmap pix, int w, int h)
-{
-	XGCValues val;
-	XRectangle rects[DOCKBORDER * 3];
-	int i;
-
-	if (pix == None || w <= 0 || h <= 0)
-		return;
-
-	val.foreground = theme.colors[STYLE_OTHER][COLOR_BG].pixel;
-	XChangeGC(dpy, gc, GCForeground, &val);
-	XFillRectangle(dpy, pix, gc, 0, 0, w, h);
-
-	val.foreground = theme.colors[STYLE_OTHER][COLOR_BORD].pixel;
-	XChangeGC(dpy, gc, GCForeground, &val);
-
-	if (config.dockgravity[0] != '\0' && (config.dockgravity[1] == 'F' || config.dockgravity[1] == 'f')) {
-		switch (config.dockgravity[0]) {
-		case 'N':
-			XFillRectangle(dpy, pix, gc, 0, h - DOCKBORDER, w, DOCKBORDER);
-			break;
-		case 'S':
-			XFillRectangle(dpy, pix, gc, 0, 0, w, 1);
-			break;
-		case 'W':
-			XFillRectangle(dpy, pix, gc, w - DOCKBORDER, 0, DOCKBORDER, h);
-			break;
-		default:
-		case 'E':
-			XFillRectangle(dpy, pix, gc, 0, 0, DOCKBORDER, h);
-			break;
-		}
-		return;
-	}
-
-	switch (config.dockgravity[0]) {
-	case 'N':
-		for(i = 0; i < DOCKBORDER; i++) {
-			rects[i * 3 + 0] = (XRectangle){
-				.x = i,
-				.y = 0,
-				.width = 1,
-				.height = h
-			};
-			rects[i * 3 + 1] = (XRectangle){
-				.x = 0,
-				.y = h - 1 - i,
-				.width = w,
-				.height = 1
-			};
-			rects[i * 3 + 2] = (XRectangle){
-				.x = w - 1 - i,
-				.y = 0,
-				.width = 1,
-				.height = h
-			};
-		}
-		break;
-	case 'W':
-		for(i = 0; i < DOCKBORDER; i++) {
-			rects[i * 3 + 0] = (XRectangle){
-				.x = 0,
-				.y = i,
-				.width = w,
-				.height = 1
-			};
-			rects[i * 3 + 1] = (XRectangle){
-				.x = w - 1 - i,
-				.y = 0,
-				.width = 1,
-				.height = h
-			};
-			rects[i * 3 + 2] = (XRectangle){
-				.x = 0,
-				.y = h - 1 - i,
-				.width = w,
-				.height = 1
-			};
-		}
-		break;
-	case 'S':
-		for(i = 0; i < DOCKBORDER; i++) {
-			rects[i * 3 + 0] = (XRectangle){
-				.x = i,
-				.y = 0,
-				.width = 1,
-				.height = h
-			};
-			rects[i * 3 + 1] = (XRectangle){
-				.x = 0,
-				.y = i,
-				.width = w,
-				.height = 1
-			};
-			rects[i * 3 + 2] = (XRectangle){
-				.x = w - 1 - i,
-				.y = 0,
-				.width = 1,
-				.height = h
-			};
-		}
-		break;
-	default:
-	case 'E':
-		for(i = 0; i < DOCKBORDER; i++) {
-			rects[i * 3 + 0] = (XRectangle){
-				.x = 0,
-				.y = i,
-				.width = w,
-				.height = 1
-			};
-			rects[i * 3 + 1] = (XRectangle){
-				.x = i,
-				.y = 0,
-				.width = 1,
-				.height = h
-			};
-			rects[i * 3 + 2] = (XRectangle){
-				.x = 0,
-				.y = h - 1 - i,
-				.width = w,
-				.height = 1
-			};
-		}
-		break;
-	}
-	XFillRectangles(dpy, pix, gc, rects, DOCKBORDER * 3);
 }
 
 /* free font */

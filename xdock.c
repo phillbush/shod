@@ -1,5 +1,7 @@
 #include "shod.h"
 
+#define DOCKBORDER 1
+
 void
 dockstack(void)
 {
@@ -20,8 +22,53 @@ dockstack(void)
 void
 dockdecorate(void)
 {
+	Bool isfullscreen;
+
 	updatepixmap(&dock.pix, &dock.pw, &dock.ph, dock.w, dock.h);
-	drawdock(dock.pix, dock.w, dock.h);
+	isfullscreen = (config.dockgravity[0] != '\0' && config.dockgravity[1] == 'F');
+	switch (config.dockgravity[0]) {
+	case 'N':
+		drawshadow(
+			dock.pix,
+			(isfullscreen ? -config.shadowthickness : 0),
+			-config.shadowthickness,
+			dock.w + (isfullscreen ? 2 * config.shadowthickness : 0),
+			dock.h + config.shadowthickness,
+			STYLE_OTHER, False, DOCKBORDER
+		);
+		break;
+	case 'S':
+		drawshadow(
+			dock.pix,
+			(isfullscreen ? -config.shadowthickness : 0),
+			0,
+			dock.w + (isfullscreen ? 2 * config.shadowthickness : 0),
+			dock.h + config.shadowthickness,
+			STYLE_OTHER, False, DOCKBORDER
+		);
+		break;
+	case 'W':
+		drawshadow(
+			dock.pix,
+			-config.shadowthickness,
+			(isfullscreen ? -config.shadowthickness : 0),
+			dock.w + config.shadowthickness,
+			dock.h + (isfullscreen ? 2 * config.shadowthickness : 0),
+			STYLE_OTHER, False, DOCKBORDER
+		);
+		break;
+	default:
+	case 'E':
+		drawshadow(
+			dock.pix,
+			0,
+			(isfullscreen ? -config.shadowthickness : 0),
+			dock.w + config.shadowthickness,
+			dock.h + (isfullscreen ? 2 * config.shadowthickness : 0),
+			STYLE_OTHER, False, DOCKBORDER
+		);
+		break;
+	}
 	drawcommit(dock.pix, dock.obj.win);
 }
 

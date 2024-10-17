@@ -150,6 +150,29 @@ getatomprop(Window win, Atom prop)
 	return atom;
 }
 
+char *
+getwinname(Window win)
+{
+#define MAXLEN 512
+	char *name = NULL;
+	unsigned long length, remain;
+	int format;
+	Atom props[] = {atoms[_NET_WM_NAME], XA_WM_NAME};
+	Atom type;
+
+	for (size_t i = 0; i < LEN(props); i++) {
+		if (XGetWindowProperty(
+			dpy, win, atoms[_NET_WM_NAME],
+			0L, 1024, False,
+			AnyPropertyType, &type, &format,
+			&length, &remain, (void*)&name
+		) == Success && format == 8)
+			return name;
+		XFree(name);
+	}
+	return NULL;
+}
+
 void
 settitle(Window win, const char *title)
 {

@@ -1,30 +1,6 @@
 #include "shod.h"
 
-/* get window name */
-static char *
-getwinname(Window win)
-{
-	XTextProperty tprop;
-	char **list = NULL;
-	char *name = NULL;
-	unsigned char *p = NULL;
-	unsigned long size, dl;
-	int di;
-	Atom da;
-
-	if (XGetWindowProperty(dpy, win, atoms[_NET_WM_NAME], 0L, NAMEMAXLEN, False, atoms[UTF8_STRING],
-	                       &da, &di, &size, &dl, &p) == Success && p) {
-		name = estrndup((char *)p, NAMEMAXLEN);
-		XFree(p);
-	} else if (XGetWMName(dpy, win, &tprop) &&
-	           XmbTextPropertyToTextList(dpy, &tprop, &list, &di) == Success &&
-	           di > 0 && list && *list) {
-		name = estrndup(*list, NAMEMAXLEN);
-		XFreeStringList(list);
-		XFree(tprop.value);
-	}
-	return name;
-}
+#define ISDUMMY(c)              ((c)->ncols == 0)
 
 /* check if given geometry is obscured by containers above it */
 static int
@@ -356,8 +332,12 @@ mapwin(Window win)
 void
 unmapwin(Window win)
 {
-	XSelectInput(dpy, win, CLIENT_EVENTS & ~StructureNotifyMask);
+	XWindowAttributes attrs;
+
+	if (!XGetWindowAttributes(dpy, win, &attrs))
+		attrs.your_event_mask = 0;
+	XSelectInput(dpy, win, PropertyChangeMask|FocusChangeMask);
 	XUnmapWindow(dpy, win);
-	XSelectInput(dpy, win, CLIENT_EVENTS);
+	XSelectInput(dpy, win, StructureNotifyMask|PropertyChangeMask|FocusChangeMask);
 	icccmwmstate(win, IconicState);
 }
