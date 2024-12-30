@@ -260,6 +260,23 @@ getdialogfor(Window win)
 	return NULL;
 }
 
+static struct Tab *
+gettabfrompid(unsigned long pid)
+{
+	struct Container *c;
+	struct Object *tab;
+
+	if (pid <= 1)
+		return NULL;
+	TAILQ_FOREACH(c, &wm.focusq, entry) {
+		TAB_FOREACH_BEGIN(c, tab){
+			if (pid == ((struct Tab *)tab)->pid)
+				return (struct Tab *)tab;
+		}TAB_FOREACH_END
+	}
+	return NULL;
+}
+
 /* get tab equal to leader or having leader as group leader */
 static struct Tab *
 getleaderof(Window leader)
@@ -589,16 +606,12 @@ getwinclass(Window win, Window *leader, struct Tab **tab, enum State *state, XRe
 	} else if (prop == atoms[_NET_WM_WINDOW_TYPE_DOCK]) {
 		class = bar_class;
 	} else if (*tab != NULL) {
-		if (*tab != NULL)
-			*leader = (*tab)->obj.win;
+		*leader = (*tab)->obj.win;
 		class = config.floatdialog ? menu_class : dialog_class;
 	} else {
-		if (prop != atoms[_NET_WM_WINDOW_TYPE_MENU] &&
-		    prop != atoms[_NET_WM_WINDOW_TYPE_DIALOG] &&
-		    prop != atoms[_NET_WM_WINDOW_TYPE_UTILITY] &&
-		    prop != atoms[_NET_WM_WINDOW_TYPE_TOOLBAR]) {
-			*tab = getleaderof(*leader);
-		}
+		*tab = getleaderof(*leader);
+		if (*tab == NULL)
+			*tab = gettabfrompid(getcardprop(win, atoms[_NET_WM_PID]));
 		class = tab_class;
 	}
 

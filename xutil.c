@@ -105,11 +105,11 @@ getcardsprop(Window win, Atom prop, Atom **array)
 	return len;
 }
 
-Atom
+unsigned long
 getcardprop(Window win, Atom prop)
 {
 	unsigned long *array;
-	Atom card = None;
+	unsigned long card = 0;
 
 	getcardsprop(win, prop, &array);
 	if (array != NULL)

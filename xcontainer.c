@@ -278,6 +278,7 @@ tabnew(Window win, Window leader)
 		root, (XRectangle){0, 0, 1, 1},
 		None, NorthWestGravity
 	);
+	tab->pid = getcardprop(tab->obj.win, atoms[_NET_WM_PID]);
 	XReparentWindow(dpy, tab->obj.win, tab->frame, 0, 0);
 	mapwin(tab->obj.win);
 	clientsincr();

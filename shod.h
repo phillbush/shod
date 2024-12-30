@@ -441,6 +441,7 @@ struct Tab {
 	 * Geometry of the title bar (aka tab).
 	 */
 	int x, w;                               /* title bar geometry */
+	unsigned int pid;
 
 	/*
 	 * Name of the tab's application window, its size and urgency.
