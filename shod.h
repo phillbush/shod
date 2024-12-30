@@ -5,9 +5,9 @@
 #define TAB_FOREACH_BEGIN(c, tab) {                             \
 	struct Column *col;                                     \
 	struct Row *row;                                        \
-	TAILQ_FOREACH(col, &(c)->colq, entry) {                 \
-		TAILQ_FOREACH(row, &col->rowq, entry) {         \
-			TAILQ_FOREACH(tab, &row->tabq, entry)
+	TAILQ_FOREACH_REVERSE(col, &(c)->colq, ColumnQueue, entry) {           \
+		TAILQ_FOREACH_REVERSE(row, &col->rowq, RowQueue, entry) {      \
+			TAILQ_FOREACH_REVERSE(tab, &row->tabq, Queue, entry)
 #define TAB_FOREACH_END }                                       \
 		}                                               \
 	}
