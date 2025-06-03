@@ -669,8 +669,6 @@ struct Config {
 	} *rules;
 
 	/* the values below are computed from the values above */
-	KeyCode altkeycode;                     /* keycode of the altkeysym */
-	KeyCode tabkeycode;                     /* keycode of the tabkeysym */
 	unsigned int modifier;                  /* modifier of the altkeycode */
 	int corner;                             /* = .borderwidth + .titlewidth */
 	int divwidth;                           /* = .borderwidth */

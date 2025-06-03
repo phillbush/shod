@@ -7,7 +7,6 @@
 
 #define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
 #define MOUSEEVENTMASK          (ButtonReleaseMask | PointerMotionMask)
-#define ALTTABMASK              (KeyPressMask | KeyReleaseMask)
 #define DOUBLECLICK     250     /* time in miliseconds of a double click */
 #define BETWEEN(a, b, c)        ((a) <= (b) && (b) < (c))
 
@@ -161,6 +160,9 @@ static struct Class *unknown_class = &(struct Class){
 	.manage         = manageunknown,
 	.unmanage       = NULL,
 };
+
+static KeyCode altkey;
+static KeyCode tabkey;
 
 /* check whether window was placed by the user */
 static int
@@ -815,16 +817,16 @@ alttab(int shift)
 		goto done;
 	containerbacktoplace(c, 0);
 	c = containerraisetemp(c, shift);
-	while (!XMaskEvent(dpy, ALTTABMASK, &ev)) {
+	while (!XMaskEvent(dpy, KeyPressMask|KeyReleaseMask, &ev)) {
 		switch (ev.type) {
 		case KeyPress:
-			if (ev.xkey.keycode == config.tabkeycode && isvalidstate(ev.xkey.state)) {
+			if (ev.xkey.keycode == tabkey && isvalidstate(ev.xkey.state)) {
 				containerbacktoplace(c, 1);
 				c = containerraisetemp(c, (ev.xkey.state & ShiftMask));
 			}
 			break;
 		case KeyRelease:
-			if (ev.xkey.keycode == config.altkeycode)
+			if (ev.xkey.keycode == altkey)
 				goto done;
 			break;
 		}
@@ -1846,7 +1848,7 @@ xeventkeypress(XEvent *e)
 	XKeyPressedEvent *ev;
 
 	ev = &e->xkey;
-	if (!config.disablealttab && ev->keycode == config.tabkeycode && isvalidstate(ev->state)) {
+	if (!config.disablealttab && ev->keycode == tabkey && isvalidstate(ev->state)) {
 		alttab(ev->state & ShiftMask);
 	}
 	if (ev->window == wm.checkwin) {
@@ -2039,34 +2041,45 @@ void
 setmod(void)
 {
 	size_t i;
-	static unsigned int locks[] = {
-		0,
-		LockMask,       /* Caps Lock */
-		Mod2Mask,       /* Num Lock */
-		Mod3Mask,       /* Scroll Lock (who uses this?) */
-		LockMask | Mod2Mask,
-		LockMask | Mod3Mask,
-		Mod2Mask | Mod3Mask,
-		LockMask | Mod2Mask | Mod3Mask,
+	static unsigned int lock_modifiers[] = {
+		/* CapsLk | NumLk     | ScrLk  */
+		0         | 0         | 0       ,
+		0         | 0         | Mod3Mask,
+		0         | Mod2Mask  | 0       ,
+		0         | Mod2Mask  | Mod3Mask,
+		LockMask  | 0         | 0       ,
+		LockMask  | 0         | Mod3Mask,
+		LockMask  | Mod2Mask  | 0       ,
+		LockMask  | Mod2Mask  | Mod3Mask,
 	};
 
-	config.altkeycode = 0;
-	XUngrabKey(dpy, config.tabkeycode, AnyModifier, root);
-	if ((config.altkeycode = XKeysymToKeycode(dpy, config.altkeysym)) == 0) {
+	XUngrabKey(dpy, AnyKey, AnyModifier, root);
+	if ((altkey = XKeysymToKeycode(dpy, config.altkeysym)) == 0) {
 		warnx("could not get keycode from keysym");
 		return;
 	}
-	if ((config.tabkeycode = XKeysymToKeycode(dpy, config.tabkeysym)) == 0) {
+	if ((tabkey = XKeysymToKeycode(dpy, config.tabkeysym)) == 0) {
 		warnx("could not get keycode from keysym");
 		return;
 	}
 	if (config.disablealttab)
 		return;
-	for (i = 0; i < LEN(locks); i++) {
+	for (i = 0; i < LEN(lock_modifiers); i++) {
+		/* alt+tab */
 		XGrabKey(
 			dpy,
-			config.tabkeycode,
-			config.modifier | locks[i],
+			tabkey,
+			config.modifier | lock_modifiers[i],
+			root,
+			False,
+			GrabModeAsync,
+			GrabModeAsync
+		);
+		/* alt+shift+tab */
+		XGrabKey(
+			dpy,
+			tabkey,
+			config.modifier | ShiftMask | lock_modifiers[i],
 			root,
 			False,
 			GrabModeAsync,
