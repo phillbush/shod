@@ -785,7 +785,13 @@ int getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectan
 struct Class *getwinclass(Window win, Window *leader, struct Tab **tab,
                           enum State *state, XRectangle *rect, int *desk);
 
+
+void context_add(XID, struct Object *);
+void context_del(XID);
+struct Object *context_get(XID);
+
 /* extern variables */
+extern XContext context;
 extern void (*xevents[LASTEvent])(XEvent *);
 extern struct Config config;
 extern struct WM wm;

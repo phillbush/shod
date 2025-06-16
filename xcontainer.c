@@ -153,25 +153,6 @@ dialogcalcsize(struct Dialog *dial)
 	dial->y = tab->winh / 2 - dial->h / 2;
 }
 
-static struct Dialog *
-dialognew(Window win, int maxw, int maxh)
-{
-	struct Dialog *dial;
-
-	dial = emalloc(sizeof(*dial));
-	*dial = (struct Dialog){
-		.pix = None,
-		.maxw = maxw,
-		.maxh = maxh,
-		.obj.win = win,
-		.obj.class = dialog_class,
-	};
-	dial->frame = createframe((XRectangle){0, 0, maxw, maxh});
-	XReparentWindow(dpy, dial->obj.win, dial->frame, 0, 0);
-	XMapWindow(dpy, dial->obj.win);
-	return dial;
-}
-
 /* calculate position and width of tabs of a row */
 static void
 rowcalctabs(struct Row *row)
@@ -272,6 +253,7 @@ tabnew(Window win, Window leader)
 		.obj.win = win,
 		.obj.class = tab_class,
 	};
+	context_add(win, &tab->obj);
 	TAILQ_INIT(&tab->dialq);
 	tab->frame = createframe((XRectangle){0, 0, 1, 1});
 	tab->title = createdecoration(
@@ -306,6 +288,7 @@ tabdel(struct Tab *tab)
 {
 	struct Dialog *dial;
 
+	context_del(tab->obj.win);
 	while ((dial = (struct Dialog *)TAILQ_FIRST(&tab->dialq)) != NULL) {
 		XDestroyWindow(dpy, dial->obj.win);
 		unmanagedialog((struct Object *)dial);
@@ -1766,7 +1749,18 @@ managedialog(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window 
 	(void)desk;
 	(void)leader;
 	(void)state;
-	dial = dialognew(win, rect.width, rect.height);
+	dial = emalloc(sizeof(*dial));
+	*dial = (struct Dialog){
+		.pix = None,
+		.maxw = rect.width,
+		.maxh = rect.height,
+		.obj.win = win,
+		.obj.class = dialog_class,
+	};
+	context_add(win, &dial->obj);
+	dial->frame = createframe((XRectangle){0, 0, rect.width, rect.height});
+	XReparentWindow(dpy, dial->obj.win, dial->frame, 0, 0);
+	XMapWindow(dpy, dial->obj.win);
 	dial->tab = tab;
 	TAILQ_INSERT_HEAD(&tab->dialq, (struct Object *)dial, entry);
 	XReparentWindow(dpy, dial->frame, tab->frame, 0, 0);
@@ -1828,9 +1822,9 @@ unmanagecontainer(struct Object *obj)
 static void
 unmanagedialog(struct Object *obj)
 {
-	struct Dialog *dial;
+	struct Dialog *dial = (struct Dialog *)obj;
 
-	dial = (struct Dialog *)obj;
+	context_del(obj->win);
 	TAILQ_REMOVE(&dial->tab->dialq, (struct Object *)dial, entry);
 	if (dial->pix != None)
 		XFreePixmap(dpy, dial->pix);

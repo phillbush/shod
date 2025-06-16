@@ -1,25 +1,5 @@
 #include "shod.h"
 
-/* create notification window */
-static void
-notifnew(Window win, int w, int h)
-{
-	struct Notification *notif;
-
-	notif = emalloc(sizeof(*notif));
-	*notif = (struct Notification){
-		.w = w + 2 * config.borderwidth,
-		.h = h + 2 * config.borderwidth,
-		.pix = None,
-		.obj.class = notif_class,
-		.obj.win = win,
-	};
-	TAILQ_INSERT_TAIL(&wm.notifq, (struct Object *)notif, entry);
-	notif->frame = createframe((XRectangle){0, 0, 1, 1});
-	XReparentWindow(dpy, notif->obj.win, notif->frame, 0, 0);
-	XMapWindow(dpy, notif->obj.win);
-}
-
 /* decorate notification */
 void
 notifdecorate(struct Notification *n)
@@ -114,21 +94,35 @@ notifplace(void)
 static void
 manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
 {
+	struct Notification *notif;
+
 	(void)tab;
 	(void)mon;
 	(void)desk;
 	(void)leader;
 	(void)state;
-	notifnew(win, rect.width, rect.height);
+	notif = emalloc(sizeof(*notif));
+	*notif = (struct Notification){
+		.w = rect.width + 2 * config.borderwidth,
+		.h = rect.height + 2 * config.borderwidth,
+		.pix = None,
+		.obj.class = notif_class,
+		.obj.win = win,
+	};
+	context_add(win, &notif->obj);
+	TAILQ_INSERT_TAIL(&wm.notifq, (struct Object *)notif, entry);
+	notif->frame = createframe((XRectangle){0, 0, 1, 1});
+	XReparentWindow(dpy, notif->obj.win, notif->frame, 0, 0);
+	XMapWindow(dpy, notif->obj.win);
 	notifplace();
 }
 
 static void
 unmanage(struct Object *obj)
 {
-	struct Notification *notif;
+	struct Notification *notif = (struct Notification *)obj;
 
-	notif = (struct Notification *)obj;
+	context_del(obj->win);
 	TAILQ_REMOVE(&wm.notifq, (struct Object *)notif, entry);
 	if (notif->pix != None)
 		XFreePixmap(dpy, notif->pix);

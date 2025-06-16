@@ -57,6 +57,7 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader
 		.state = state | MAXIMIZED,
 		.mon = NULL,
 	};
+	context_add(win, &bar->obj);
 	TAILQ_INSERT_TAIL(&wm.barq, (struct Object *)bar, entry);
 	shoddocks();
 	barstrut(bar);
@@ -68,9 +69,9 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader
 static void
 unmanage(struct Object *obj)
 {
-	struct Bar *bar;
+	struct Bar *bar = (struct Bar *)obj;
 
-	bar = (struct Bar *)obj;
+	context_del(obj->win);
 	TAILQ_REMOVE(&wm.barq, (struct Object *)bar, entry);
 	shoddocks();
 	free(bar);

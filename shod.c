@@ -1,6 +1,7 @@
 #include <sys/wait.h>
 
 #include <err.h>
+#include <errno.h>
 #include <limits.h>
 #include <locale.h>
 #include <signal.h>
@@ -13,12 +14,12 @@
 
 #include "shod.h"
 
-#define DOCK_TITLE      "shod's dock"
 #define WMNAME          "shod"
 
 static int (*xerrorxlib)(Display *, XErrorEvent *);
 
-/* shared variables */
+void initdock(void);
+
 unsigned long clientmask = CWEventMask | CWColormap | CWBackPixel | CWBorderPixel;
 XSetWindowAttributes clientswa = {
 	.event_mask = StructureNotifyMask | SubstructureRedirectMask
@@ -27,6 +28,7 @@ XSetWindowAttributes clientswa = {
 };
 struct WM wm = { .running = 1 };
 struct Dock dock;
+XContext context;
 
 /* show usage and exit */
 static void
@@ -184,29 +186,6 @@ initcursors(void)
 	wm.cursors[CURSOR_PIRATE] = XCreateFontCursor(dpy, XC_pirate);
 }
 
-/* create dock window */
-static void
-initdock(void)
-{
-	XSetWindowAttributes swa;
-
-	TAILQ_INIT(&dock.dappq);
-	dock.pix = None;
-	swa.event_mask = SubstructureNotifyMask | SubstructureRedirectMask;
-	swa.background_pixel = BlackPixel(dpy, screen);
-	swa.border_pixel = BlackPixel(dpy, screen);
-	swa.colormap = colormap;
-	dock.obj.win = XCreateWindow(
-		dpy, root,
-		0, 0, 1, 1, 0,
-		depth, InputOutput, visual,
-		clientmask, &swa
-	);
-	dock.state = MAXIMIZED;
-	dock.obj.class = dock_class;
-	settitle(dock.obj.win, DOCK_TITLE);
-}
-
 /* create dummy windows used for controlling focus and the layer of clients */
 static void
 initdummywindows(void)
@@ -333,6 +312,26 @@ cleanwm(void)
 	XDestroyWindow(dpy, dock.obj.win);
 }
 
+void
+context_add(XID id, struct Object *data){
+	if (XSaveContext(dpy, id, context, (void *)data))
+		err(EXIT_FAILURE, "cannot save context");
+}
+
+void
+context_del(XID id){
+	XDeleteContext(dpy, id, context);
+}
+
+struct Object *
+context_get(XID id){
+	XPointer data;
+
+	if (XFindContext(dpy, id, context, &data))
+		return NULL;
+	return (struct Object *)data;
+}
+
 /* shod window manager */
 int
 main(int argc, char *argv[])
@@ -378,6 +377,7 @@ main(int argc, char *argv[])
 	initdummywindows();
 	initdock();
 	inittheme();
+	context = XUniqueContext();
 
 	/* set up list of monitors */
 	monupdate();

@@ -3,6 +3,24 @@
 #define DOCKBORDER 1
 
 void
+initdock(void)
+{
+	XSetWindowAttributes swa;
+
+	TAILQ_INIT(&dock.dappq);
+	dock.pix = None;
+	swa.event_mask = SubstructureNotifyMask | SubstructureRedirectMask;
+	swa.background_pixel = BlackPixel(dpy, screen);
+	swa.border_pixel = BlackPixel(dpy, screen);
+	swa.colormap = colormap;
+	dock.obj.win = createframe((XRectangle){0,0,1,1});
+	dock.state = MAXIMIZED;
+	dock.obj.class = dock_class;
+	settitle(dock.obj.win, "shod's dock");
+	context_add(dock.obj.win, &dock.obj);
+}
+
+void
 dockstack(void)
 {
 	Window wins[2];
@@ -128,26 +146,6 @@ dockappinsert(struct Dockapp *dapp)
 			.height = dapp->h,
 		}
 	);
-}
-
-/* create dockapp */
-static void
-dockappnew(Window win, int w, int h, int dockpos, int state)
-{
-	struct Dockapp *dapp;
-
-	dapp = emalloc(sizeof(*dapp));
-	*dapp = (struct Dockapp){
-		.obj.class = dockapp_class,
-		.obj.win = win,
-		.x = 0,
-		.y = 0,
-		.w = w,
-		.h = h,
-		.dockpos = dockpos,
-		.state = state,
-	};
-	dockappinsert(dapp);
 }
 
 /* compute dockapp position given its width or height */
@@ -418,12 +416,26 @@ done:
 static void
 manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
 {
+	struct Dockapp *dapp;
+
 	(void)tab;
 	(void)mon;
 	(void)desk;
 	(void)leader;
+	dapp = emalloc(sizeof(*dapp));
+	*dapp = (struct Dockapp){
+		.obj.class = dockapp_class,
+		.obj.win = win,
+		.x = 0,
+		.y = 0,
+		.w = rect.width,
+		.h = rect.height,
+		.dockpos = rect.x,
+		.state = state,
+	};
+	context_add(win, &dapp->obj);
+	dockappinsert(dapp);
 	XReparentWindow(dpy, win, dock.obj.win, 0, 0);
-	dockappnew(win, rect.width, rect.height, rect.x, state);
 	dockupdate();
 	monupdatearea();
 }
@@ -431,9 +443,8 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader
 static void
 unmanage(struct Object *obj)
 {
-	struct Dockapp *dapp;
+	struct Dockapp *dapp = (struct Dockapp *)obj;
 
-	dapp = (struct Dockapp *)obj;
 	TAILQ_REMOVE(&dock.dappq, (struct Object *)dapp, entry);
 	XReparentWindow(dpy, dapp->obj.win, root, 0, 0);
 	free(dapp);

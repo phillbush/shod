@@ -2,54 +2,6 @@
 
 #define BORDER          1       /* pixel size of decoration around menus */
 
-static struct Menu *
-menunew(Window win, int x, int y, int w, int h)
-{
-	struct Menu *menu;
-	int framex, framey, framew, frameh, titlew;
-
-	/* adjust geometry for border on all sides and titlebar on top */
-	framex = x - BORDER;
-	framey = y - config.titlewidth;
-	framew = w + 2 * BORDER;
-	frameh = h + BORDER + config.titlewidth;
-	titlew = framew - config.titlewidth;
-	if (titlew < 0)
-		titlew = framew;
-	menu = emalloc(sizeof(*menu));
-	*menu = (struct Menu){
-		.titlebar = None,
-		.button = None,
-		.obj.win = win,
-		.obj.class = menu_class,
-		.pixtitlebar = None,
-		.x = framex,
-		.y = framey,
-		.w = framew,
-		.h = frameh,
-	};
-	menu->frame = createframe((XRectangle){0, 0, framew, frameh});
-	menu->titlebar = createdecoration(
-		menu->frame,
-		(XRectangle){0, 0, titlew, config.titlewidth},
-		None, NorthWestGravity
-	);
-	menu->button = createdecoration(
-		menu->frame,
-		(XRectangle){titlew, 0, config.titlewidth, config.titlewidth},
-		wm.cursors[CURSOR_PIRATE], NorthEastGravity
-	);
-	XReparentWindow(
-		dpy,
-		menu->obj.win, menu->frame,
-		BORDER, config.titlewidth
-	);
-	XMapWindow(dpy, menu->obj.win);
-	XMapWindow(dpy, menu->button);
-	XMapWindow(dpy, menu->titlebar);
-	return menu;
-}
-
 /* remove menu from the menu list */
 static void
 menudelraise(struct Menu *menu)
@@ -175,12 +127,55 @@ static void
 manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
 {
 	struct Menu *menu;
+	int framex, framey, framew, frameh, titlew;
 
 	(void)tab;
 	(void)mon;
 	(void)desk;
 	(void)state;
-	menu = menunew(win, rect.x, rect.y, rect.width, rect.height);
+
+	/* adjust geometry for border on all sides and titlebar on top */
+	framex = rect.x - BORDER;
+	framey = rect.y - config.titlewidth;
+	framew = rect.width + 2 * BORDER;
+	frameh = rect.height + BORDER + config.titlewidth;
+	titlew = framew - config.titlewidth;
+	if (titlew < 0)
+		titlew = framew;
+
+	menu = emalloc(sizeof(*menu));
+	*menu = (struct Menu){
+		.titlebar = None,
+		.button = None,
+		.obj.win = win,
+		.obj.class = menu_class,
+		.pixtitlebar = None,
+		.x = framex,
+		.y = framey,
+		.w = framew,
+		.h = frameh,
+	};
+	context_add(win, &menu->obj);
+	menu->frame = createframe((XRectangle){0, 0, framew, frameh});
+	menu->titlebar = createdecoration(
+		menu->frame,
+		(XRectangle){0, 0, titlew, config.titlewidth},
+		None, NorthWestGravity
+	);
+	menu->button = createdecoration(
+		menu->frame,
+		(XRectangle){titlew, 0, config.titlewidth, config.titlewidth},
+		wm.cursors[CURSOR_PIRATE], NorthEastGravity
+	);
+	XReparentWindow(
+		dpy,
+		menu->obj.win, menu->frame,
+		BORDER, config.titlewidth
+	);
+	XMapWindow(dpy, menu->obj.win);
+	XMapWindow(dpy, menu->button);
+	XMapWindow(dpy, menu->titlebar);
+
 	menu->leader = leader;
 	winupdatetitle(menu->obj.win, &menu->name);
 	TAILQ_INSERT_HEAD(&wm.menuq, (struct Object *)menu, entry);
@@ -199,9 +194,9 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader
 static void
 unmanage(struct Object *obj)
 {
-	struct Menu *menu;
+	struct Menu *menu = (struct Menu *)obj;
 
-	menu = (struct Menu *)obj;
+	context_del(obj->win);
 	menudelraise(menu);
 	if (menu->pixtitlebar != None)
 		XFreePixmap(dpy, menu->pixtitlebar);

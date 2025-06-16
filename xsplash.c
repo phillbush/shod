@@ -1,23 +1,5 @@
 #include "shod.h"
 
-/* create new splash screen */
-static struct Splash *
-splashnew(Window win, int w, int h)
-{
-	struct Splash *splash;
-
-	splash = emalloc(sizeof(*splash));
-	*splash = (struct Splash){
-		.obj.win = win,
-		.obj.class = splash_class,
-		.w = w,
-		.h = h,
-	};
-	XMapWindow(dpy, win);
-	TAILQ_INSERT_HEAD(&wm.splashq, (struct Object *)splash, entry);
-	return splash;
-}
-
 /* center splash screen on monitor and raise it above other windows */
 void
 splashplace(struct Monitor *mon, struct Splash *splash)
@@ -57,7 +39,16 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win,
 	(void)tab;
 	(void)leader;
 	(void)state;
-	splash = splashnew(win, rect.width, rect.height);
+	splash = emalloc(sizeof(*splash));
+	*splash = (struct Splash){
+		.obj.win = win,
+		.obj.class = splash_class,
+		.w = rect.width,
+		.h = rect.height,
+	};
+	context_add(win, &splash->obj);
+	XMapWindow(dpy, win);
+	TAILQ_INSERT_HEAD(&wm.splashq, (struct Object *)splash, entry);
 	splash->mon = mon;
 	splash->desk = desk;
 	splashplace(mon, splash);
@@ -68,9 +59,9 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win,
 static void
 unmanage(struct Object *obj)
 {
-	struct Splash *splash;
+	struct Splash *splash = (struct Splash *)obj;
 
-	splash = (struct Splash *)obj;
+	context_del(obj->win);
 	TAILQ_REMOVE(&wm.splashq, (struct Object *)splash, entry);
 	icccmdeletestate(splash->obj.win);
 	free(splash);

@@ -191,6 +191,9 @@ getmanaged(Window win)
 	struct Row *row;
 	int i;
 
+	if ((p = context_get(win)) != NULL)
+		return p;
+#warning TODO: add classes for frames/decorations, then remove getmanaged()
 	TAILQ_FOREACH(c, &wm.focusq, entry) {
 		if (c->frame == win)
 			return (struct Object *)c->selcol->selrow->seltab;
@@ -206,34 +209,23 @@ getmanaged(Window win)
 				if (row->bar == win || row->bl == win || row->br == win)
 					return (struct Object *)row->seltab;
 				TAILQ_FOREACH(tab, &row->tabq, entry) {
-					if (tab->win == win ||
-					    ((struct Tab *)tab)->frame == win ||
+					if (((struct Tab *)tab)->frame == win ||
 					    ((struct Tab *)tab)->title == win)
 						return tab;
 					TAILQ_FOREACH(dial, &((struct Tab *)tab)->dialq, entry) {
-						if (dial->win == win ||
-						    ((struct Dialog *)dial)->frame == win)
+						if (((struct Dialog *)dial)->frame == win)
 							return dial;
 						}
 				}
 			}
 		}
 	}
-	GETMANAGED(dock.dappq, p, win)
-	GETMANAGED(wm.barq, p, win)
-	GETMANAGED(wm.notifq, p, win)
-	TAILQ_FOREACH(p, &wm.splashq, entry)
-		if (p->win == win)
-			return p;
 	TAILQ_FOREACH(menu, &wm.menuq, entry) {
-		if (menu->win == win ||
-		    ((struct Menu *)menu)->frame == win ||
+		if (((struct Menu *)menu)->frame == win ||
 		    ((struct Menu *)menu)->button == win ||
 		    ((struct Menu *)menu)->titlebar == win)
 			return menu;
 	}
-	if (win == dock.obj.win)
-		return &dock.obj;
 	return NULL;
 }
 
