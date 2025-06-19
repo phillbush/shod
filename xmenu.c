@@ -41,7 +41,7 @@ menunotify(struct Menu *menu)
 	);
 }
 
-void
+static void
 menuincrmove(struct Menu *menu, int x, int y)
 {
 	menu->x += x;
@@ -237,9 +237,54 @@ menuupdate(void)
 	}
 }
 
+static void
+drag_move(struct Menu *menu, int xroot, int yroot)
+{
+	XEvent event;
+	int x, y;
+
+	if (XGrabPointer(
+		dpy, menu->frame, False,
+		ButtonReleaseMask|PointerMotionMask,
+		GrabModeAsync, GrabModeAsync,
+		None, wm.cursors[CURSOR_MOVE], CurrentTime
+	) != GrabSuccess)
+		return;
+	while (!XMaskEvent(dpy, ButtonReleaseMask|PointerMotionMask, &event)) {
+		if (event.type == ButtonRelease)
+			break;
+		if (event.type != MotionNotify)
+			continue;
+		if (!compress_motion(&event))
+			continue;
+		x = event.xmotion.x_root - xroot;
+		y = event.xmotion.y_root - yroot;
+		menuincrmove(menu, x, y);
+		xroot = event.xmotion.x_root;
+		yroot = event.xmotion.y_root;
+	}
+	XUngrabPointer(dpy, CurrentTime);
+}
+
+static void
+btnpress(struct Object *obj, XButtonPressedEvent *ev)
+{
+	struct Menu *menu = (struct Menu *)obj;
+
+	menufocusraise(menu);
+#warning TODO: implement menu button presses
+#warning TODO: implement resizing menu by dragging frame with MOD+Button3
+	if (ev->window == menu->titlebar && ev->button == Button1) {
+		drag_move(menu, ev->x_root, ev->y_root);
+	} else if (isvalidstate(ev->state) && ev->button == Button1) {
+		drag_move(menu, ev->x_root, ev->y_root);
+	}
+}
+
 struct Class *menu_class = &(struct Class){
 	.type           = TYPE_MENU,
 	.setstate       = NULL,
 	.manage         = manage,
 	.unmanage       = unmanage,
+	.btnpress       = btnpress,
 };

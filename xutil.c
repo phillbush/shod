@@ -227,3 +227,28 @@ xinit(void)
 		err(EXIT_FAILURE, "fcntl");
 	}
 }
+
+Bool
+compress_motion(XEvent *event)
+{
+#define DELAY_MOUSE 24
+	static Time last_motion = 0;
+	XEvent next;
+
+	if (event->type != MotionNotify)
+		return False;
+	while (XPending(dpy)) {
+		XPeekEvent(dpy, &next);
+		if (next.type != MotionNotify)
+			break;
+		if (next.xmotion.window != event->xmotion.window)
+			break;
+		if (next.xmotion.subwindow != event->xmotion.subwindow)
+			break;
+		XNextEvent(dpy, event);
+	}
+	if (event->xmotion.time - last_motion < DELAY_MOUSE)
+		return False;
+	last_motion = event->xmotion.time;
+	return True;
+}

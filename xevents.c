@@ -7,8 +7,15 @@
 
 #define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
 #define MOUSEEVENTMASK          (ButtonReleaseMask | PointerMotionMask)
-#define DOUBLECLICK     250     /* time in miliseconds of a double click */
 #define BETWEEN(a, b, c)        ((a) <= (b) && (b) < (c))
+
+/* call object method, if it exists */
+#define ARG1(arg, ...) (arg)
+#define MESSAGE(method, ...) \
+	if (ARG1(__VA_ARGS__, 0)->class->method != NULL) \
+		ARG1(__VA_ARGS__, 0)->class->method(__VA_ARGS__)
+#define unmanage(...) MESSAGE(unmanage, __VA_ARGS__)
+#define btnpress(...) MESSAGE(btnpress, __VA_ARGS__)
 
 /* moveresize action */
 enum {
@@ -181,8 +188,7 @@ deskisvisible(struct Monitor *mon, int desk)
 	return mon->seldesk == desk;
 }
 
-/* get pointer to managed object given a window */
-static struct Object *
+struct Object *
 getmanaged(Window win)
 {
 	struct Object *p, *tab, *dial, *menu;
@@ -230,7 +236,7 @@ getmanaged(Window win)
 }
 
 /* check whether given state matches modifier */
-static int
+Bool
 isvalidstate(unsigned int state)
 {
 	return config.modifier != 0 && (state & config.modifier) == config.modifier;
@@ -834,85 +840,6 @@ done:
 	containerraise(c, c->state);
 }
 
-/* detach tab from window with mouse */
-static void
-mouseretab(struct Tab *tab, int xroot, int yroot, int x, int y)
-{
-#define DND_POS 10      /* pixels from pointer cursor to drag-and-drop icon */
-	struct Monitor *mon;
-	struct Object *obj;
-	struct Row *row;        /* row to be deleted, if emptied */
-	struct Container *c;
-	Window win;
-	XEvent ev;
-
-	row = tab->row;
-	c = row->col->c;
-	if (XGrabPointer(dpy, root, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, None, CurrentTime) != GrabSuccess)
-		goto error;
-	tabdetach(tab, xroot - x, yroot - y);
-	containermoveresize(c, 0);
-	XUnmapWindow(dpy, tab->title);
-	XMoveWindow(
-		dpy, wm.dragwin,
-		xroot - DND_POS - (2 * config.borderwidth + config.titlewidth),
-		yroot - DND_POS - (2 * config.borderwidth + config.titlewidth)
-	);
-	XRaiseWindow(dpy, wm.dragwin);
-	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
-		switch (ev.type) {
-		case MotionNotify:
-			XMoveWindow(
-				dpy, wm.dragwin,
-				ev.xmotion.x_root - DND_POS - (2 * config.borderwidth + config.titlewidth),
-				ev.xmotion.y_root - DND_POS - (2 * config.borderwidth + config.titlewidth)
-			);
-			break;
-		case ButtonRelease:
-			goto done;
-		}
-	}
-done:
-	XMoveWindow(
-		dpy, wm.dragwin,
-		- (2 * config.borderwidth + config.titlewidth),
-		- (2 * config.borderwidth + config.titlewidth)
-	);
-	xroot = ev.xbutton.x_root - x;
-	yroot = ev.xbutton.y_root - y;
-	obj = getmanaged(ev.xbutton.subwindow);
-	c = NULL;
-	if (obj != NULL &&
-	   obj->class->type == TYPE_NORMAL &&
-	   ev.xbutton.subwindow == ((struct Tab *)obj)->row->col->c->frame) {
-		c = ((struct Tab *)obj)->row->col->c;
-		XTranslateCoordinates(dpy, ev.xbutton.window, c->frame, ev.xbutton.x_root, ev.xbutton.y_root, &x, &y, &win);
-	}
-	if (row->col->c != c) {
-		XUnmapWindow(dpy, tab->frame);
-		XReparentWindow(dpy, tab->frame, root, x, y);
-	}
-	if (!tabattach(c, tab, x, y)) {
-		mon = getmon(x, y);
-		if (mon == NULL)
-			mon = wm.selmon;
-		containernewwithtab(
-			tab, mon, mon->seldesk,
-			(XRectangle){
-				.x = xroot - config.titlewidth,
-				.y = yroot,
-				.width = tab->winw,
-				.height = tab->winh,
-			},
-			USERPLACED
-		);
-	}
-	containerdelrow(row);
-	ewmhsetactivewindow(tab->obj.win);
-error:
-	XUngrabPointer(dpy, CurrentTime);
-}
-
 /* resize container with mouse */
 static void
 mouseresize(int type, void *obj, int xroot, int yroot, enum Octant o)
@@ -1062,70 +989,6 @@ done:
 	XUngrabPointer(dpy, CurrentTime);
 }
 
-/* move floating entity (container or menu) with mouse */
-static void
-mousemove(int type, void *p, int xroot, int yroot)
-{
-	struct Object *obj;
-	struct Container *c;
-	struct Menu *menu;
-	Window frame;
-	XEvent ev;
-	Time lasttime;
-	int x, y, unmaximize, origyroot;
-
-	origyroot = yroot;
-	unmaximize = 0;
-	if (type == FLOAT_MENU) {
-		menu = (struct Menu *)p;
-		frame = menu->frame;
-		obj = (struct Object *)menu;
-	} else {
-		c = (struct Container *)p;
-		frame = c->frame;
-		obj = (struct Object *)c->selcol->selrow->seltab;
-	}
-	lasttime = 0;
-	if (XGrabPointer(dpy, frame, False, ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, None, wm.cursors[CURSOR_MOVE], CurrentTime) != GrabSuccess)
-		goto done;
-	while (!XMaskEvent(dpy, MOUSEEVENTMASK, &ev)) {
-		switch (ev.type) {
-		case ButtonRelease:
-			goto done;
-			break;
-		case MotionNotify:
-			if (ev.xmotion.time - lasttime <= (unsigned)config.movetime)
-				break;
-			x = ev.xmotion.x_root - xroot;
-			y = ev.xmotion.y_root - yroot;
-			if (type == FLOAT_MENU) {
-				menuincrmove(menu, x, y);
-			} else if (c->state & MAXIMIZED && ev.xmotion.y_root > 0 && unmaximize) {
-				(*tab_class->setstate)(obj, MAXIMIZED, REMOVE);
-				containermove(
-					c,
-					ev.xmotion.x_root - c->nw / 2,
-					0, 0
-				);
-			} else if (!(c->state & MAXIMIZED) && ev.xmotion.y_root <= 0) {
-				(*tab_class->setstate)(obj, MAXIMIZED, ADD);
-			} else if (!(c->state & MAXIMIZED)) {
-				containermove(c, x, y, 1);
-			}
-			if (ev.xmotion.y_root < origyroot - config.titlewidth)
-				unmaximize = 1;
-			if (ev.xmotion.y_root > origyroot + config.titlewidth)
-				unmaximize = 1;
-			lasttime = ev.xmotion.time;
-			xroot = ev.xmotion.x_root;
-			yroot = ev.xmotion.y_root;
-			break;
-		}
-	}
-done:
-	XUngrabPointer(dpy, CurrentTime);
-}
-
 /* resize tiles by dragging division with mouse */
 static void
 mouseretile(struct Container *c, struct Column *cdiv, struct Row *rdiv, int xprev, int yprev)
@@ -1269,156 +1132,35 @@ atoms2state(Atom arr[], size_t siz)
 static void
 xeventbuttonpress(XEvent *e)
 {
-	static struct Container *lastc = NULL;
-	static Time lasttime = 0;
-	struct Object *obj;
-	struct Monitor *mon;
-	struct Container *c;
-	struct Column *cdiv;
-	struct Row *rdiv;
-	struct Tab *tab;
-	struct Menu *menu;
-	enum Octant o;
-	XButtonPressedEvent *ev;
-	Window pressed;
-	int x, y;
+#define DOUBLE_CLICK_TIME       250
+	static Window last_click_window = None;
+	static Time last_click_time = 0;
+	static unsigned int last_click_button = 0;
+	static unsigned int last_click_serial = 1;
+	XButtonPressedEvent *event = &e->xbutton;
+	struct Object *obj = getmanaged(event->window);
+	struct Monitor *mon = getmon(event->x_root, event->y_root);
 
-	ev = &e->xbutton;
+	if (event->time - last_click_time < DOUBLE_CLICK_TIME &&
+	    event->button == last_click_button &&
+	    event->window == last_click_window) {
+		last_click_serial++;
+	} else {
+		last_click_serial = 1;
+		last_click_button = event->button;
+		last_click_window = event->window;
+	}
+	last_click_time = event->time;
 
-	if ((obj = getmanaged(ev->window)) == NULL) {
-		/*
-		 * If user clicked in no managed window, focus the
-		 * monitor below the cursor, but only if the click
-		 * occurred inside monitor's window area.
-		 */
-		if ((mon = getmon(ev->x_root, ev->y_root)) != NULL &&
-		    ev->x_root >= mon->wx && ev->x_root < mon->wx + mon->ww &&
-		    ev->y_root >= mon->wy && ev->y_root < mon->wy + mon->wh) {
-			deskfocus(mon, mon->seldesk);
-		}
-		goto done;
+	/* XButtonEvent(3).serial is reporpused as N-uple click index */
+	event->serial = last_click_serial;
+
+	if (obj != NULL) {
+		btnpress(obj, event);
+	} else if (event->window == root && mon != NULL) {
+		deskfocus(mon, mon->seldesk);
 	}
 
-	menu = NULL;
-	tab = NULL;
-	c = NULL;
-	switch (obj->class->type) {
-	case TYPE_NORMAL:
-		tab = (struct Tab *)obj;
-		c = tab->row->col->c;
-		break;
-	case TYPE_DIALOG:
-		tab = ((struct Dialog *)obj)->tab;
-		c = tab->row->col->c;
-		break;
-	case TYPE_MENU:
-		menu = (struct Menu *)obj;
-		break;
-	case TYPE_SPLASH:
-		splashrise((struct Splash *)obj);
-		goto done;
-	default:
-		if ((mon = getmon(ev->x_root, ev->y_root)) != NULL)
-			deskfocus(mon, mon->seldesk);
-		goto done;
-	}
-
-	/* raise menu above others or focus tab */
-	if (ev->button == Button1) {
-		if (menu != NULL) {
-			menufocusraise(menu);
-		} else {
-			tabfocus(tab, 1);
-		}
-	}
-
-	/* raise client */
-	if (ev->button == Button1) {
-		if (c != NULL) {
-			containerraise(c, c->state);
-		} else if (menu != NULL) {
-			menuraise(menu);
-		}
-	}
-
-	/* do action performed by mouse */
-	if (menu != NULL) {
-		if (ev->window == menu->titlebar && ev->button == Button1) {
-			mousemove(FLOAT_MENU, menu, ev->x_root, ev->y_root);
-		} else if (ev->window == menu->button && ev->button == Button1) {
-			drawcommit(menu->button, wm.decorations[PRESSED].btn_right);
-		} else if (isvalidstate(ev->state) && ev->button == Button1) {
-			mousemove(FLOAT_MENU, menu, ev->x_root, ev->y_root);
-		} else if (ev->window == menu->frame && ev->button == Button3) {
-			mousemove(FLOAT_MENU, menu, ev->x_root, ev->y_root);
-		} else if (isvalidstate(ev->state) && ev->button == Button3) {
-			if (!XTranslateCoordinates(dpy, ev->window, menu->frame, ev->x, ev->y, &x, &y, &pressed))
-				goto done;
-			o = getquadrant(menu->w, menu->h, x, y);
-			mouseresize(FLOAT_MENU, menu, ev->x_root, ev->y_root, o);
-		}
-	} else if (tab != NULL && c != NULL) {
-		if (!XTranslateCoordinates(dpy, ev->window, c->frame, ev->x, ev->y, &x, &y, &pressed))
-			goto done;
-		if (ev->window == tab->title && ev->button == Button1) {
-			if (lastc == c && ev->time - lasttime < DOUBLECLICK) {
-				rowstretch(tab->row->col, tab->row);
-				tabfocus(tab->row->seltab, 0);
-				lasttime = 0;
-				lastc = NULL;
-				goto done;
-			}
-			lastc = c;
-			lasttime = ev->time;
-		}
-		o = getframehandle(c->w, c->h, x, y);
-		if (ev->window == tab->title && ev->button == Button4) {
-			(*tab_class->setstate)(obj, SHADED, ADD);
-		} if (ev->window == tab->title && ev->button == Button5) {
-			(*tab_class->setstate)(obj, SHADED, REMOVE);
-		} else if (ev->window == tab->title && ev->button == Button3) {
-			mouseretab(tab, ev->x_root, ev->y_root, ev->x, ev->y);
-		} else if (ev->window == tab->row->bl && ev->button == Button1) {
-			wm.presswin = ev->window;
-			drawcommit(tab->row->bl, wm.decorations[PRESSED].btn_left);
-		} else if (ev->window == tab->row->br && ev->button == Button1) {
-			wm.presswin = ev->window;
-			drawcommit(tab->row->bl, wm.decorations[PRESSED].btn_right);
-		} else if (c->state & (FULLSCREEN|MINIMIZED)) {
-			goto done;
-		} else if (isvalidstate(ev->state) && ev->button == Button1) {
-			mousemove(FLOAT_CONTAINER, c, ev->x_root, ev->y_root);
-		} else if (ev->window == c->frame && ev->button == Button3) {
-			mousemove(FLOAT_CONTAINER, c, ev->x_root, ev->y_root);
-		} else if (isvalidstate(ev->state) && ev->button == Button3) {
-			mouseresize(FLOAT_CONTAINER, c, ev->x_root, ev->y_root, o);
-		} else if (ev->button == Button1 && ev->window == tab->title) {
-			mousemove(FLOAT_CONTAINER, c, ev->x_root, ev->y_root);
-		} else if (ev->button == Button1 && getdivisions(c, &cdiv, &rdiv, ev->window)) {
-			mouseretile(c, cdiv, rdiv, ev->x, ev->y);
-		} else if (ev->button == Button1 || ev->button == Button3) {
-			int border;
-
-			for (border = 0; border < BORDER_LAST; border++)
-				if (ev->window == c->curswin[border])
-					break;
-			if (border == BORDER_LAST)
-				goto done;
-			if (ev->button == Button3) {
-				mousemove(
-					FLOAT_CONTAINER, c,
-					ev->x_root, ev->y_root
-				);
-			} else if (ev->button == Button1) {
-				mouseresize(
-					FLOAT_CONTAINER, c,
-					ev->x_root, ev->y_root, o
-				);
-			}
-		}
-	}
-
-done:
 	XAllowEvents(dpy, ReplayPointer, CurrentTime);
 }
 
@@ -1765,9 +1507,7 @@ xeventdestroynotify(XEvent *e)
 		 */
 		return;
 	}
-	if (obj->class->unmanage != NULL) {
-		(*obj->class->unmanage)(obj);
-	}
+	unmanage(obj);
 }
 
 /* focus window when cursor enter it (only if there is no focus button) */
@@ -1970,9 +1710,7 @@ xeventunmapnotify(XEvent *e)
 		 */
 		return;
 	}
-	if (obj->class->unmanage != NULL) {
-		(*obj->class->unmanage)(obj);
-	}
+	unmanage(obj);
 }
 
 /* scan for already existing windows and adopt them */

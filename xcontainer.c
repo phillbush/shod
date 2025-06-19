@@ -1850,11 +1850,199 @@ containercontentwidth(struct Container *c)
 	return c->w - (c->ncols - 1) * config.divwidth - 2 * c->b;
 }
 
+static void
+rowdiv_btnpress(struct Object *obj, XButtonPressedEvent *event)
+{
+}
+
+static void
+coldiv_btnpress(struct Object *obj, XButtonPressedEvent *event)
+{
+}
+
+static void
+border_btnpress(struct Object *obj, XButtonPressedEvent *event)
+{
+}
+
+static void
+container_btnpress(struct Object *obj, XButtonPressedEvent *event)
+{
+}
+
+static void
+drag_move(struct Container *container, int xroot, int yroot)
+{
+	struct Object *obj;
+	XEvent event;
+	int x, y;
+
+	obj = (struct Object *)container->selcol->selrow->seltab;
+	if (XGrabPointer(
+		dpy, container->frame, False,
+		ButtonReleaseMask|PointerMotionMask,
+		GrabModeAsync, GrabModeAsync,
+		None, wm.cursors[CURSOR_MOVE], CurrentTime
+	) != GrabSuccess)
+		return;
+	while (!XMaskEvent(dpy, ButtonReleaseMask|PointerMotionMask, &event)) {
+		if (event.type == ButtonRelease)
+			break;
+		if (event.type != MotionNotify)
+			continue;
+		if (!compress_motion(&event))
+			continue;
+		x = event.xmotion.x_root - xroot;
+		y = event.xmotion.y_root - yroot;
+		if (!(container->state & MAXIMIZED) && event.xmotion.y_root <= 0) {
+			containersetstate(obj, MAXIMIZED, ADD);
+		} else if (!(container->state & MAXIMIZED)) {
+			containermove(container, x, y, 1);
+		} else if (event.xmotion.y_root > 0 && event.xmotion.y_root < config.titlewidth) {
+			containersetstate(obj, MAXIMIZED, REMOVE);
+			containermove(
+				container,
+				event.xmotion.x_root - container->nw / 2,
+				0, 0
+			);
+		}
+		xroot = event.xmotion.x_root;
+		yroot = event.xmotion.y_root;
+	}
+	XUngrabPointer(dpy, CurrentTime);
+}
+
+static void
+drag_tab(struct Tab *tab, int xroot, int yroot, int x, int y)
+{
+#define DND_POS 10      /* pixels from pointer cursor to drag-and-drop icon */
+	struct Monitor *mon;
+	struct Object *obj;
+	struct Row *row;        /* row to be deleted, if emptied */
+	struct Container *container;
+	Window win;
+	XEvent event;
+
+	row = tab->row;
+	container = row->col->c;
+	if (XGrabPointer(
+		dpy, root, False,
+		ButtonReleaseMask|PointerMotionMask,
+		GrabModeAsync, GrabModeAsync,
+		None, None, CurrentTime
+	) != GrabSuccess)
+		return;
+	tabdetach(tab, xroot - x, yroot - y);
+	containermoveresize(container, 0);
+	XUnmapWindow(dpy, tab->title);
+	XMoveWindow(
+		dpy, wm.dragwin,
+		xroot - DND_POS - (2 * config.borderwidth + config.titlewidth),
+		yroot - DND_POS - (2 * config.borderwidth + config.titlewidth)
+	);
+	XRaiseWindow(dpy, wm.dragwin);
+	while (!XMaskEvent(dpy, ButtonReleaseMask|PointerMotionMask, &event)) {
+		if (event.type == ButtonRelease)
+			break;
+		if (event.type != MotionNotify)
+			continue;
+		if (!compress_motion(&event))
+			continue;
+		XMoveWindow(
+			dpy, wm.dragwin,
+			event.xmotion.x_root - DND_POS - (2 * config.borderwidth + config.titlewidth),
+			event.xmotion.y_root - DND_POS - (2 * config.borderwidth + config.titlewidth)
+		);
+	}
+	XMoveWindow(
+		dpy, wm.dragwin,
+		- (2 * config.borderwidth + config.titlewidth),
+		- (2 * config.borderwidth + config.titlewidth)
+	);
+	xroot = event.xbutton.x_root - x;
+	yroot = event.xbutton.y_root - y;
+	obj = getmanaged(event.xbutton.subwindow);
+	container = NULL;
+	if (obj != NULL &&
+	   obj->class->type == TYPE_NORMAL &&
+	   event.xbutton.subwindow == ((struct Tab *)obj)->row->col->c->frame) {
+		container = ((struct Tab *)obj)->row->col->c;
+		XTranslateCoordinates(
+			dpy, event.xbutton.window, container->frame,
+			event.xbutton.x_root, event.xbutton.y_root, &x,
+			&y, &win
+		);
+	}
+	if (row->col->c != container) {
+		XUnmapWindow(dpy, tab->frame);
+		XReparentWindow(dpy, tab->frame, root, x, y);
+	}
+	if (!tabattach(container, tab, x, y)) {
+		mon = getmon(x, y);
+		if (mon == NULL)
+			mon = wm.selmon;
+		containernewwithtab(
+			tab, mon, mon->seldesk,
+			(XRectangle){
+				.x = xroot - config.titlewidth,
+				.y = yroot,
+				.width = tab->winw,
+				.height = tab->winh,
+			},
+			USERPLACED
+		);
+	}
+	containerdelrow(row);
+	ewmhsetactivewindow(tab->obj.win);
+	XUngrabPointer(dpy, CurrentTime);
+}
+
+static void
+tab_btnpress(struct Object *obj, XButtonPressedEvent *event)
+{
+	struct Tab *tab;
+	struct Container *container;
+
+	if (obj->class->type == TYPE_NORMAL)
+		tab = (struct Tab *)obj;
+	else if (obj->class->type == TYPE_DIALOG)
+		tab = ((struct Dialog *)obj)->tab;
+	else
+		return;
+	container = tab->row->col->c;
+
+	if (event->button == Button1) {
+		tabfocus(tab, True);
+		containerraise(container, container->state);
+	}
+#warning TODO: implement tab button presses
+#warning TODO: implement resizing container by dragging frame with MOD+Button3
+#warning TODO: implement retiling container by dragging divisor with Button1
+#warning TODO: implement resizing container by dragging border with Button1
+#warning TODO: implement moving container by dragging border with Button3
+	if (event->window == tab->title && event->button == Button1 && event->serial == 2) {
+		rowstretch(tab->row->col, tab->row);
+	} else if (event->window == tab->title && event->button == Button1) {
+		drag_move(container, event->x_root, event->y_root);
+	} else if (event->window == tab->title && event->button == Button3) {
+		drag_tab(tab, event->x_root, event->y_root, event->x, event->y);
+	} else if (event->window == tab->title && event->button == Button4) {
+		containersetstate(obj, SHADED, ADD);
+	} else if (event->window == tab->title && event->button == Button5) {
+		containersetstate(obj, SHADED, REMOVE);
+	} else if (container->state & (FULLSCREEN|MINIMIZED)) {
+		return;
+	} else if (isvalidstate(event->state) && event->button == Button1) {
+		drag_move(container, event->x_root, event->y_root);
+	}
+}
+
 struct Class *tab_class = &(struct Class){
 	.type           = TYPE_NORMAL,
 	.setstate       = containersetstate,
 	.manage         = managecontainer,
 	.unmanage       = unmanagecontainer,
+	.btnpress       = tab_btnpress,
 };
 
 struct Class *dialog_class = &(struct Class){
@@ -1862,4 +2050,5 @@ struct Class *dialog_class = &(struct Class){
 	.setstate       = NULL,
 	.manage         = managedialog,
 	.unmanage       = unmanagedialog,
+	.btnpress       = tab_btnpress,
 };

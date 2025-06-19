@@ -104,3 +104,4 @@ void xinit(void);
 void xinitvisual(void);
 void settitle(Window win, const char *title);
 char *getresource(XrmDatabase xdb, XrmClass *class, XrmName *name);
+Bool compress_motion(XEvent *);

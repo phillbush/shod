@@ -176,40 +176,6 @@ enum Octant {
 
 TAILQ_HEAD(Queue, Object);
 struct Object {
-	/*
-	 * An object is any structure that can directly contain a
-	 * window of an application.  For example, an open Gimp
-	 * application can have two menu windows (on its multi-window
-	 * mode), a dialog window, and the main application window.
-	 * For each window of that application we have one object:
-	 * - The Menu struct for the menu windows.
-	 * - The Dialog struct for the dialog window.
-	 * - The Tab struct for the main window.
-	 *
-	 * The application's main window is contained inside a tab,
-	 * which is contained inside a row, which is contained inside a
-	 * column, which is contained inside a container.  but only the
-	 * tab is an object, in the sense that it directly contains a
-	 * window of the application.  The row, the column, and the
-	 * container are not objects in this sense, because they do not
-	 * directly contain an application window (they contain it
-	 * indirectly).
-	 *
-	 * Each object structure begins with an Object struct, so they
-	 * can be polymorphically manipulated as its actual type or as
-	 * an Object.  For example, we can cast a Dialog into an Object
-	 * and vice-versa (if we know that the object is a type).
-	 *
-	 * The structs that can directly contain an application window
-	 * are the following:
-	 * - struct Tab;
-	 * - struct Dialog;
-	 * - struct Menu;
-	 * - struct Bar;
-	 * - struct Dockapp;
-	 * - struct Splash;
-	 * - struct Notification;
-	 */
 	TAILQ_ENTRY(Object) entry;
 	Window win;
 	struct Class *class;
@@ -396,6 +362,7 @@ struct Class {
 	void (*setstate)(struct Object *, enum State, int);
 	void (*manage)(struct Tab *, struct Monitor *, int, Window, Window, XRectangle, enum State);
 	void (*unmanage)(struct Object *);
+	void (*btnpress)(struct Object *, XButtonPressedEvent *);
 };
 
 struct Tab {
@@ -705,7 +672,6 @@ int containercontentwidth(struct Container *c);
 
 /* menu */
 void menufocus(struct Menu *menu);
-void menuincrmove(struct Menu *menu, int x, int y);
 void menuconfigure(struct Menu *menu, unsigned int valuemask, XWindowChanges *wc);
 void menumoveresize(struct Menu *menu);
 void menudecorate(struct Menu *menu);
@@ -789,6 +755,8 @@ struct Class *getwinclass(Window win, Window *leader, struct Tab **tab,
 void context_add(XID, struct Object *);
 void context_del(XID);
 struct Object *context_get(XID);
+struct Object *getmanaged(Window);
+Bool isvalidstate(unsigned int state);
 
 /* extern variables */
 extern XContext context;
