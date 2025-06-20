@@ -119,7 +119,7 @@ menuraise(struct Menu *menu)
 	Window wins[2];
 
 	wins[1] = menu->frame;
-	wins[0] = wm.layers[LAYER_MENU].frame;
+	wins[0] = wm.layers[LAYER_MENU].obj.win;
 	XRestackWindows(dpy, wins, 2);
 }
 

@@ -161,6 +161,7 @@ enum {
 	TOGGLE = 2
 };
 
+#warning TODO: delete enum Octant
 enum Octant {
 	/* window eight sections (aka octants) */
 	C  = 0,
@@ -239,12 +240,7 @@ struct Column {
 	struct Container *c;                    /* pointer to parent container */
 	struct Row *selrow;                     /* pointer to selected row */
 
-	/*
-	 * At the right of each column, except the rightmost one, there
-	 * is a divisor handle which can be dragged to resize the
-	 * columns.
-	 */
-	Window div;                             /* vertical division between columns */
+	Window div;                             /* vertical division between rows */
 
 	/*
 	 * We only keep the horizontal geometry of a column (ie', its x
@@ -259,6 +255,8 @@ struct Column {
 
 TAILQ_HEAD(ContainerQueue, Container);
 struct Container {
+	struct Object obj;
+
 	/*
 	 * The container is the main entity the user interact with, and
 	 * the windows of most applications are mapped into a container.
@@ -293,17 +291,7 @@ struct Container {
 	struct Monitor *mon;                    /* monitor container is on */
 	int desk;                               /* desktop container is on */
 
-	/*
-	 * A container is composed of a frame window, mapped below all
-	 * the columns/rows/tabs/etc.  Inside the frame window, there
-	 * are mapped the cursor windows, one for each border and corner
-	 * of the container's frame.  Each cursor window is associated
-	 * to a pointer cursor (that's why hovering the pointer over the
-	 * bottom right corner of the frame turns the cursor into an
-	 * arrow.
-	 */
-	Window frame;                           /* window to reparent the contents of the container */
-	Window curswin[BORDER_LAST];            /* dummy window used for change cursor while hovering borders */
+	Window borders[BORDER_LAST];
 
 	/*
 	 * A container has three geometries (position and size): one for
@@ -342,6 +330,7 @@ struct Monitor {
 };
 
 struct Class {
+#warning TODO: delete enum Type
 	enum Type {
 		TYPE_UNKNOWN,
 		TYPE_NORMAL,
@@ -535,6 +524,7 @@ struct WM {
 	 * There is also a dummy window to place the dock.
 	 */
 	struct ContainerQueue stackq;
+#warning TODO: remove the .layers member; use separate lists of containers instead
 	struct Container layers[LAYER_LAST];
 	Window docklayer;                       /* dummy window used to set dock layer */
 
@@ -775,3 +765,4 @@ extern struct Class *notif_class;
 extern struct Class *prompt_class;
 extern struct Class *splash_class;
 extern struct Class *tab_class;
+extern struct Class *container_class;

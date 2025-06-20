@@ -26,7 +26,7 @@ splashrise(struct Splash *splash)
 	Window wins[2];
 
 	wins[1] = splash->obj.win;
-	wins[0] = wm.layers[LAYER_NORMAL].frame;
+	wins[0] = wm.layers[LAYER_NORMAL].obj.win;
 	XRestackWindows(dpy, wins, 2);
 }
 

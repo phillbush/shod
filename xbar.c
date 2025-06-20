@@ -30,11 +30,11 @@ barstack(struct Bar *bar)
 
 	if (wm.focused != NULL && wm.focused->mon == bar->mon &&
 	    wm.focused->state & FULLSCREEN)
-		wins[0] = wm.focused->frame;
+		wins[0] = wm.focused->obj.win;
 	else if (bar->state & BELOW)
-		wins[0] = wm.layers[LAYER_DESK].frame;
+		wins[0] = wm.layers[LAYER_DESK].obj.win;
 	else
-		wins[0] = wm.layers[LAYER_DOCK].frame;
+		wins[0] = wm.layers[LAYER_DOCK].obj.win;
 	wins[1] = bar->obj.win;
 	XRestackWindows(dpy, wins, 2);
 }
@@ -81,7 +81,7 @@ unmanage(struct Object *obj)
 static void
 toggleabove(struct Bar *bar)
 {
-	Window wins[2] = {wm.layers[LAYER_DOCK].frame, bar->obj.win};
+	Window wins[2] = {wm.layers[LAYER_DOCK].obj.win, bar->obj.win};
 
 	XRestackWindows(dpy, wins, 2);
 	bar->state &= ~BELOW;
@@ -91,10 +91,10 @@ toggleabove(struct Bar *bar)
 static void
 togglebelow(struct Bar *bar)
 {
-	Window wins[2] = {wm.layers[LAYER_DESK].frame, bar->obj.win};
+	Window wins[2] = {wm.layers[LAYER_DESK].obj.win, bar->obj.win};
 
 	if (bar->state & BELOW)         /* bar is below; move it back to above */
-		wins[0] = wm.layers[LAYER_DOCK].frame;
+		wins[0] = wm.layers[LAYER_DOCK].obj.win;
 	XRestackWindows(dpy, wins, 2);
 	bar->state &= ~ABOVE;
 	bar->state ^= BELOW;

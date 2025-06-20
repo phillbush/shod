@@ -27,11 +27,11 @@ dockstack(void)
 
 	if (wm.focused != NULL && wm.focused->state & FULLSCREEN &&
 	    wm.focused->mon == TAILQ_FIRST(&wm.monq))
-		wins[0] = wm.focused->frame;
+		wins[0] = wm.focused->obj.win;
 	else if (dock.state & BELOW)
-		wins[0] = wm.layers[LAYER_DESK].frame;
+		wins[0] = wm.layers[LAYER_DESK].obj.win;
 	else
-		wins[0] = wm.layers[LAYER_DOCK].frame;
+		wins[0] = wm.layers[LAYER_DOCK].obj.win;
 	wins[1] = dock.obj.win;
 	XRestackWindows(dpy, wins, 2);
 }

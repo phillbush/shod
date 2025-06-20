@@ -253,13 +253,15 @@ tabnew(Window win, Window leader)
 		.obj.win = win,
 		.obj.class = tab_class,
 	};
-	context_add(win, &tab->obj);
 	TAILQ_INIT(&tab->dialq);
 	tab->frame = createframe((XRectangle){0, 0, 1, 1});
 	tab->title = createdecoration(
 		root, (XRectangle){0, 0, 1, 1},
 		None, NorthWestGravity
 	);
+	context_add(tab->obj.win, &tab->obj);
+	context_add(tab->frame, &tab->obj);
+	context_add(tab->title, &tab->obj);
 	tab->pid = getcardprop(tab->obj.win, atoms[_NET_WM_PID]);
 	XReparentWindow(dpy, tab->obj.win, tab->frame, 0, 0);
 	mapwin(tab->obj.win);
@@ -289,6 +291,8 @@ tabdel(struct Tab *tab)
 	struct Dialog *dial;
 
 	context_del(tab->obj.win);
+	context_del(tab->frame);
+	context_del(tab->title);
 	while ((dial = (struct Dialog *)TAILQ_FIRST(&tab->dialq)) != NULL) {
 		XDestroyWindow(dpy, dial->obj.win);
 		unmanagedialog((struct Object *)dial);
@@ -446,9 +450,9 @@ coladdrow(struct Column *col, struct Row *row, struct Row *prev)
 	else
 		TAILQ_INSERT_AFTER(&col->rowq, prev, row, entry);
 	colcalcrows(col, 1);    /* set row->y, row->h, etc */
-	XReparentWindow(dpy, row->div, c->frame, col->x + col->w, c->b);
-	XReparentWindow(dpy, row->bar, c->frame, col->x, row->y);
-	XReparentWindow(dpy, row->frame, c->frame, col->x, row->y);
+	XReparentWindow(dpy, row->div, c->obj.win, col->x + col->w, c->b);
+	XReparentWindow(dpy, row->bar, c->obj.win, col->x, row->y);
+	XReparentWindow(dpy, row->frame, c->obj.win, col->x, row->y);
 	XMapWindow(dpy, row->bar);
 	XMapWindow(dpy, row->frame);
 	if (oldcol != NULL && oldcol->nrows == 0) {
@@ -545,9 +549,9 @@ containerhide(struct Container *c, int hide)
 		return;
 	c->ishidden = hide;
 	if (hide) {
-		XUnmapWindow(dpy, c->frame);
+		XUnmapWindow(dpy, c->obj.win);
 	} else {
-		XMapWindow(dpy, c->frame);
+		XMapWindow(dpy, c->obj.win);
 	}
 	TAB_FOREACH_BEGIN(c, t) {
 		icccmwmstate(t->win, (hide ? IconicState : NormalState));
@@ -571,7 +575,7 @@ containeraddcol(struct Container *c, struct Column *col, struct Column *prev)
 		TAILQ_INSERT_HEAD(&c->colq, col, entry);
 	else
 		TAILQ_INSERT_AFTER(&c->colq, prev, col, entry);
-	XReparentWindow(dpy, col->div, c->frame, 0, 0);
+	XReparentWindow(dpy, col->div, c->obj.win, 0, 0);
 	containercalccols(c);
 	if (oldc != NULL && oldc->ncols == 0) {
 		containerdel(oldc);
@@ -670,15 +674,15 @@ static void
 containershade(struct Container *c, int shade)
 {
 	if (shade != REMOVE && !(c->state & SHADED)) {
-		XDefineCursor(dpy, c->curswin[BORDER_NW], wm.cursors[CURSOR_W]);
-		XDefineCursor(dpy, c->curswin[BORDER_SW], wm.cursors[CURSOR_W]);
-		XDefineCursor(dpy, c->curswin[BORDER_NE], wm.cursors[CURSOR_E]);
-		XDefineCursor(dpy, c->curswin[BORDER_SE], wm.cursors[CURSOR_E]);
+		XDefineCursor(dpy, c->borders[BORDER_NW], wm.cursors[CURSOR_W]);
+		XDefineCursor(dpy, c->borders[BORDER_SW], wm.cursors[CURSOR_W]);
+		XDefineCursor(dpy, c->borders[BORDER_NE], wm.cursors[CURSOR_E]);
+		XDefineCursor(dpy, c->borders[BORDER_SE], wm.cursors[CURSOR_E]);
 	} else if (shade != ADD && (c->state & SHADED)) {
-		XDefineCursor(dpy, c->curswin[BORDER_NW], wm.cursors[CURSOR_NW]);
-		XDefineCursor(dpy, c->curswin[BORDER_SW], wm.cursors[CURSOR_SW]);
-		XDefineCursor(dpy, c->curswin[BORDER_NE], wm.cursors[CURSOR_NE]);
-		XDefineCursor(dpy, c->curswin[BORDER_SE], wm.cursors[CURSOR_SE]);
+		XDefineCursor(dpy, c->borders[BORDER_NW], wm.cursors[CURSOR_NW]);
+		XDefineCursor(dpy, c->borders[BORDER_SW], wm.cursors[CURSOR_SW]);
+		XDefineCursor(dpy, c->borders[BORDER_NE], wm.cursors[CURSOR_NE]);
+		XDefineCursor(dpy, c->borders[BORDER_SE], wm.cursors[CURSOR_SE]);
 	} else {
 		return;
 	}
@@ -759,15 +763,18 @@ containernew(int x, int y, int w, int h, enum State state)
 		.state = state,
 		.ishidden = 0,
 		.isobscured = 0,
+		.obj.class = container_class,
 	};
+	c->obj.win = createframe((XRectangle){c->x, c->y, c->w, c->h});
+	context_add(c->obj.win, &c->obj);
 	TAILQ_INIT(&c->colq);
-	c->frame = createframe((XRectangle){c->x, c->y, c->w, c->h});
 	for (size_t i = 0; i < LEN(table); i++) {
 		int x = table[i].x != 0 ? c->w - table[i].x : 0;
 		int y = table[i].y != 0 ? c->h - table[i].y : 0;
 
-		c->curswin[table[i].window] = createdecoration(
-			c->frame,
+		context_add(c->borders[table[i].window], &c->obj);
+		c->borders[table[i].window] = createdecoration(
+			c->obj.win,
 			(XRectangle){
 				/*
 				 * Corners have fixed size, set it now.
@@ -777,7 +784,7 @@ containernew(int x, int y, int w, int h, enum State state)
 			},
 			wm.cursors[table[i].cursor], table[i].gravity
 		);
-		XMapRaised(dpy, c->curswin[table[i].window]);
+		XMapRaised(dpy, c->borders[table[i].window]);
 	}
 	containerinsertfocus(c);
 	containerinsertraise(c);
@@ -798,9 +805,12 @@ containerdel(struct Container *c)
 	TAILQ_REMOVE(&wm.focusq, c, entry);
 	while ((col = TAILQ_FIRST(&c->colq)) != NULL)
 		coldel(col);
-	XDestroyWindow(dpy, c->frame);
-	for (i = 0; i < BORDER_LAST; i++)
-		XDestroyWindow(dpy, c->curswin[i]);
+	context_del(c->obj.win);
+	XDestroyWindow(dpy, c->obj.win);
+	for (i = 0; i < BORDER_LAST; i++) {
+		context_del(c->borders[i]);
+		XDestroyWindow(dpy, c->borders[i]);
+	}
 	free(c);
 }
 
@@ -818,11 +828,11 @@ containermoveresize(struct Container *c, int checkstack)
 
 	if (c == NULL)
 		return;
-	XMoveResizeWindow(dpy, c->frame, c->x, c->y, c->w, c->h);
-	XResizeWindow(dpy, c->curswin[BORDER_N], c->w, config.borderwidth);
-	XResizeWindow(dpy, c->curswin[BORDER_S], c->w, config.borderwidth);
-	XResizeWindow(dpy, c->curswin[BORDER_W], config.borderwidth, c->h);
-	XResizeWindow(dpy, c->curswin[BORDER_E], config.borderwidth, c->h);
+	XMoveResizeWindow(dpy, c->obj.win, c->x, c->y, c->w, c->h);
+	XResizeWindow(dpy, c->borders[BORDER_N], c->w, config.borderwidth);
+	XResizeWindow(dpy, c->borders[BORDER_S], c->w, config.borderwidth);
+	XResizeWindow(dpy, c->borders[BORDER_W], config.borderwidth, c->h);
+	XResizeWindow(dpy, c->borders[BORDER_E], config.borderwidth, c->h);
 	isshaded = containerisshaded(c);
 	TAILQ_FOREACH(col, &c->colq, entry) {
 		rowy = c->b;
@@ -886,15 +896,15 @@ containerdecorate(struct Container *c)
 	if (c == NULL)
 		return;
 	style = containergetstyle(c);
-	backgroundcommit(c->frame, style);
-	drawcommit(wm.decorations[style].bar_horz, c->curswin[BORDER_N]);
-	drawcommit(wm.decorations[style].bar_horz, c->curswin[BORDER_S]);
-	drawcommit(wm.decorations[style].bar_vert, c->curswin[BORDER_W]);
-	drawcommit(wm.decorations[style].bar_vert, c->curswin[BORDER_E]);
-	drawcommit(wm.decorations[style].corner_nw, c->curswin[BORDER_NW]);
-	drawcommit(wm.decorations[style].corner_ne, c->curswin[BORDER_NE]);
-	drawcommit(wm.decorations[style].corner_sw, c->curswin[BORDER_SW]);
-	drawcommit(wm.decorations[style].corner_se, c->curswin[BORDER_SE]);
+	backgroundcommit(c->obj.win, style);
+	drawcommit(wm.decorations[style].bar_horz, c->borders[BORDER_N]);
+	drawcommit(wm.decorations[style].bar_horz, c->borders[BORDER_S]);
+	drawcommit(wm.decorations[style].bar_vert, c->borders[BORDER_W]);
+	drawcommit(wm.decorations[style].bar_vert, c->borders[BORDER_E]);
+	drawcommit(wm.decorations[style].corner_nw, c->borders[BORDER_NW]);
+	drawcommit(wm.decorations[style].corner_ne, c->borders[BORDER_NE]);
+	drawcommit(wm.decorations[style].corner_sw, c->borders[BORDER_SW]);
+	drawcommit(wm.decorations[style].corner_se, c->borders[BORDER_SE]);
 	TAILQ_FOREACH(col, &c->colq, entry) {
 		drawcommit(wm.decorations[style].bar_vert, col->div);
 		TAILQ_FOREACH(row, &col->rowq, entry) {
@@ -1059,7 +1069,7 @@ containermove(struct Container *c, int x, int y, int relative)
 	c->x = c->nx;
 	c->y = c->ny;
 	snaptoedge(&c->x, &c->y, c->w, c->h);
-	XMoveWindow(dpy, c->frame, c->x, c->y);
+	XMoveWindow(dpy, c->obj.win, c->x, c->y);
 	TAB_FOREACH_BEGIN(c, t){
 		tab = (struct Tab *)t;
 		winnotify(tab->obj.win, c->x + col->x, c->y + row->y + config.titlewidth, tab->winw, tab->winh);
@@ -1098,15 +1108,15 @@ containerraise(struct Container *c, enum State state)
 	}
 	containerdelraise(c);
 	TAILQ_INSERT_AFTER(&wm.stackq, &wm.layers[layer], c, raiseentry);
-	wins[0] = wm.layers[layer].frame;
-	wins[1] = c->frame;
+	wins[0] = wm.layers[layer].obj.win;
+	wins[1] = c->obj.win;
 	c->state &= ~(ABOVE|BELOW);
 	c->state |= state;
 	XRestackWindows(dpy, wins, 2);
 	tab = c->selcol->selrow->seltab;
 
 	/* raise any menu for the container */
-	wins[0] = wm.layers[LAYER_MENU].frame;
+	wins[0] = wm.layers[LAYER_MENU].obj.win;
 	TAILQ_FOREACH(obj, &wm.menuq, entry) {
 		menu = ((struct Menu *)obj);
 		if (!istabformenu(tab, menu))
@@ -1393,7 +1403,7 @@ found:
 		rowcalctabs(row);
 	tabfocus(det, 0);
 	containerraise(c, c->state);
-	XMapSubwindows(dpy, c->frame);
+	XMapSubwindows(dpy, c->obj.win);
 	/* no need to call shodgrouptab() and shodgroupcontainer(); tabfocus() already calls them */
 	ewmhsetdesktop(det->obj.win, c->desk);
 	containermoveresize(c, 0);
@@ -1475,12 +1485,12 @@ containerraisetemp(struct Container *prevc, int backward)
 	if (newc == NULL)
 		newc = prevc;
 	if (newc->ishidden)
-		XMapWindow(dpy, newc->frame);
+		XMapWindow(dpy, newc->obj.win);
 	/* we save the Z-axis position of the container with wm.restackwin */
-	wins[0] = newc->frame;
+	wins[0] = newc->obj.win;
 	wins[1] = wm.restackwin;
 	XRestackWindows(dpy, wins, 2);
-	XRaiseWindow(dpy, newc->frame);
+	XRaiseWindow(dpy, newc->obj.win);
 	wm.focused = newc;
 	containerdecorate(newc);
 	ewmhsetactivewindow(newc->selcol->selrow->seltab->obj.win);
@@ -1499,11 +1509,11 @@ containerbacktoplace(struct Container *c, int restack)
 	containerdecorate(c);
 	if (restack) {
 		wins[0] = wm.restackwin;
-		wins[1] = c->frame;
+		wins[1] = c->obj.win;
 		XRestackWindows(dpy, wins, 2);
 	}
 	if (c->ishidden)
-		XUnmapWindow(dpy, c->frame);
+		XUnmapWindow(dpy, c->obj.win);
 	XFlush(dpy);
 }
 
@@ -1698,7 +1708,7 @@ containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle r
 	coladdrow(col, row, NULL);
 	rowaddtab(row, tab, NULL);
 	containerdecorate(c);
-	XMapSubwindows(dpy, c->frame);
+	XMapSubwindows(dpy, c->obj.win);
 	containerplace(c, mon, desk, (state & USERPLACED));
 	containermoveresize(c, 0);
 	if (containerisvisible(c, wm.selmon, wm.selmon->seldesk)) {
@@ -1732,7 +1742,7 @@ managecontainer(struct Tab *prev, struct Monitor *mon, int desk, Window win, Win
 		wm.setclientlist = True;
 		containermoveresize(c, 0);
 		containerdecorate(c);
-		XMapSubwindows(dpy, c->frame);
+		XMapSubwindows(dpy, c->obj.win);
 		if (wm.focused == c) {
 			tabfocus(tab, 1);
 		}
@@ -1851,35 +1861,17 @@ containercontentwidth(struct Container *c)
 }
 
 static void
-rowdiv_btnpress(struct Object *obj, XButtonPressedEvent *event)
-{
-}
-
-static void
-coldiv_btnpress(struct Object *obj, XButtonPressedEvent *event)
-{
-}
-
-static void
-border_btnpress(struct Object *obj, XButtonPressedEvent *event)
-{
-}
-
-static void
-container_btnpress(struct Object *obj, XButtonPressedEvent *event)
-{
-}
-
-static void
 drag_move(struct Container *container, int xroot, int yroot)
 {
 	struct Object *obj;
 	XEvent event;
 	int x, y;
 
+	if (container->state & (FULLSCREEN|MINIMIZED))
+		return;
 	obj = (struct Object *)container->selcol->selrow->seltab;
 	if (XGrabPointer(
-		dpy, container->frame, False,
+		dpy, container->obj.win, False,
 		ButtonReleaseMask|PointerMotionMask,
 		GrabModeAsync, GrabModeAsync,
 		None, wm.cursors[CURSOR_MOVE], CurrentTime
@@ -1913,6 +1905,123 @@ drag_move(struct Container *container, int xroot, int yroot)
 }
 
 static void
+drag_resize(struct Container *container, enum border border, int xroot, int yroot)
+{
+	enum {
+		TOP    = (1 << 0),
+		BOTTOM = (1 << 1),
+		LEFT   = (1 << 2),
+		RIGHT  = (1 << 3),
+	};
+	Cursor cursor;
+	XEvent event;
+	XMotionEvent *motion = &event.xmotion;
+	int x, y;
+	int direction;
+
+	if (container->state & (FULLSCREEN|MINIMIZED))
+		return;
+	if (containerisshaded(container)) {
+		if (border == BORDER_SW || border == BORDER_NW)
+			border = BORDER_W;
+		else if (border == BORDER_SE || border == BORDER_NE)
+			border = BORDER_E;
+	}
+	switch (border) {
+	case BORDER_NW:
+		direction = TOP | LEFT;
+		cursor = wm.cursors[CURSOR_NW];
+		break;
+	case BORDER_NE:
+		direction = TOP | RIGHT;
+		cursor = wm.cursors[CURSOR_NE];
+		break;
+	case BORDER_N:
+		direction = TOP;
+		cursor = wm.cursors[CURSOR_N];
+		break;
+	case BORDER_SW:
+		direction = BOTTOM | LEFT;
+		cursor = wm.cursors[CURSOR_SW];
+		break;
+	case BORDER_SE:
+		direction = BOTTOM | RIGHT;
+		cursor = wm.cursors[CURSOR_SE];
+		break;
+	case BORDER_S:
+		direction = BOTTOM;
+		cursor = wm.cursors[CURSOR_S];
+		break;
+	}
+	if (direction & LEFT)
+		x = xroot - container->nx;
+	else if (direction & RIGHT)
+		x = container->nx + container->nw - xroot;
+	else
+		x = 0;
+	if (direction & TOP)
+		y = yroot - container->ny;
+	else if (direction & BOTTOM)
+		y = container->ny + container->nh - yroot;
+	else
+		y = 0;
+	if (XGrabPointer(
+		dpy, container->obj.win, False,
+		ButtonReleaseMask|PointerMotionMask,
+		GrabModeAsync, GrabModeAsync,
+		None, cursor, CurrentTime
+	) != GrabSuccess)
+		return;
+	while (!XMaskEvent(dpy, ButtonReleaseMask|PointerMotionMask, &event)) {
+		int dx, dy;
+
+		if (event.type == ButtonRelease)
+			break;
+		if (event.type != MotionNotify)
+			continue;
+		if (x > container->nw) x = 0;
+		if (y > container->nh) y = 0;
+		if (direction & LEFT &&
+		    ((motion->x_root < xroot && x > motion->x_root - container->nx) ||
+		     (motion->x_root > xroot && x < motion->x_root - container->nx))) {
+			dx = xroot - motion->x_root;
+			if (container->nw + dx < wm.minsize) continue;
+			container->nx -= dx;
+			container->nw += dx;
+		} else if (direction & RIGHT &&
+		    ((motion->x_root > xroot && x > container->nx + container->nw - motion->x_root) ||
+		     (motion->x_root < xroot && x < container->nx + container->nw - motion->x_root))) {
+			dx = motion->x_root - xroot;
+			if (container->nw + dx < wm.minsize) continue;
+			container->nw += dx;
+		}
+		if (direction & TOP &&
+		    ((motion->y_root < yroot && y > motion->y_root - container->ny) ||
+		     (motion->y_root > yroot && y < motion->y_root - container->ny))) {
+			dy = yroot - motion->y_root;
+			if (container->nh + dy < wm.minsize) continue;
+			container->ny -= dy;
+			container->nh += dy;
+		} else if (direction & BOTTOM &&
+		    ((motion->y_root > yroot && container->ny + container->nh - motion->y_root < y) ||
+		     (motion->y_root < yroot && container->ny + container->nh - motion->y_root > y))) {
+			dy = motion->y_root - yroot;
+			if (container->nh + dy < wm.minsize) continue;
+			container->nh += dy;
+		}
+		xroot = motion->x_root;
+		yroot = motion->y_root;
+		if (!compress_motion(&event))
+			continue;
+		containercalccols(container);
+		containermoveresize(container, False);
+	}
+	containercalccols(container);
+	containermoveresize(container, True);
+	XUngrabPointer(dpy, CurrentTime);
+}
+
+static void
 drag_tab(struct Tab *tab, int xroot, int yroot, int x, int y)
 {
 #define DND_POS 10      /* pixels from pointer cursor to drag-and-drop icon */
@@ -1925,6 +2034,8 @@ drag_tab(struct Tab *tab, int xroot, int yroot, int x, int y)
 
 	row = tab->row;
 	container = row->col->c;
+	if (container->state & (FULLSCREEN|MINIMIZED))
+		return;
 	if (XGrabPointer(
 		dpy, root, False,
 		ButtonReleaseMask|PointerMotionMask,
@@ -1965,10 +2076,10 @@ drag_tab(struct Tab *tab, int xroot, int yroot, int x, int y)
 	container = NULL;
 	if (obj != NULL &&
 	   obj->class->type == TYPE_NORMAL &&
-	   event.xbutton.subwindow == ((struct Tab *)obj)->row->col->c->frame) {
+	   event.xbutton.subwindow == ((struct Tab *)obj)->row->col->c->obj.win) {
 		container = ((struct Tab *)obj)->row->col->c;
 		XTranslateCoordinates(
-			dpy, event.xbutton.window, container->frame,
+			dpy, event.xbutton.window, container->obj.win,
 			event.xbutton.x_root, event.xbutton.y_root, &x,
 			&y, &win
 		);
@@ -2030,12 +2141,78 @@ tab_btnpress(struct Object *obj, XButtonPressedEvent *event)
 		containersetstate(obj, SHADED, ADD);
 	} else if (event->window == tab->title && event->button == Button5) {
 		containersetstate(obj, SHADED, REMOVE);
-	} else if (container->state & (FULLSCREEN|MINIMIZED)) {
-		return;
-	} else if (isvalidstate(event->state) && event->button == Button1) {
-		drag_move(container, event->x_root, event->y_root);
 	}
 }
+
+static void
+rowdiv_btnpress(struct Object *obj, XButtonPressedEvent *event)
+{
+}
+
+static void
+coldiv_btnpress(struct Object *obj, XButtonPressedEvent *event)
+{
+}
+
+static void
+container_btnpress(struct Object *obj, XButtonPressedEvent *event)
+{
+	struct Container *container = (struct Container *)obj;
+
+	if (event->button == Button1) {
+		tabfocus(container->selcol->selrow->seltab, True);
+		containerraise(container, container->state);
+	}
+	if (event->window != container->obj.win)
+		return;
+	if (container->state & (FULLSCREEN|MINIMIZED))
+		return;
+	if (isvalidstate(event->state) && event->button == Button1) {
+		drag_move(container, event->x_root, event->y_root);
+		return;
+	}
+	if (isvalidstate(event->state) && event->button == Button3) {
+		enum border border;
+
+		if (event->x <= container->w/2 && event->y <= container->h/2)
+			border = BORDER_NW;
+		else if (event->x > container->w/2 && event->y <= container->h/2)
+			border = BORDER_NE;
+		else if (event->x <= container->w/2 && event->y > container->h/2)
+			border = BORDER_SW;
+		else
+			border = BORDER_SE;
+		drag_resize(
+			container, border,
+			event->x_root, event->y_root
+		);
+		return;
+	}
+	for (enum border border = 0; border < BORDER_LAST; border++) {
+		if (event->subwindow != container->borders[border])
+			continue;
+		if (event->button == Button1) {
+			drag_resize(
+				container, border,
+				event->x_root, event->y_root
+			);
+		} else if (event->button == Button1) {
+			drag_move(
+				container,
+				event->x_root, event->y_root
+			);
+		}
+		break;
+	}
+}
+
+struct Class *container_class = &(struct Class){
+	.type           = TYPE_UNKNOWN,
+	.setstate       = containersetstate,
+	.manage         = NULL,
+	.unmanage       = NULL,
+	.btnpress       = container_btnpress,
+};
 
 struct Class *tab_class = &(struct Class){
 	.type           = TYPE_NORMAL,

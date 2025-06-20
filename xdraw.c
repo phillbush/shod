@@ -8,7 +8,6 @@ Colormap colormap;
 unsigned int depth;
 XrmDatabase xdb = NULL;
 
-#define MOUSE_EVENTS (ButtonReleaseMask|ButtonPressMask|Button1MotionMask)
 #define MIN_SHADOW_THICKNESS 1
 #define MAX_SHADOW_THICKNESS 2
 
@@ -481,14 +480,22 @@ set_theme(void)
 Window
 createframe(XRectangle geom)
 {
+#define MOUSE_EVENTS (ButtonReleaseMask|ButtonPressMask|PointerMotionMask)
 	XSetWindowAttributes attrs = {
-		.event_mask = MOUSE_EVENTS | StructureNotifyMask |
-			SubstructureRedirectMask | FocusChangeMask,
+		.event_mask = MOUSE_EVENTS | FocusChangeMask |
+		StructureNotifyMask | SubstructureRedirectMask,
 	};
+	Window frame;
 
 	if (config.sloppyfocus || config.sloppytiles)
 		attrs.event_mask |= EnterWindowMask;
-	return createwindow(root, geom, CWEventMask, &attrs);
+	frame = createwindow(root, geom, CWEventMask, &attrs);
+	XGrabButton(
+		dpy, AnyButton, AnyModifier,
+		frame, True, MOUSE_EVENTS,
+		GrabModeSync, GrabModeAsync, None, None
+	);
+	return frame;
 }
 
 Window
@@ -497,9 +504,9 @@ createdecoration(Window frame, XRectangle geom, Cursor cursor, int gravity)
 	return createwindow(
 		frame, geom, CWEventMask|CWCursor|CWWinGravity,
 		&(XSetWindowAttributes){
-			.event_mask = MOUSE_EVENTS,
 			.cursor = cursor,
 			.win_gravity = gravity,
+			.event_mask = MOUSE_EVENTS,
 		}
 	);
 }

@@ -195,8 +195,8 @@ initdummywindows(void)
 
 	for (i = 0; i < LAYER_LAST; i++) {
 		wm.layers[i].ncols = 0;
-		wm.layers[i].frame = XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0);
-		XRaiseWindow(dpy, wm.layers[i].frame);
+		wm.layers[i].obj.win = XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0);
+		XRaiseWindow(dpy, wm.layers[i].obj.win);
 		TAILQ_INSERT_HEAD(&wm.stackq, &wm.layers[i], raiseentry);
 	}
 	swa = clientswa;
@@ -272,7 +272,7 @@ cleandummywindows(void)
 
 	XDestroyWindow(dpy, wm.checkwin);
 	for (i = 0; i < LAYER_LAST; i++) {
-		XDestroyWindow(dpy, wm.layers[i].frame);
+		XDestroyWindow(dpy, wm.layers[i].obj.win);
 	}
 }
 
