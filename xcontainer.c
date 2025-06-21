@@ -2135,9 +2135,7 @@ tab_btnpress(struct Object *obj, XButtonPressedEvent *event)
 		containerraise(container, container->state);
 	}
 #warning TODO: implement tab button presses
-#warning TODO: implement resizing container by dragging frame with MOD+Button3
 #warning TODO: implement retiling container by dragging divisor with Button1
-#warning TODO: implement resizing container by dragging border with Button1
 #warning TODO: implement moving container by dragging border with Button3
 	if (event->window == tab->title && event->button == Button1 && event->serial == 2) {
 		rowstretch(tab->row->col, tab->row);
@@ -2204,7 +2202,7 @@ container_btnpress(struct Object *obj, XButtonPressedEvent *event)
 				container, border,
 				event->x_root, event->y_root
 			);
-		} else if (event->button == Button1) {
+		} else if (event->button == Button3) {
 			drag_move(
 				container,
 				event->x_root, event->y_root
