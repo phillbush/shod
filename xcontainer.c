@@ -1952,6 +1952,14 @@ drag_resize(struct Container *container, enum border border, int xroot, int yroo
 		direction = BOTTOM;
 		cursor = wm.cursors[CURSOR_S];
 		break;
+	case BORDER_W:
+		direction = LEFT;
+		cursor = wm.cursors[CURSOR_W];
+		break;
+	case BORDER_E:
+		direction = RIGHT;
+		cursor = wm.cursors[CURSOR_E];
+		break;
 	}
 	if (direction & LEFT)
 		x = xroot - container->nx;
