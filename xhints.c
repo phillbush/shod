@@ -93,9 +93,7 @@ void
 ewmhsetclients(void)
 {
 	struct Container *c;
-	struct Column *col;
-	struct Row *row;
-	struct Object *obj;
+	struct Object *l, *r, *t;
 	Window *wins;
 	int prevobscured, i;
 
@@ -119,14 +117,15 @@ ewmhsetclients(void)
 				c->x, c->y, c->w, c->h
 			);
 		}
-		TAILQ_FOREACH(col, &c->colq, entry) {
+		TAILQ_FOREACH(l, &c->colq, entry) {
+			struct Column *col = (struct Column *)l;
 			if (col->selrow->seltab != NULL)
 				wins[--i] = col->selrow->seltab->obj.win;
-			TAILQ_FOREACH(row, &col->rowq, entry)
-			TAILQ_FOREACH(obj, &row->tabq, entry) {
-				if ((struct Tab *)obj == col->selrow->seltab)
+			TAILQ_FOREACH(r, &col->rowq, entry)
+			TAILQ_FOREACH(t, &((struct Row *)r)->tabq, entry) {
+				if ((struct Tab *)t == col->selrow->seltab)
 					continue;
-				wins[--i] = obj->win;
+				wins[--i] = t->win;
 			}
 		}
 		if (prevobscured != c->isobscured) {
@@ -237,7 +236,12 @@ shodgrouptab(struct Container *c)
 	struct Object *t;
 
 	TAB_FOREACH_BEGIN(c, t){
-		XChangeProperty(dpy, t->win, atoms[_SHOD_GROUP_TAB], XA_WINDOW, 32, PropModeReplace, (unsigned char *)&row->seltab->obj.win, 1);
+		XChangeProperty(
+			dpy, t->win,
+			atoms[_SHOD_GROUP_TAB], XA_WINDOW, 32,
+			PropModeReplace,
+			(void *)&((struct Tab *)t)->row->seltab->obj.win, 1
+		);
 	}TAB_FOREACH_END
 }
 

@@ -319,6 +319,13 @@ context_add(XID id, struct Object *data){
 }
 
 void
+window_del(Window window)
+{
+	context_del(window);
+	XDestroyWindow(dpy, window);
+}
+
+void
 context_del(XID id){
 	XDeleteContext(dpy, id, context);
 }

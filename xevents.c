@@ -191,9 +191,8 @@ deskisvisible(struct Monitor *mon, int desk)
 struct Object *
 getmanaged(Window win)
 {
-	struct Object *p, *tab, *dial, *menu;
+	struct Object *p, *r, *tab, *col, *dial, *menu;
 	struct Container *c;
-	struct Column *col;
 	struct Row *row;
 
 	if ((p = context_get(win)) != NULL)
@@ -201,20 +200,12 @@ getmanaged(Window win)
 #warning TODO: add classes for frames/decorations, then remove getmanaged()
 	TAILQ_FOREACH(c, &wm.focusq, entry) {
 		TAILQ_FOREACH(col, &(c)->colq, entry) {
-			if (col->div == win)
-				return (struct Object *)c->selcol->selrow->seltab;
-			TAILQ_FOREACH(row, &col->rowq, entry) {
-				if (row->div == win)
-					return (struct Object *)row->seltab;
+			TAILQ_FOREACH(r, &((struct Column *)col)->rowq, entry) {
+				row = (struct Row *)r;
 				if (row->bar == win || row->bl == win || row->br == win)
 					return (struct Object *)row->seltab;
 				TAILQ_FOREACH(tab, &row->tabq, entry) {
-					if (((struct Tab *)tab)->frame == win ||
-					    ((struct Tab *)tab)->title == win)
-						return tab;
 					TAILQ_FOREACH(dial, &((struct Tab *)tab)->dialq, entry) {
-						if (((struct Dialog *)dial)->frame == win)
-							return dial;
 						}
 				}
 			}
@@ -1011,16 +1002,16 @@ xeventclientmessage(XEvent *e)
 			// removed
 			break;
 		case _SHOD_FOCUS_LEFT_WINDOW:
-			ACTIVATECOL(TAILQ_PREV(tab->row->col, ColumnQueue, entry))
+			ACTIVATECOL((struct Column *)TAILQ_PREV(&tab->row->col->obj, Queue, entry))
 			break;
 		case _SHOD_FOCUS_RIGHT_WINDOW:
-			ACTIVATECOL(TAILQ_NEXT(tab->row->col, entry))
+			ACTIVATECOL((struct Column *)TAILQ_NEXT(&tab->row->col->obj, entry))
 			break;
 		case _SHOD_FOCUS_TOP_WINDOW:
-			ACTIVATEROW(TAILQ_PREV(tab->row, RowQueue, entry))
+			ACTIVATEROW((struct Row *)TAILQ_PREV(&tab->row->obj, Queue, entry))
 			break;
 		case _SHOD_FOCUS_BOTTOM_WINDOW:
-			ACTIVATEROW(TAILQ_NEXT(tab->row, entry))
+			ACTIVATEROW((struct Row *)TAILQ_NEXT(&tab->row->obj, entry))
 			break;
 		case _SHOD_FOCUS_PREVIOUS_WINDOW:
 			obj = (struct Object *)tab;

@@ -3,11 +3,10 @@
 #include "xutil.h"
 
 #define TAB_FOREACH_BEGIN(c, tab) {                             \
-	struct Column *col;                                     \
-	struct Row *row;                                        \
-	TAILQ_FOREACH_REVERSE(col, &(c)->colq, ColumnQueue, entry) {           \
-		TAILQ_FOREACH_REVERSE(row, &col->rowq, RowQueue, entry) {      \
-			TAILQ_FOREACH_REVERSE(tab, &row->tabq, Queue, entry)
+	struct Object *col, *row;                                     \
+	TAILQ_FOREACH_REVERSE(col, &(c)->colq, Queue, entry) {           \
+		TAILQ_FOREACH_REVERSE(row, &((struct Column *)col)->rowq, Queue, entry) {      \
+			TAILQ_FOREACH_REVERSE(tab, &((struct Row *)row)->tabq, Queue, entry)
 #define TAB_FOREACH_END }                                       \
 		}                                               \
 	}
@@ -182,9 +181,9 @@ struct Object {
 	struct Class *class;
 };
 
-TAILQ_HEAD(RowQueue, Row);
 struct Row {
-	TAILQ_ENTRY(Row) entry;
+	struct Object obj;
+
 	struct Queue tabq;                      /* list of tabs */
 
 	/*
@@ -205,7 +204,6 @@ struct Row {
 	 * - The left (row maximize) button.
 	 * - The right (close) button.
 	 */
-	Window div;                             /* horizontal division between rows */
 	Window frame;                           /* where tab frames are */
 	Window bar;                             /* title bar frame */
 	Window bl;                              /* left button */
@@ -226,10 +224,10 @@ struct Row {
 	int isunmapped;
 };
 
-TAILQ_HEAD(ColumnQueue, Column);
 struct Column {
-	TAILQ_ENTRY(Column) entry;
-	struct RowQueue rowq;                   /* list of rows */
+	struct Object obj;
+
+	struct Queue rowq;                      /* list of rows */
 
 	/*
 	 * Each container is split horizontally into columns; and each
@@ -239,8 +237,6 @@ struct Column {
 	 */
 	struct Container *c;                    /* pointer to parent container */
 	struct Row *selrow;                     /* pointer to selected row */
-
-	Window div;                             /* vertical division between rows */
 
 	/*
 	 * We only keep the horizontal geometry of a column (ie', its x
@@ -281,7 +277,7 @@ struct Container {
 	 * A container with no column is a dummy container, used as
 	 * placeholders on the Z-axis list.
 	 */
-	struct ColumnQueue colq;                /* list of columns in container */
+	struct Queue colq;                      /* list of columns in container */
 	struct Column *selcol;                  /* pointer to selected container */
 	int ncols;                              /* number of columns */
 
@@ -654,8 +650,6 @@ void tabupdateurgency(struct Tab *t, int isurgent);
 void rowstretch(struct Column *col, struct Row *row);
 void dialogconfigure(struct Dialog *d, unsigned int valuemask, XWindowChanges *wc);
 void dialogmoveresize(struct Dialog *dial);
-int tabattach(struct Container *c, struct Tab *t, int x, int y);
-int containerisshaded(struct Container *c);
 int containerisvisible(struct Container *c, struct Monitor *mon, int desk);
 int columncontentheight(struct Column *col);
 int containercontentwidth(struct Container *c);
@@ -742,6 +736,7 @@ struct Class *getwinclass(Window win, Window *leader, struct Tab **tab,
                           enum State *state, XRectangle *rect, int *desk);
 
 
+void window_del(Window);
 void context_add(XID, struct Object *);
 void context_del(XID);
 struct Object *context_get(XID);
