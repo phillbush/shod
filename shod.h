@@ -264,7 +264,6 @@ struct Container {
 	 *   There are one raise queue for each layer of containers
 	 *   (fullscreen, above, middle and below).
 	 */
-	TAILQ_ENTRY(Container) entry;           /* entry for the focus queue */
 	TAILQ_ENTRY(Container) raiseentry;      /* entry for a raise queue */
 
 	/*
@@ -489,7 +488,7 @@ struct WM {
 	struct Queue splashq;                   /* queue of splash screen windows */
 	struct Queue notifq;                    /* queue of notifications */
 	struct Queue menuq;                     /* queue of menus */
-	struct ContainerQueue focusq;           /* queue of containers ordered by focus history */
+	struct Queue focusq;                    /* queue of containers ordered by focus history */
 	int nclients;                           /* total number of container windows */
 
 	/*
@@ -632,7 +631,6 @@ struct Container *getnextfocused(struct Monitor *mon, int desk);
 struct Container *containerraisetemp(struct Container *prevc, int backward);
 void containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle rect, enum State state);
 void containerbacktoplace(struct Container *c, int restack);
-void containerdel(struct Container *c);
 void containermoveresize(struct Container *c, int checkstack);
 void containerdecorate(struct Container *c);
 void containercalccols(struct Container *c);
@@ -740,7 +738,6 @@ void window_del(Window);
 void context_add(XID, struct Object *);
 void context_del(XID);
 struct Object *context_get(XID);
-struct Object *getmanaged(Window);
 Bool isvalidstate(unsigned int state);
 
 /* extern variables */

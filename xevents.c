@@ -188,38 +188,6 @@ deskisvisible(struct Monitor *mon, int desk)
 	return mon->seldesk == desk;
 }
 
-struct Object *
-getmanaged(Window win)
-{
-	struct Object *p, *r, *tab, *col, *dial, *menu;
-	struct Container *c;
-	struct Row *row;
-
-	if ((p = context_get(win)) != NULL)
-		return p;
-#warning TODO: add classes for frames/decorations, then remove getmanaged()
-	TAILQ_FOREACH(c, &wm.focusq, entry) {
-		TAILQ_FOREACH(col, &(c)->colq, entry) {
-			TAILQ_FOREACH(r, &((struct Column *)col)->rowq, entry) {
-				row = (struct Row *)r;
-				if (row->bar == win || row->bl == win || row->br == win)
-					return (struct Object *)row->seltab;
-				TAILQ_FOREACH(tab, &row->tabq, entry) {
-					TAILQ_FOREACH(dial, &((struct Tab *)tab)->dialq, entry) {
-						}
-				}
-			}
-		}
-	}
-	TAILQ_FOREACH(menu, &wm.menuq, entry) {
-		if (((struct Menu *)menu)->frame == win ||
-		    ((struct Menu *)menu)->button == win ||
-		    ((struct Menu *)menu)->titlebar == win)
-			return menu;
-	}
-	return NULL;
-}
-
 /* check whether given state matches modifier */
 Bool
 isvalidstate(unsigned int state)
@@ -235,7 +203,7 @@ getdialogfor(Window win)
 	Window tmpwin;
 
 	if (XGetTransientForHint(dpy, win, &tmpwin)) {
-		obj = getmanaged(tmpwin);
+		obj = context_get(tmpwin);
 		if (obj == NULL)
 			return NULL;
 		if (obj->class->type != TYPE_NORMAL)
@@ -248,13 +216,12 @@ getdialogfor(Window win)
 static struct Tab *
 gettabfrompid(unsigned long pid)
 {
-	struct Container *c;
-	struct Object *tab;
+	struct Object *c, *tab;
 
 	if (pid <= 1)
 		return NULL;
 	TAILQ_FOREACH(c, &wm.focusq, entry) {
-		TAB_FOREACH_BEGIN(c, tab){
+		TAB_FOREACH_BEGIN((struct Container *)c, tab){
 			if (pid == ((struct Tab *)tab)->pid)
 				return (struct Tab *)tab;
 		}TAB_FOREACH_END
@@ -266,11 +233,10 @@ gettabfrompid(unsigned long pid)
 static struct Tab *
 getleaderof(Window leader)
 {
-	struct Container *c;
-	struct Object *tab;
+	struct Object *c, *tab;
 
 	TAILQ_FOREACH(c, &wm.focusq, entry) {
-		TAB_FOREACH_BEGIN(c, tab){
+		TAB_FOREACH_BEGIN((struct Container *)c, tab){
 			if (leader != None && (tab->win == leader || ((struct Tab *)tab)->leader == leader))
 				return (struct Tab *)tab;
 		}TAB_FOREACH_END
@@ -634,11 +600,10 @@ static void
 deskshow(int show)
 {
 	struct Object *obj;
-	struct Container *c;
 
-	TAILQ_FOREACH(c, &wm.focusq, entry)
-		if (!(c->state & MINIMIZED))
-			containerhide(c, show);
+	TAILQ_FOREACH(obj, &wm.focusq, entry)
+		if (!(((struct Container *)obj)->state & MINIMIZED))
+			containerhide((struct Container *)obj, show);
 	TAILQ_FOREACH(obj, &wm.splashq, entry)
 		splashhide((struct Splash *)obj, show);
 	wm.showingdesk = show;
@@ -652,7 +617,6 @@ deskupdate(struct Monitor *mon, int desk)
 {
 	struct Object *obj;
 	struct Splash *splash;
-	struct Container *c;
 
 	if (desk < 0 || desk >= config.ndesktops || (mon == wm.selmon && desk == wm.selmon->seldesk))
 		return;
@@ -661,13 +625,14 @@ deskupdate(struct Monitor *mon, int desk)
 	if (!deskisvisible(mon, desk)) {
 		/* unhide cointainers of new current desktop
 		 * hide containers of previous current desktop */
-		TAILQ_FOREACH(c, &wm.focusq, entry) {
-			if (c->mon != mon)
+		TAILQ_FOREACH(obj, &wm.focusq, entry) {
+			struct Container *container = (struct Container *)obj;
+			if (container->mon != mon)
 				continue;
-			if (!(c->state & MINIMIZED) && c->desk == desk) {
-				containerhide(c, REMOVE);
-			} else if (!(c->state & STICKY) && c->desk == mon->seldesk) {
-				containerhide(c, ADD);
+			if (!(container->state & MINIMIZED) && container->desk == desk) {
+				containerhide(container, REMOVE);
+			} else if (!(container->state & STICKY) && container->desk == mon->seldesk) {
+				containerhide(container, ADD);
 			}
 		}
 		TAILQ_FOREACH(obj, &wm.splashq, entry) {
@@ -713,7 +678,7 @@ manage(Window win, XRectangle rect)
 	enum State state;
 	int desk = wm.selmon->seldesk;
 
-	if (getmanaged(win) != NULL)
+	if (context_get(win) != NULL)
 		return;
 	preparewin(win);
 	class = getwinclass(win, &leader, &tab, &state, &rect, &desk);
@@ -728,7 +693,7 @@ alttab(int shift)
 	XEvent ev;
 
 	prevfocused = wm.focused;
-	if ((c = TAILQ_FIRST(&wm.focusq)) == NULL)
+	if ((c = (struct Container *)TAILQ_FIRST(&wm.focusq)) == NULL)
 		return;
 	if (XGrabKeyboard(dpy, root, True, GrabModeAsync, GrabModeAsync, CurrentTime) != GrabSuccess)
 		goto done;
@@ -819,7 +784,7 @@ xeventbuttonpress(XEvent *e)
 	static unsigned int last_click_button = 0;
 	static unsigned int last_click_serial = 1;
 	XButtonPressedEvent *event = &e->xbutton;
-	struct Object *obj = getmanaged(event->window);
+	struct Object *obj = context_get(event->window);
 	struct Monitor *mon = getmon(event->x_root, event->y_root);
 
 	if (event->time - last_click_time < DOUBLE_CLICK_TIME &&
@@ -863,7 +828,7 @@ xeventbuttonrelease(XEvent *e)
 	wm.presswin = None;
 	if (ev->button != Button1)
 		return;
-	if ((obj = getmanaged(ev->window)) == NULL)
+	if ((obj = context_get(ev->window)) == NULL)
 		return;
 	switch (obj->class->type) {
 	case TYPE_NORMAL:
@@ -945,7 +910,7 @@ xeventclientmessage(XEvent *e)
 	//void *p;
 
 	ev = &e->xclient;
-	if ((obj = getmanaged(ev->window)) != NULL) {
+	if ((obj = context_get(ev->window)) != NULL) {
 		switch (obj->class->type) {
 		case TYPE_NORMAL:
 			tab = (struct Tab *)obj;
@@ -1120,7 +1085,7 @@ xeventconfigurerequest(XEvent *e)
 	wc.border_width = ev->border_width;
 	wc.sibling = ev->above;
 	wc.stack_mode = ev->detail;
-	obj = getmanaged(ev->window);
+	obj = context_get(ev->window);
 	if (obj == NULL) {
 		XConfigureWindow(dpy, ev->window, ev->value_mask, &wc);
 		return;
@@ -1165,7 +1130,7 @@ xeventdestroynotify(XEvent *e)
 		wm.running = False;
 		return;
 	}
-	obj = getmanaged(ev->window);
+	obj = context_get(ev->window);
 	if (obj == NULL) {
 		/*
 		 * Destroyed window is not an object we handle.
@@ -1202,7 +1167,7 @@ xevententernotify(XEvent *e)
 		return;
 	while (XCheckTypedEvent(dpy, EnterNotify, e))
 		;
-	if ((obj = getmanaged(e->xcrossing.window)) == NULL)
+	if ((obj = context_get(e->xcrossing.window)) == NULL)
 		return;
 	if (obj->class->type == TYPE_DIALOG)
 		tab = ((struct Dialog *)obj)->tab;
@@ -1231,7 +1196,7 @@ xeventfocusin(XEvent *e)
 		tabfocus(NULL, 0);
 		return;
 	}
-	obj = getmanaged(ev->window);
+	obj = context_get(ev->window);
 	if (obj == NULL)
 		goto focus;
 	switch (obj->class->type) {
@@ -1306,7 +1271,6 @@ static void
 xeventpropertynotify(XEvent *e)
 {
 	XPropertyEvent *ev;
-	struct Container *c;
 	struct Object *obj;
 	struct Tab *tab;
 	struct Menu *menu;
@@ -1321,8 +1285,8 @@ xeventpropertynotify(XEvent *e)
 		XrmDestroyDatabase(xdb);
 		setresources(str);
 		free(str);
-		TAILQ_FOREACH(c, &wm.focusq, entry)
-			containerdecorate(c);
+		TAILQ_FOREACH(obj, &wm.focusq, entry)
+			containerdecorate((struct Container *)obj);
 		TAILQ_FOREACH(obj, &wm.menuq, entry)
 			menudecorate((struct Menu *)obj);
 		TAILQ_FOREACH(obj, &wm.notifq, entry)
@@ -1330,7 +1294,7 @@ xeventpropertynotify(XEvent *e)
 		dockreset();
 		return;
 	}
-	obj = getmanaged(ev->window);
+	obj = context_get(ev->window);
 	if (obj == NULL)
 		return;
 	if (obj->class->type == TYPE_NORMAL && ev->window == obj->win) {
@@ -1361,7 +1325,7 @@ xeventunmapnotify(XEvent *e)
 	struct Object *obj;
 
 	ev = &e->xunmap;
-	obj = getmanaged(ev->window);
+	obj = context_get(ev->window);
 	if (obj == NULL || obj->win != ev->window) {
 		/*
 		 * Unmapped window is not the client window of an object

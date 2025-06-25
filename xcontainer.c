@@ -18,11 +18,13 @@ restackdocks(void)
 struct Container *
 getnextfocused(struct Monitor *mon, int desk)
 {
-	struct Container *c;
+	struct Object *obj;
 
-	TAILQ_FOREACH(c, &wm.focusq, entry)
-		if (containerisvisible(c, mon, desk))
-			return c;
+	TAILQ_FOREACH(obj, &wm.focusq, entry) {
+		struct Container *container = (struct Container *)obj;
+		if (containerisvisible(container, mon, desk))
+			return container;
+	}
 	return NULL;
 }
 
@@ -30,7 +32,7 @@ getnextfocused(struct Monitor *mon, int desk)
 static void
 snaptoedge(int *x, int *y, int w, int h)
 {
-	struct Container *c;
+	struct Object *obj;
 
 	if (config.snap <= 0)
 		return;
@@ -42,34 +44,35 @@ snaptoedge(int *x, int *y, int w, int h)
 		*x = wm.selmon->wx;
 	if (abs(*x + w - wm.selmon->wx - wm.selmon->ww) < config.snap)
 		*x = wm.selmon->wx + wm.selmon->ww - w;
-	TAILQ_FOREACH(c, &wm.focusq, entry) {
-		if (containerisvisible(c, wm.selmon, wm.selmon->seldesk)) {
-			if (*x + w >= c->x && *x <= c->x + c->w) {
-				if (abs(*y + h - c->y) < config.snap) {
-					*y = c->y - h;
+	TAILQ_FOREACH(obj, &wm.focusq, entry) {
+		struct Container *container = (struct Container *)obj;
+		if (containerisvisible(container, wm.selmon, wm.selmon->seldesk)) {
+			if (*x + w >= container->x && *x <= container->x + container->w) {
+				if (abs(*y + h - container->y) < config.snap) {
+					*y = container->y - h;
 				}
-				if (abs(*y - c->y) < config.snap) {
-					*y = c->y;
+				if (abs(*y - container->y) < config.snap) {
+					*y = container->y;
 				}
-				if (abs(*y + h - c->y - c->h) < config.snap) {
-					*y = c->y + c->h - h;
+				if (abs(*y + h - container->y - container->h) < config.snap) {
+					*y = container->y + container->h - h;
 				}
-				if (abs(*y - c->y - c->h) < config.snap) {
-					*y = c->y + c->h;
+				if (abs(*y - container->y - container->h) < config.snap) {
+					*y = container->y + container->h;
 				}
 			}
-			if (*y + h >= c->y && *y <= c->y + c->h) {
-				if (abs(*x + w - c->x) < config.snap) {
-					*x = c->x - w;
+			if (*y + h >= container->y && *y <= container->y + container->h) {
+				if (abs(*x + w - container->x) < config.snap) {
+					*x = container->x - w;
 				}
-				if (abs(*x - c->x) < config.snap) {
-					*x = c->x;
+				if (abs(*x - container->x) < config.snap) {
+					*x = container->x;
 				}
-				if (abs(*x + w - c->x - c->w) < config.snap) {
-					*x = c->x + c->w - w;
+				if (abs(*x + w - container->x - container->w) < config.snap) {
+					*x = container->x + container->w - w;
 				}
-				if (abs(*x - c->x - c->w) < config.snap) {
-					*x = c->x + c->w;
+				if (abs(*x - container->x - container->w) < config.snap) {
+					*x = container->x + container->w;
 				}
 			}
 		}
@@ -509,28 +512,24 @@ dialogdecorate(struct Dialog *d)
 	drawcommit(d->pix, d->frame);
 }
 
-/* add container into head of focus queue */
 static void
-containerinsertfocus(struct Container *c)
+containerinsertfocus(struct Container *container)
 {
-	TAILQ_INSERT_HEAD(&wm.focusq, c, entry);
+	TAILQ_INSERT_HEAD(&wm.focusq, &container->obj, entry);
 }
 
-/* add container into head of focus queue */
 static void
-containerinsertraise(struct Container *c)
+containerinsertraise(struct Container *container)
 {
-	TAILQ_INSERT_HEAD(&wm.stackq, c, raiseentry);
+	TAILQ_INSERT_HEAD(&wm.stackq, container, raiseentry);
 }
 
-/* remove container from the focus list */
 static void
-containerdelfocus(struct Container *c)
+containerdelfocus(struct Container *container)
 {
-	TAILQ_REMOVE(&wm.focusq, c, entry);
+	TAILQ_REMOVE(&wm.focusq, &container->obj, entry);
 }
 
-/* put container on beginning of focus list */
 static void
 containeraddfocus(struct Container *c)
 {
@@ -569,6 +568,26 @@ containerhide(struct Container *c, int hide)
 	}TAB_FOREACH_END
 }
 
+static void
+unmanagecontainer(struct Object *self)
+{
+	struct Container *container = (struct Container *)self;
+	struct Column *col;
+	int i;
+
+	containerdelfocus(container);
+	containerdelraise(container);
+	if (wm.focused == container)
+		wm.focused = NULL;
+	TAILQ_REMOVE(&wm.focusq, &container->obj, entry);
+	while ((col = (struct Column *)TAILQ_FIRST(&container->colq)) != NULL)
+		coldel(col);
+	window_del(container->obj.win);
+	for (i = 0; i < BORDER_LAST; i++)
+		window_del(container->borders[i]);
+	free(container);
+}
+
 /* add column to container */
 static void
 containeraddcol(struct Container *c, struct Column *col, struct Column *prev)
@@ -586,7 +605,7 @@ containeraddcol(struct Container *c, struct Column *col, struct Column *prev)
 	XReparentWindow(dpy, col->obj.win, c->obj.win, 0, 0);
 	containercalccols(c);
 	if (oldc != NULL && oldc->ncols == 0) {
-		containerdel(oldc);
+		unmanagecontainer(&oldc->obj);
 	}
 }
 
@@ -797,26 +816,6 @@ containernew(int x, int y, int w, int h, enum State state)
 	containerinsertfocus(c);
 	containerinsertraise(c);
 	return c;
-}
-
-/* delete container */
-void
-containerdel(struct Container *c)
-{
-	struct Column *col;
-	int i;
-
-	containerdelfocus(c);
-	containerdelraise(c);
-	if (wm.focused == c)
-		wm.focused = NULL;
-	TAILQ_REMOVE(&wm.focusq, c, entry);
-	while ((col = (struct Column *)TAILQ_FIRST(&c->colq)) != NULL)
-		coldel(col);
-	window_del(c->obj.win);
-	for (i = 0; i < BORDER_LAST; i++)
-		window_del(c->borders[i]);
-	free(c);
 }
 
 static int
@@ -1232,7 +1231,6 @@ fillgrid(struct Monitor *mon, int x, int y, int w, int h, int grid[DIV][DIV])
 void
 containerplace(struct Container *c, struct Monitor *mon, int desk, int userplaced)
 {
-	struct Container *tmp;
 	struct Object *obj;
 	struct Menu *menu;
 	int grid[DIV][DIV] = {{0}, {0}};
@@ -1270,7 +1268,8 @@ containerplace(struct Container *c, struct Monitor *mon, int desk, int userplace
 	 */
 
 	/* increment cells of grid a window is in */
-	TAILQ_FOREACH(tmp, &wm.focusq, entry) {
+	TAILQ_FOREACH(obj, &wm.focusq, entry) {
+		struct Container *tmp = (struct Container *)obj;
 		if (tmp != c && containerisvisible(tmp, c->mon, c->desk)) {
 			fillgrid(mon, tmp->nx, tmp->ny, tmp->nw, tmp->nh, grid);
 		}
@@ -1439,7 +1438,7 @@ containerdelrow(struct Row *row)
 	if (col->nrows == 0)
 		coldel(col);
 	if (c->ncols == 0) {
-		containerdel(c);
+		unmanagecontainer(&c->obj);
 		recalc = 0;
 	}
 	if (recalc) {
@@ -1454,43 +1453,44 @@ containerdelrow(struct Row *row)
 struct Container *
 containerraisetemp(struct Container *prevc, int backward)
 {
-	struct Container *newc;
+	struct Object *obj;
+	struct Container *newc = NULL;
 	Window wins[2];
 
 	if (prevc == NULL)
 		return NULL;
 	if (backward) {
-		for (newc = prevc; newc != NULL; newc = TAILQ_PREV(newc, ContainerQueue, entry)) {
+		for (obj = &prevc->obj; obj != NULL; obj = TAILQ_PREV(obj, Queue, entry)) {
+			newc = (struct Container *)obj;
 			if (newc != prevc &&
 			    newc->mon == prevc->mon &&
 			    containerisvisible(newc, prevc->mon, prevc->desk)) {
 				break;
 			}
 		}
-		if (newc == NULL) {
-			TAILQ_FOREACH_REVERSE(newc, &wm.focusq, ContainerQueue, entry) {
-				if (newc != prevc &&
-				    newc->mon == prevc->mon &&
-				    containerisvisible(newc, prevc->mon, prevc->desk)) {
-					break;
-				}
+		if (newc == NULL) TAILQ_FOREACH_REVERSE(obj, &wm.focusq, Queue, entry) {
+			newc = (struct Container *)obj;
+			if (newc != prevc &&
+			    newc->mon == prevc->mon &&
+			    containerisvisible(newc, prevc->mon, prevc->desk)) {
+				break;
 			}
 		}
 	} else {
-		for (newc = prevc; newc != NULL; newc = TAILQ_NEXT(newc, entry)) {
+		for (obj = prevc; obj != NULL; obj = TAILQ_NEXT(obj, entry)) {
+			newc = (struct Container *)obj;
 			if (newc != prevc &&
 			    newc->mon == prevc->mon &&
 			    containerisvisible(newc, prevc->mon, prevc->desk)) {
 				break;
 			}
 		}
-		if (newc == NULL) {
-			TAILQ_FOREACH(newc, &wm.focusq, entry) {
-				if (newc != prevc &&
-				    newc->mon == prevc->mon &&
-				    containerisvisible(newc, prevc->mon, prevc->desk)) {
-					break;
-				}
+		if (newc == NULL) TAILQ_FOREACH(obj, &wm.focusq, entry) {
+			newc = (struct Container *)obj;
+			if (newc != prevc &&
+			    newc->mon == prevc->mon &&
+			    containerisvisible(newc, prevc->mon, prevc->desk)) {
+				break;
 			}
 		}
 	}
@@ -1794,54 +1794,39 @@ managedialog(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window 
 		tabfocus(tab, 0);
 }
 
-/* unmanage tab (and delete its row if it is the only tab) */
 static void
-unmanagecontainer(struct Object *obj)
+unmanagetab(struct Object *obj)
 {
-	struct Container *c, *next;
-	struct Column *col;
-	struct Row *row;
-	struct Tab *t;
-	struct Monitor *mon;
-	int desk;
-	int moveresize;
-	int focus;
+	struct Container *next;
+	struct Tab *tab = (struct Tab *)obj;
+	struct Row *row = tab->row;
+	struct Column *col = row->col;
+	struct Container *container = col->c;
 
-	t = (struct Tab *)obj;
-	row = t->row;
-	col = row->col;
-	c = col->c;
-	desk = c->desk;
-	mon = c->mon;
-	moveresize = 1;
-	next = c;
-	tabdel(t);
-	focus = (c == wm.focused);
+	next = container;
+	tabdel(tab);
 	if (row->ntabs == 0) {
 		rowdel(row);
 		if (col->nrows == 0) {
 			coldel(col);
-			if (c->ncols == 0) {
-				containerdel(c);
-				next = getnextfocused(mon, desk);
-				moveresize = 0;
+			if (container->ncols == 0) {
+				unmanagecontainer(&container->obj);
+				next = getnextfocused(container->mon, container->desk);
+				goto change_focus;
 			}
 		}
 	}
-	if (moveresize) {
-		containercalccols(c);
-		containermoveresize(c, 0);
-		containerdecorate(c);
-		shodgrouptab(c);
-		shodgroupcontainer(c);
-	}
-	if (focus) {
+	containercalccols(container);
+	containermoveresize(container, 0);
+	containerdecorate(container);
+	shodgrouptab(container);
+	shodgroupcontainer(container);
+change_focus:
+	if (wm.focused == container)
 		tabfocus((next != NULL) ? next->selcol->selrow->seltab : NULL, 0);
-	}
 	wm.setclientlist = True;
 }
 
-/* delete dialog */
 static void
 unmanagedialog(struct Object *obj)
 {
@@ -2093,7 +2078,7 @@ drag_tab(struct Tab *tab, int xroot, int yroot, int x, int y)
 	);
 	xroot = event.xbutton.x_root - x;
 	yroot = event.xbutton.y_root - y;
-	obj = getmanaged(event.xbutton.subwindow);
+	obj = context_get(event.xbutton.subwindow);
 	container = NULL;
 #warning TODO: attaching will break after I create classes for borders and divisors
 	if (obj != NULL && obj->class == container_class) {
@@ -2327,7 +2312,7 @@ struct Class *container_class = &(struct Class){
 	.type           = TYPE_UNKNOWN,
 	.setstate       = containersetstate,
 	.manage         = NULL,
-	.unmanage       = NULL,
+	.unmanage       = unmanagecontainer,
 	.btnpress       = container_btnpress,
 };
 
@@ -2335,7 +2320,7 @@ struct Class *tab_class = &(struct Class){
 	.type           = TYPE_NORMAL,
 	.setstate       = containersetstate,
 	.manage         = managecontainer,
-	.unmanage       = unmanagecontainer,
+	.unmanage       = unmanagetab,
 	.btnpress       = tab_btnpress,
 };
 

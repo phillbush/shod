@@ -293,10 +293,9 @@ cleanwm(void)
 {
 	struct Monitor *mon;
 	struct Object *obj;
-	struct Container *c;
 
-	while ((c = TAILQ_FIRST(&wm.focusq)) != NULL)
-		containerdel(c);
+	while ((obj = TAILQ_FIRST(&wm.focusq)) != NULL)
+		(*obj->class->unmanage)(obj);
 	while ((obj = TAILQ_FIRST(&wm.notifq)) != NULL)
 		(*obj->class->unmanage)(obj);
 	while ((obj = TAILQ_FIRST(&wm.barq)) != NULL)

@@ -32,12 +32,11 @@ void
 mondel(struct Monitor *mon)
 {
 	struct Object *obj;
-	struct Container *c;
 
 	TAILQ_REMOVE(&wm.monq, mon, entry);
-	TAILQ_FOREACH(c, &wm.focusq, entry)
-		if (c->mon == mon)
-			c->mon = NULL;
+	TAILQ_FOREACH(obj, &wm.focusq, entry)
+		if (((struct Container *)obj)->mon == mon)
+			((struct Container *)obj)->mon = NULL;
 	TAILQ_FOREACH(obj, &wm.menuq, entry)
 		if (((struct Menu *)obj)->mon == mon)
 			((struct Menu *)obj)->mon = NULL;
@@ -137,8 +136,8 @@ monupdate(void)
 	XRRCrtcInfo *ci;
 	struct MonitorQueue monq;               /* queue of monitors */
 	struct Monitor *mon;
-	struct Container *c, *focus;
-	struct Object *m, *s;
+	struct Container *focus;
+	struct Object *obj, *m, *s;
 	int delselmon, i;
 
 	TAILQ_INIT(&monq);
@@ -195,15 +194,16 @@ next:
 
 	/* send containers which do not belong to a monitor to selected desktop */
 	focus = NULL;
-	TAILQ_FOREACH(c, &wm.focusq, entry) {
-		if (!(c->state & MINIMIZED) && c->mon == NULL) {
-			focus = c;
-			c->mon = wm.selmon;
-			c->desk = wm.selmon->seldesk;
-			containerplace(c, wm.selmon, wm.selmon->seldesk, 0);
-			containermoveresize(c, 0);
-			ewmhsetwmdesktop(c);
-			ewmhsetstate(c);
+	TAILQ_FOREACH(obj, &wm.focusq, entry) {
+		struct Container *container = (struct Container *)obj;
+		if (!(container->state & MINIMIZED) && container->mon == NULL) {
+			focus = container;
+			container->mon = wm.selmon;
+			container->desk = wm.selmon->seldesk;
+			containerplace(container, wm.selmon, wm.selmon->seldesk, 0);
+			containermoveresize(container, 0);
+			ewmhsetwmdesktop(container);
+			ewmhsetstate(container);
 		}
 	}
 	TAILQ_FOREACH(m, &wm.menuq, entry)
@@ -222,9 +222,7 @@ void
 monupdatearea(void)
 {
 	struct Monitor *mon;
-	struct Bar *bar;
-	struct Object *p;
-	struct Container *c;
+	struct Object *obj;
 	int l, r, t, b;
 	int left, right, top, bottom;
 
@@ -252,8 +250,8 @@ monupdatearea(void)
 				break;
 			}
 		}
-		TAILQ_FOREACH(p, &wm.barq, entry) {
-			bar = (struct Bar *)p;
+		TAILQ_FOREACH(obj, &wm.barq, entry) {
+			struct Bar *bar = (struct Bar *)obj;
 			if (baratmon(mon, bar, &l, &r, &t, &b))
 				bar->mon = mon;
 			left   = max(left, l);
@@ -266,11 +264,12 @@ monupdatearea(void)
 		mon->wx += left;
 		mon->ww -= left + right;
 	}
-	TAILQ_FOREACH(c, &wm.focusq, entry) {
-		if (c->state & MAXIMIZED) {
-			containercalccols(c);
-			containermoveresize(c, 0);
-			containerdecorate(c);
+	TAILQ_FOREACH(obj, &wm.focusq, entry) {
+		struct Container *container = (struct Container *)obj;
+		if (container->state & MAXIMIZED) {
+			containercalccols(container);
+			containermoveresize(container, False);
+			containerdecorate(container);
 		}
 	}
 }
