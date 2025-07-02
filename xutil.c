@@ -252,3 +252,23 @@ compress_motion(XEvent *event)
 	last_motion = event->xmotion.time;
 	return True;
 }
+
+void
+window_close(Window win)
+{
+	XEvent ev;
+
+	ev.type = ClientMessage;
+	ev.xclient.window = win;
+	ev.xclient.message_type = atoms[WM_PROTOCOLS];
+	ev.xclient.format = 32;
+	ev.xclient.data.l[0] = atoms[WM_DELETE_WINDOW];
+	ev.xclient.data.l[1] = CurrentTime;
+
+	/*
+	 * communicate with the given Client, kindly telling it to
+	 * close itself and terminate any associated processes using
+	 * the WM_DELETE_WINDOW protocol
+	 */
+	XSendEvent(dpy, win, False, NoEventMask, &ev);
+}

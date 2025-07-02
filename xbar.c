@@ -1,5 +1,7 @@
 #include "shod.h"
 
+static struct Queue managed_bars;
+
 /* fill strut array of bar */
 void
 barstrut(struct Bar *bar)
@@ -23,7 +25,7 @@ barstrut(struct Bar *bar)
 	XFree(arr);
 }
 
-void
+static void
 barstack(struct Bar *bar)
 {
 	Window wins[2];
@@ -40,6 +42,162 @@ barstack(struct Bar *bar)
 }
 
 static void
+restack(void)
+{
+	struct Object *obj;
+
+	TAILQ_FOREACH(obj, &managed_bars, entry)
+		barstack((struct Bar *)obj);
+}
+
+void
+shoddocks(void)
+{
+	struct Object *obj;
+	Window *wins;
+	int nwins, ndocks;
+
+	ndocks = 1;     /* +1 for the internal dock */
+	TAILQ_FOREACH(obj, &managed_bars, entry)
+		ndocks++;
+	nwins = 0;
+	wins = ecalloc(ndocks, sizeof(*wins));
+	if (!TAILQ_EMPTY(&dock.dappq))
+		wins[nwins++] = dock.obj.win;
+	TAILQ_FOREACH(obj, &managed_bars, entry)
+		wins[nwins++] = obj->win;
+	XChangeProperty(
+		dpy, root,
+		atoms[_SHOD_DOCK_LIST],
+		XA_WINDOW, 32,
+		PropModeReplace,
+		(void *)wins, nwins
+	);
+	free(wins);
+}
+
+static Bool
+is_bar_at_mon(struct Monitor *mon, struct Bar *bar, int *l, int *r, int *t, int *b)
+{
+	int strutl, strutr, strutt, strutb;
+	Bool atmon;
+
+	if (l != NULL)
+		*l = 0;
+	if (r != NULL)
+		*r = 0;
+	if (t != NULL)
+		*t = 0;
+	if (b != NULL)
+		*b = 0;
+	if (bar->state & MINIMIZED)
+		return False;
+	if (!(bar->state & MAXIMIZED))
+		return False;
+	atmon = False;
+	strutl = bar->strut[STRUT_LEFT];
+	strutr = DisplayWidth(dpy, screen) - bar->strut[STRUT_RIGHT];
+	strutt = bar->strut[STRUT_TOP];
+	strutb = DisplayHeight(dpy, screen) - bar->strut[STRUT_BOTTOM];
+	if (strutt > 0 && strutt >= mon->my && strutt < mon->my + mon->mh &&
+	    (!bar->ispartial ||
+	     (bar->strut[STRUT_TOP_START_X] >= mon->mx &&
+	     bar->strut[STRUT_TOP_END_X] <= mon->mx + mon->mw))) {
+		if (t != NULL) {
+			*t = bar->strut[STRUT_TOP] - mon->my;
+		}
+		atmon = True;
+	}
+	if (strutb > 0 && strutb <= mon->my + mon->mh && strutb > mon->my &&
+	    (!bar->ispartial ||
+	     (bar->strut[STRUT_BOTTOM_START_X] >= mon->mx &&
+	     bar->strut[STRUT_BOTTOM_END_X] <= mon->mx + mon->mw))) {
+		if (b != NULL) {
+			*b = bar->strut[STRUT_BOTTOM];
+			*b -= DisplayHeight(dpy, screen);
+			*b += mon->my + mon->mh;
+		}
+		atmon = True;
+	}
+	if (strutl > 0 && strutl >= mon->mx && strutl < mon->mx + mon->mw &&
+	    (!bar->ispartial ||
+	     (bar->strut[STRUT_LEFT_START_Y] >= mon->my &&
+	     bar->strut[STRUT_LEFT_END_Y] <= mon->my + mon->mh))) {
+		if (l != NULL) {
+			*l = bar->strut[STRUT_LEFT] - mon->mx;
+		}
+		atmon = True;
+	}
+	if (strutr > 0 && strutr <= mon->mx + mon->mw && strutr > mon->mx &&
+	    (!bar->ispartial ||
+	     (bar->strut[STRUT_RIGHT_START_Y] >= mon->my &&
+	     bar->strut[STRUT_RIGHT_END_Y] <= mon->my + mon->mh))) {
+		if (r != NULL) {
+			*r = bar->strut[STRUT_RIGHT];
+			*r -= DisplayWidth(dpy, screen);
+			*r += mon->mx + mon->mw;
+		}
+		atmon = True;
+	}
+	return atmon;
+}
+
+static void
+monitor_reset(void)
+{
+	struct Monitor *mon;
+	struct Object *obj;
+	int l, r, t, b;
+	int left, right, top, bottom;
+
+	TAILQ_FOREACH(mon, &wm.monq, entry) {
+		mon->wx = mon->mx;
+		mon->wy = mon->my;
+		mon->ww = mon->mw;
+		mon->wh = mon->mh;
+		left = right = top = bottom = 0;
+		if (mon == TAILQ_FIRST(&wm.monq) && !TAILQ_EMPTY(&dock.dappq) &&
+		    (dock.state & MAXIMIZED) && !(dock.state & MINIMIZED)) {
+			switch (config.dockgravity[0]) {
+			case 'N':
+				top = config.dockwidth;
+				break;
+			case 'S':
+				bottom = config.dockwidth;
+				break;
+			case 'W':
+				left = config.dockwidth;
+				break;
+			case 'E':
+			default:
+				right = config.dockwidth;
+				break;
+			}
+		}
+		TAILQ_FOREACH(obj, &managed_bars, entry) {
+			struct Bar *bar = (struct Bar *)obj;
+			if (is_bar_at_mon(mon, bar, &l, &r, &t, &b))
+				bar->mon = mon;
+			left   = max(left, l);
+			right  = max(right, r);
+			top    = max(top, t);
+			bottom = max(bottom, b);
+		}
+		mon->wy += top;
+		mon->wh -= top + bottom;
+		mon->wx += left;
+		mon->ww -= left + right;
+	}
+}
+
+static void
+update_window_area(void)
+{
+	monitor_reset();
+	container_class.monitor_reset();
+}
+
+static void
 manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
 {
 	struct Bar *bar;
@@ -53,15 +211,15 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader
 	bar = emalloc(sizeof(*bar));
 	*bar = (struct Bar){
 		.obj.win = win,
-		.obj.class = bar_class,
+		.obj.class = &bar_class,
 		.state = state | MAXIMIZED,
 		.mon = NULL,
 	};
 	context_add(win, &bar->obj);
-	TAILQ_INSERT_TAIL(&wm.barq, (struct Object *)bar, entry);
+	TAILQ_INSERT_TAIL(&managed_bars, (struct Object *)bar, entry);
 	shoddocks();
 	barstrut(bar);
-	monupdatearea();
+	update_window_area();
 	barstack(bar);
 	XMapWindow(dpy, win);
 }
@@ -72,10 +230,10 @@ unmanage(struct Object *obj)
 	struct Bar *bar = (struct Bar *)obj;
 
 	context_del(obj->win);
-	TAILQ_REMOVE(&wm.barq, (struct Object *)bar, entry);
+	TAILQ_REMOVE(&managed_bars, (struct Object *)bar, entry);
 	shoddocks();
 	free(bar);
-	monupdatearea();
+	update_window_area();
 }
 
 static void
@@ -146,12 +304,56 @@ changestate(struct Object *obj, enum State mask, int set)
 			continue;       /* state already set */
 		(*togglers[i].fun)(bar);
 	}
-	monupdatearea();
+	update_window_area();
 }
 
-struct Class *bar_class = &(struct Class){
-	.type           = TYPE_BAR,
+static void
+init(void)
+{
+	TAILQ_INIT(&managed_bars);
+}
+
+static void
+clean(void)
+{
+	struct Object *obj;
+
+	while ((obj = TAILQ_FIRST(&managed_bars)) != NULL)
+		unmanage(obj);
+}
+
+static void
+monitor_delete(struct Monitor *mon)
+{
+	struct Object *obj;
+
+	TAILQ_FOREACH(obj, &managed_bars, entry) {
+		struct Bar *bar = (struct Bar *)obj;
+		if (bar->mon == mon)
+			bar->mon = NULL;
+	}
+}
+
+static void
+handle_property(struct Object *self, Atom property)
+{
+	struct Bar *bar = (struct Bar *)self;
+
+	if (property == _NET_WM_STRUT_PARTIAL || property == _NET_WM_STRUT) {
+		barstrut(bar);
+		update_window_area();
+	}
+}
+
+struct Class bar_class = {
 	.setstate       = changestate,
 	.manage         = manage,
 	.unmanage       = unmanage,
+	.btnpress       = NULL,
+	.init           = init,
+	.clean          = clean,
+	.monitor_delete = monitor_delete,
+	.monitor_reset  = monitor_reset,
+	.handle_property = handle_property,
+	.restack        = restack,
 };

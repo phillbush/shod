@@ -63,12 +63,12 @@ struct Config config = {
 		/* CLASS        INSTANCE  ROLE                 TYPE          STATE   DESKTOP*/ 
 
 		/* Although Firefox's PictureInPicture is technically a utility (sub)window, make it a normal one */
-		{ NULL,         NULL,     "PictureInPicture",  TYPE_NORMAL,  ABOVE,  0 },
+		{ NULL,         NULL,     "PictureInPicture",  &tab_class,    ABOVE,  0 },
 
 		/* Dockapps */
-		{ "DockApp",    NULL,     NULL,                TYPE_DOCKAPP, 0,      0 },
+		{ "DockApp",    NULL,     NULL,                &dockapp_class, 0,      0 },
 
 		/* Last rule must be all NULL! */
-		{ NULL,         NULL,     NULL,                TYPE_NORMAL,  0,      0 },
+		{ NULL,         NULL,     NULL,                &tab_class,    0,      0 },
 	}
 };

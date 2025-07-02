@@ -2,29 +2,6 @@
 
 #define ISDUMMY(c)              ((c)->ncols == 0)
 
-/* check if given geometry is obscured by containers above it */
-static int
-isobscured(struct Container *c, struct Monitor *mon, int desk, int x, int y, int w, int h)
-{
-	x = max(x, mon->wx);
-	y = max(y, mon->wy);
-	w = min(x + w, mon->wx + mon->ww) - x;
-	h = min(y + h, mon->wy + mon->wh) - y;
-	if (config.disablehidden || c == NULL)
-		return 0;
-	if (w <= 0 || h <= 0)
-		return 1;
-	while ((c = TAILQ_PREV(c, ContainerQueue, raiseentry)) != NULL) {
-		if (ISDUMMY(c) || !containerisvisible(c, mon, desk))
-			continue;
-		return isobscured(c, mon, desk, x, y, w, c->y - y) &&
-		       isobscured(c, mon, desk, x, y, c->x - x, h) &&
-		       isobscured(c, mon, desk, x, c->y + c->h, w, y + h - (c->y + c->h)) &&
-		       isobscured(c, mon, desk, c->x + c->w, y, x + w - (c->x + c->w), h);
-	}
-	return 0;
-}
-
 /* set desktop for a given window */
 void
 ewmhsetdesktop(Window win, long d)
@@ -95,7 +72,7 @@ ewmhsetclients(void)
 	struct Container *c;
 	struct Object *l, *r, *t;
 	Window *wins;
-	int prevobscured, i;
+	int i;
 
 	if (wm.nclients < 1) {
 		clearprop(atoms[_NET_CLIENT_LIST]);
@@ -109,14 +86,6 @@ ewmhsetclients(void)
 	TAILQ_FOREACH(c, &wm.stackq, raiseentry) {
 		if (ISDUMMY(c))
 			continue;
-		prevobscured = c->isobscured;
-		if (!config.disablehidden) {
-			c->isobscured = isobscured(
-				c,
-				c->mon, c->desk,
-				c->x, c->y, c->w, c->h
-			);
-		}
 		TAILQ_FOREACH(l, &c->colq, entry) {
 			struct Column *col = (struct Column *)l;
 			if (col->selrow->seltab != NULL)
@@ -127,9 +96,6 @@ ewmhsetclients(void)
 					continue;
 				wins[--i] = t->win;
 			}
-		}
-		if (prevobscured != c->isobscured) {
-			ewmhsetstate(c);
 		}
 	}
 	setwinprop(atoms[_NET_CLIENT_LIST], wins, wm.nclients - i);
@@ -196,7 +162,7 @@ ewmhsetstate(struct Container *c)
 		data[n++] = atoms[_NET_WM_STATE_STICKY];
 	if (c->state & SHADED)
 		data[n++] = atoms[_NET_WM_STATE_SHADED];
-	if (c->state & MINIMIZED || c->isobscured)
+	if (c->state & MINIMIZED)
 		data[n++] = atoms[_NET_WM_STATE_HIDDEN];
 	if (c->state & ABOVE)
 		data[n++] = atoms[_NET_WM_STATE_ABOVE];
@@ -256,27 +222,6 @@ shodgroupcontainer(struct Container *c)
 	}TAB_FOREACH_END
 }
 
-/* set list of docks & bars for `shodc docks` */
-void
-shoddocks(void)
-{
-	struct Object *obj;
-	Window *wins;
-	int i, ndocks;
-
-	ndocks = 1;     /* +1 for the internal dock */
-	TAILQ_FOREACH(obj, &wm.barq, entry)
-		ndocks++;
-	i = 0;
-	wins = ecalloc(ndocks, sizeof(*wins));
-	if (!TAILQ_EMPTY(&dock.dappq))
-		wins[i++] = dock.obj.win;
-	TAILQ_FOREACH(obj, &wm.barq, entry)
-		wins[i++] = obj->win;
-	setwinprop(atoms[_SHOD_DOCK_LIST], wins, i);
-	free(wins);
-}
-
 /* update tab title */
 void
 winupdatetitle(Window win, char **name)
@@ -303,27 +248,6 @@ winnotify(Window win, int x, int y, int w, int h)
 	ce.event = win;
 	ce.window = win;
 	XSendEvent(dpy, win, False, StructureNotifyMask, (XEvent *)&ce);
-}
-
-/* send a WM_DELETE message to client */
-void
-winclose(Window win)
-{
-	XEvent ev;
-
-	ev.type = ClientMessage;
-	ev.xclient.window = win;
-	ev.xclient.message_type = atoms[WM_PROTOCOLS];
-	ev.xclient.format = 32;
-	ev.xclient.data.l[0] = atoms[WM_DELETE_WINDOW];
-	ev.xclient.data.l[1] = CurrentTime;
-
-	/*
-	 * communicate with the given Client, kindly telling it to
-	 * close itself and terminate any associated processes using
-	 * the WM_DELETE_WINDOW protocol
-	 */
-	XSendEvent(dpy, win, False, NoEventMask, &ev);
 }
 
 void

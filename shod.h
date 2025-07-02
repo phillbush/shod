@@ -102,7 +102,7 @@ enum {
 	PRESSED    = 3,
 	STYLE_LAST = 4,
 
-	/* XXX: TODO */
+#warning TODO: implement pressed state
 	STYLE_OTHER = PRESSED,
 };
 
@@ -160,18 +160,19 @@ enum {
 	TOGGLE = 2
 };
 
-#warning TODO: delete enum Octant
-enum Octant {
-	/* window eight sections (aka octants) */
-	C  = 0,
-	N  = (1 << 0),
-	S  = (1 << 1),
-	W  = (1 << 2),
-	E  = (1 << 3),
-	NW = (1 << 0) | (1 << 2),
-	NE = (1 << 0) | (1 << 3),
-	SW = (1 << 1) | (1 << 2),
-	SE = (1 << 1) | (1 << 3),
+enum {
+	_NET_WM_MOVERESIZE_SIZE_TOPLEFT     = 0,
+	_NET_WM_MOVERESIZE_SIZE_TOP         = 1,
+	_NET_WM_MOVERESIZE_SIZE_TOPRIGHT    = 2,
+	_NET_WM_MOVERESIZE_SIZE_RIGHT       = 3,
+	_NET_WM_MOVERESIZE_SIZE_BOTTOMRIGHT = 4,
+	_NET_WM_MOVERESIZE_SIZE_BOTTOM      = 5,
+	_NET_WM_MOVERESIZE_SIZE_BOTTOMLEFT  = 6,
+	_NET_WM_MOVERESIZE_SIZE_LEFT        = 7,
+	_NET_WM_MOVERESIZE_MOVE             = 8,   /* movement only */
+	_NET_WM_MOVERESIZE_SIZE_KEYBOARD    = 9,   /* size via keyboard */
+	_NET_WM_MOVERESIZE_MOVE_KEYBOARD    = 10,  /* move via keyboard */
+	_NET_WM_MOVERESIZE_CANCEL           = 11,  /* cancel operation */
 };
 
 TAILQ_HEAD(Queue, Object);
@@ -305,7 +306,6 @@ struct Container {
 	 */
 	enum State state;
 	Bool ishidden;                          /* whether container is hidden */
-	Bool isobscured;                        /* whether container is obscured */
 };
 
 TAILQ_HEAD(MonitorQueue, Monitor);
@@ -325,28 +325,26 @@ struct Monitor {
 };
 
 struct Class {
-#warning TODO: delete enum Type
-	enum Type {
-		TYPE_UNKNOWN,
-		TYPE_NORMAL,
-		TYPE_DESKTOP,
-		TYPE_BAR,
-		TYPE_DOCK,
-		TYPE_MENU,
-		TYPE_DIALOG,
-		TYPE_NOTIFICATION,
-		TYPE_PROMPT,
-		TYPE_SPLASH,
-		TYPE_DOCKAPP,
-		TYPE_POPUP,
-		TYPE_LAST
-	} type;
-
-	/* class' methods */
-	void (*setstate)(struct Object *, enum State, int);
+	/* class methods */
+	void (*init)(void);
+	void (*clean)(void);
 	void (*manage)(struct Tab *, struct Monitor *, int, Window, Window, XRectangle, enum State);
+	void (*restack)(void);
+	void (*monitor_delete)(struct Monitor *);
+	void (*monitor_reset)(void);
+	void (*redecorate_all)(void);
+	void (*show_desktop)(void);
+	void (*hide_desktop)(void);
+	void (*change_desktop)(struct Monitor *, int, int);
+
+	/* instance methods */
+	void (*setstate)(struct Object *, enum State, int);
 	void (*unmanage)(struct Object *);
 	void (*btnpress)(struct Object *, XButtonPressedEvent *);
+	void (*handle_property)(struct Object *, Atom);
+	void (*handle_message)(struct Object *, Atom, long[5]);
+	void (*handle_configure)(struct Object *, unsigned int, XWindowChanges *);
+	void (*handle_enter)(struct Object *);
 };
 
 struct Tab {
@@ -479,16 +477,7 @@ struct Notification {
 struct WM {
 	Bool running;
 
-	/*
-	 * The window manager maintains a list of monitors and several
-	 * window-holding entities such as containers and bars.
-	 */
 	struct MonitorQueue monq;               /* queue of monitors */
-	struct Queue barq;                      /* queue of bars */
-	struct Queue splashq;                   /* queue of splash screen windows */
-	struct Queue notifq;                    /* queue of notifications */
-	struct Queue menuq;                     /* queue of menus */
-	struct Queue focusq;                    /* queue of containers ordered by focus history */
 	int nclients;                           /* total number of container windows */
 
 	/*
@@ -615,7 +604,7 @@ struct Config {
 		const char *role;
 
 		/* type, state, etc to apply on matching windows */
-		int type;
+		struct Class *type;
 		int state;
 		int desktop;
 	} *rules;
@@ -626,31 +615,12 @@ struct Config {
 	int divwidth;                           /* = .borderwidth */
 };
 
-/* container routines */
 struct Container *getnextfocused(struct Monitor *mon, int desk);
-struct Container *containerraisetemp(struct Container *prevc, int backward);
-void containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle rect, enum State state);
-void containerbacktoplace(struct Container *c, int restack);
-void containermoveresize(struct Container *c, int checkstack);
-void containerdecorate(struct Container *c);
-void containercalccols(struct Container *c);
-void containermove(struct Container *c, int x, int y, int relative);
-void containerraise(struct Container *c, enum State state);
-void containerconfigure(struct Container *c, unsigned int valuemask, XWindowChanges *wc);
-void containersendtodeskandfocus(struct Container *c, struct Monitor *mon, unsigned long desk);
-void containerplace(struct Container *c, struct Monitor *mon, int desk, int userplaced);
-void containerdelrow(struct Row *row);
-void containerhide(struct Container *c, int hide);
-void tabdetach(struct Tab *tab, int x, int y);
+void alttab(KeyCode altkey, KeyCode tabkey, Bool shift);
 void tabfocus(struct Tab *tab, int gotodesk);
-void tabdecorate(struct Tab *t, int pressed);
-void tabupdateurgency(struct Tab *t, int isurgent);
-void rowstretch(struct Column *col, struct Row *row);
-void dialogconfigure(struct Dialog *d, unsigned int valuemask, XWindowChanges *wc);
-void dialogmoveresize(struct Dialog *dial);
+struct Tab *gettabfrompid(unsigned long pid);
+struct Tab *getleaderof(Window leader);
 int containerisvisible(struct Container *c, struct Monitor *mon, int desk);
-int columncontentheight(struct Column *col);
-int containercontentwidth(struct Container *c);
 
 /* menu */
 void menufocus(struct Menu *menu);
@@ -666,13 +636,11 @@ int istabformenu(struct Tab *tab, struct Menu *menu);
 /* other object routines */
 void dockappconfigure(struct Dockapp *dapp, unsigned int valuemask, XWindowChanges *wc);
 void barstrut(struct Bar *bar);
-void barstack(struct Bar *bar);
 void notifplace(void);
 void notifdecorate(struct Notification *n);
 void splashplace(struct Monitor *mon, struct Splash *splash);
 void splashhide(struct Splash *splash, int hide);
 void splashrise(struct Splash *splash);
-void dockupdate(void);
 void dockdecorate(void);
 void dockreset(void);
 void dockstack(void);
@@ -715,7 +683,6 @@ void drawcommit(Pixmap pix, Window win);
 void backgroundcommit(Window, int style);
 void drawborders(Pixmap pix, int w, int h, int style);
 void drawbackground(Pixmap pix, int x, int y, int w, int h, int style);
-void drawframe(Pixmap pix, int isshaded, int w, int h, enum Octant o, int style);
 void drawshadow(Pixmap pix, int x, int y, int w, int h, int style, int pressed, int thickness);
 void drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int pressed, int ismenu);
 void drawprompt(Pixmap pix, int w, int h);
@@ -748,13 +715,13 @@ extern struct WM wm;
 extern struct Dock dock;
 
 /* object classes */
-extern struct Class *bar_class;
-extern struct Class *dialog_class;
-extern struct Class *dock_class;
-extern struct Class *dockapp_class;
-extern struct Class *menu_class;
-extern struct Class *notif_class;
-extern struct Class *prompt_class;
-extern struct Class *splash_class;
-extern struct Class *tab_class;
-extern struct Class *container_class;
+extern struct Class bar_class;
+extern struct Class dialog_class;
+extern struct Class dock_class;
+extern struct Class dockapp_class;
+extern struct Class menu_class;
+extern struct Class notif_class;
+extern struct Class prompt_class;
+extern struct Class splash_class;
+extern struct Class tab_class;
+extern struct Class container_class;

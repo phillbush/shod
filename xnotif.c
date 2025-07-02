@@ -1,6 +1,7 @@
 #include "shod.h"
 
-/* decorate notification */
+static struct Queue managed_notifications;
+
 void
 notifdecorate(struct Notification *n)
 {
@@ -18,16 +19,15 @@ notifdecorate(struct Notification *n)
 	drawcommit(n->pix, n->frame);
 }
 
-/* place notifications */
-void
-notifplace(void)
+static void
+monitor_reset(void)
 {
 	struct Object *n;
 	struct Notification *notif;
 	int x, y, h;
 
 	h = 0;
-	TAILQ_FOREACH(n, &wm.notifq, entry) {
+	TAILQ_FOREACH(n, &managed_notifications, entry) {
 		notif = (struct Notification *)n;
 		x = TAILQ_FIRST(&wm.monq)->wx;
 		y = TAILQ_FIRST(&wm.monq)->wy;
@@ -106,15 +106,15 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader
 		.w = rect.width + 2 * config.borderwidth,
 		.h = rect.height + 2 * config.borderwidth,
 		.pix = None,
-		.obj.class = notif_class,
+		.obj.class = &notif_class,
 		.obj.win = win,
 	};
 	context_add(win, &notif->obj);
-	TAILQ_INSERT_TAIL(&wm.notifq, (struct Object *)notif, entry);
+	TAILQ_INSERT_TAIL(&managed_notifications, (struct Object *)notif, entry);
 	notif->frame = createframe((XRectangle){0, 0, 1, 1});
 	XReparentWindow(dpy, notif->obj.win, notif->frame, 0, 0);
 	XMapWindow(dpy, notif->obj.win);
-	notifplace();
+	monitor_reset();
 }
 
 static void
@@ -123,18 +123,45 @@ unmanage(struct Object *obj)
 	struct Notification *notif = (struct Notification *)obj;
 
 	context_del(obj->win);
-	TAILQ_REMOVE(&wm.notifq, (struct Object *)notif, entry);
+	TAILQ_REMOVE(&managed_notifications, (struct Object *)notif, entry);
 	if (notif->pix != None)
 		XFreePixmap(dpy, notif->pix);
 	XReparentWindow(dpy, notif->obj.win, root, 0, 0);
 	XDestroyWindow(dpy, notif->frame);
 	free(notif);
-	notifplace();
+	monitor_reset();
 }
 
-struct Class *notif_class = &(struct Class){
-	.type           = TYPE_NOTIFICATION,
+static void
+init(void)
+{
+	TAILQ_INIT(&managed_notifications);
+}
+
+static void
+clean(void)
+{
+	struct Object *obj;
+
+	while ((obj = TAILQ_FIRST(&managed_notifications)) != NULL)
+		unmanage(obj);
+}
+
+static void
+redecorate_all(void)
+{
+	struct Object *obj;
+
+	TAILQ_FOREACH(obj, &managed_notifications, entry)
+		notifdecorate((struct Notification *)obj);
+}
+
+struct Class notif_class = {
 	.setstate       = NULL,
 	.manage         = manage,
 	.unmanage       = unmanage,
+	.init           = init,
+	.clean          = clean,
+	.monitor_reset  = monitor_reset,
+	.redecorate_all = redecorate_all,
 };

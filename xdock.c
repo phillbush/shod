@@ -2,26 +2,8 @@
 
 #define DOCKBORDER 1
 
-void
-initdock(void)
-{
-	XSetWindowAttributes swa;
-
-	TAILQ_INIT(&dock.dappq);
-	dock.pix = None;
-	swa.event_mask = SubstructureNotifyMask | SubstructureRedirectMask;
-	swa.background_pixel = BlackPixel(dpy, screen);
-	swa.border_pixel = BlackPixel(dpy, screen);
-	swa.colormap = colormap;
-	dock.obj.win = createframe((XRectangle){0,0,1,1});
-	dock.state = MAXIMIZED;
-	dock.obj.class = dock_class;
-	settitle(dock.obj.win, "shod's dock");
-	context_add(dock.obj.win, &dock.obj);
-}
-
-void
-dockstack(void)
+static void
+restack(void)
 {
 	Window wins[2];
 
@@ -36,7 +18,6 @@ dockstack(void)
 	XRestackWindows(dpy, wins, 2);
 }
 
-/* decorate dock */
 void
 dockdecorate(void)
 {
@@ -388,8 +369,7 @@ dockupdatefull(void)
 	}
 }
 
-/* update dock position; create it, if necessary */
-void
+static void
 dockupdate(void)
 {
 	if (TAILQ_EMPTY(&dock.dappq)) {
@@ -403,7 +383,7 @@ dockupdate(void)
 		dockupdateresizeable();
 	dockdecorate();
 	XMoveResizeWindow(dpy, dock.obj.win, dock.x, dock.y, dock.w, dock.h);
-	dockstack();
+	restack();
 	if (dock.state & MINIMIZED)
 		XUnmapWindow(dpy, dock.obj.win);
 	else
@@ -411,6 +391,13 @@ dockupdate(void)
 	XMapSubwindows(dpy, dock.obj.win);
 done:
 	shoddocks();
+}
+
+static void
+update_window_area(void)
+{
+	dockupdate();
+	container_class.monitor_reset();
 }
 
 static void
@@ -424,7 +411,7 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader
 	(void)leader;
 	dapp = emalloc(sizeof(*dapp));
 	*dapp = (struct Dockapp){
-		.obj.class = dockapp_class,
+		.obj.class = &dockapp_class,
 		.obj.win = win,
 		.x = 0,
 		.y = 0,
@@ -437,7 +424,7 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader
 	dockappinsert(dapp);
 	XReparentWindow(dpy, win, dock.obj.win, 0, 0);
 	dockupdate();
-	monupdatearea();
+	update_window_area();
 }
 
 static void
@@ -449,7 +436,7 @@ unmanage(struct Object *obj)
 	XReparentWindow(dpy, dapp->obj.win, root, 0, 0);
 	free(dapp);
 	dockupdate();
-	monupdatearea();
+	update_window_area();
 }
 
 void
@@ -473,7 +460,7 @@ dockreset(void)
 		TAILQ_REMOVE(&dappq, obj, entry);
 		win = obj->win;
 		dapp = (struct Dockapp *)obj;
-		if (getwinclass(win, &dummyw, &dummyt, &state, &rect, &desk) == dockapp_class) {
+		if (getwinclass(win, &dummyw, &dummyt, &state, &rect, &desk) == &dockapp_class) {
 			if (rect.x > 0) {
 				dapp->dockpos = rect.x;
 			}
@@ -510,19 +497,51 @@ changestate(struct Object *obj, enum State mask, int set)
 		dock.state ^= state;
 	}
 	dockupdate();
-	monupdatearea();
+	update_window_area();
 }
 
-struct Class *dock_class = &(struct Class){
-	.type           = TYPE_DOCK,
-	.setstate       = &changestate,
+static void
+init(void)
+{
+	XSetWindowAttributes swa;
+
+	TAILQ_INIT(&dock.dappq);
+	dock.pix = None;
+	swa.event_mask = SubstructureNotifyMask | SubstructureRedirectMask;
+	swa.background_pixel = BlackPixel(dpy, screen);
+	swa.border_pixel = BlackPixel(dpy, screen);
+	swa.colormap = colormap;
+	dock.obj.win = createframe((XRectangle){0,0,1,1});
+	dock.state = MAXIMIZED;
+	dock.obj.class = &dock_class;
+	settitle(dock.obj.win, "shod's dock");
+	context_add(dock.obj.win, &dock.obj);
+}
+
+static void
+clean(void)
+{
+	struct Object *obj;
+
+	while ((obj = TAILQ_FIRST(&dock.dappq)) != NULL)
+		unmanage(obj);
+	if (dock.pix != None)
+		XFreePixmap(dpy, dock.pix);
+	XDestroyWindow(dpy, dock.obj.win);
+}
+
+struct Class dock_class = {
+	.setstate       = changestate,
 	.manage         = NULL,
 	.unmanage       = NULL,
+	.monitor_reset  = dockupdate,
+	.restack        = restack,
 };
 
-struct Class *dockapp_class = &(struct Class){
-	.type           = TYPE_DOCKAPP,
+struct Class dockapp_class = {
 	.setstate       = NULL,
 	.manage         = manage,
 	.unmanage       = unmanage,
+	.init           = init,
+	.clean          = clean,
 };

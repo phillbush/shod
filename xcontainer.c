@@ -1,34 +1,20 @@
 #include "shod.h"
 
-#define DIV                     15      /* see containerplace() for details */
-
-static void unmanagedialog(struct Object *);
+static struct Queue focus_history;
 
 static void
 restackdocks(void)
 {
-	struct Object *obj;
-
-	dockstack();
-	TAILQ_FOREACH(obj, &wm.barq, entry)
-		barstack((struct Bar *)obj);
+	dock_class.restack();
+	bar_class.restack();
 }
 
-/* get next focused container after old on given monitor and desktop */
-struct Container *
-getnextfocused(struct Monitor *mon, int desk)
+static int
+containerisshaded(struct Container *c)
 {
-	struct Object *obj;
-
-	TAILQ_FOREACH(obj, &wm.focusq, entry) {
-		struct Container *container = (struct Container *)obj;
-		if (containerisvisible(container, mon, desk))
-			return container;
-	}
-	return NULL;
+	return (c->state & (SHADED|FULLSCREEN)) == (SHADED & ~FULLSCREEN);
 }
 
-/* snap to edge */
 static void
 snaptoedge(int *x, int *y, int w, int h)
 {
@@ -44,7 +30,7 @@ snaptoedge(int *x, int *y, int w, int h)
 		*x = wm.selmon->wx;
 	if (abs(*x + w - wm.selmon->wx - wm.selmon->ww) < config.snap)
 		*x = wm.selmon->wx + wm.selmon->ww - w;
-	TAILQ_FOREACH(obj, &wm.focusq, entry) {
+	TAILQ_FOREACH(obj, &focus_history, entry) {
 		struct Container *container = (struct Container *)obj;
 		if (containerisvisible(container, wm.selmon, wm.selmon->seldesk)) {
 			if (*x + w >= container->x && *x <= container->x + container->w) {
@@ -123,6 +109,55 @@ tabclearurgency(struct Tab *tab)
 	tab->isurgent = 0;
 }
 
+static void
+tabdecorate(struct Tab *t, int pressed)
+{
+	int style;
+	int drawlines = 0;
+
+	style = tabgetstyle(t);
+	if (t->row != NULL && t != t->row->col->c->selcol->selrow->seltab) {
+		pressed = 0;
+		drawlines = 0;
+	} else if (t->row != NULL && pressed) {
+		pressed = 1;
+		drawlines = 1;
+	} else {
+		pressed = 0;
+		drawlines = 1;
+	}
+
+	updatepixmap(&t->pixtitle, &t->ptw, NULL, t->w, config.titlewidth);
+	updatepixmap(&t->pix, &t->pw, &t->ph, t->winw, t->winh);
+	drawbackground(t->pixtitle, 0, 0, t->w, config.titlewidth, style);
+	drawshadow(t->pixtitle, 0, 0, t->w, config.titlewidth, style, pressed, config.shadowthickness);
+
+	/* write tab title */
+	if (t->name != NULL)
+		drawtitle(t->pixtitle, t->name, t->w, drawlines, style, pressed, 0);
+
+	/* draw frame background */
+	drawbackground(t->pix, 0, 0, t->winw, t->winh, style);
+
+	drawcommit(t->pixtitle, t->title);
+	drawcommit(t->pix, t->frame);
+}
+
+static void
+tabupdateurgency(struct Tab *t, int isurgent)
+{
+	int prev;
+
+	prev = t->isurgent;
+	if (wm.focused != NULL && t == wm.focused->selcol->selrow->seltab)
+		t->isurgent = False;
+	else
+		t->isurgent = isurgent;
+	if (prev != t->isurgent) {
+		tabdecorate(t, 0);
+	}
+}
+
 /* commit tab size and position */
 static void
 tabmoveresize(struct Tab *t)
@@ -143,7 +178,6 @@ titlebarmoveresize(struct Row *row, int x, int y, int w)
 	XMoveWindow(dpy, row->br, w - config.titlewidth, 0);
 }
 
-/* calculate size of dialogs of a tab */
 static void
 dialogcalcsize(struct Dialog *dial)
 {
@@ -154,6 +188,100 @@ dialogcalcsize(struct Dialog *dial)
 	dial->h = max(1, min(dial->maxh, tab->winh - 2 * config.borderwidth));
 	dial->x = tab->winw / 2 - dial->w / 2;
 	dial->y = tab->winh / 2 - dial->h / 2;
+}
+
+static void
+dialogdecorate(struct Dialog *d)
+{
+	int fullw, fullh;       /* size of dialog window + borders */
+
+	fullw = d->w + 2 * config.borderwidth;
+	fullh = d->h + 2 * config.borderwidth;
+	updatepixmap(&d->pix, &d->pw, &d->ph, fullw, fullh);
+	drawborders(d->pix, fullw, fullh, tabgetstyle(d->tab));
+	drawcommit(d->pix, d->frame);
+}
+
+static void
+dialogmoveresize(struct Dialog *dial)
+{
+	struct Container *c;
+	int dx, dy, dw, dh;
+
+	dialogcalcsize(dial);
+	c = dial->tab->row->col->c;
+	dx = dial->x - config.borderwidth;
+	dy = dial->y - config.borderwidth;
+	dw = dial->w + 2 * config.borderwidth;
+	dh = dial->h + 2 * config.borderwidth;
+	XMoveResizeWindow(dpy, dial->frame, dx, dy, dw, dh);
+	XMoveResizeWindow(dpy, dial->obj.win, config.borderwidth, config.borderwidth, dial->w, dial->h);
+	winnotify(dial->obj.win, c->x + dial->tab->row->col->x + dial->x, c->y + dial->tab->row->y + dial->y, dial->w, dial->h);
+	if (dial->pw != dw || dial->ph != dh) {
+		dialogdecorate(dial);
+	}
+}
+
+static void
+dialog_configure(struct Object *self, unsigned int valuemask, XWindowChanges *wc)
+{
+	struct Dialog *dialog = (struct Dialog *)self;
+
+	if (dialog == NULL)
+		return;
+	if (valuemask & CWWidth)
+		dialog->maxw = wc->width;
+	if (valuemask & CWHeight)
+		dialog->maxh = wc->height;
+	dialogmoveresize(dialog);
+}
+
+static void
+managedialog(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
+{
+	struct Dialog *dial;
+
+	(void)mon;
+	(void)desk;
+	(void)leader;
+	(void)state;
+	dial = emalloc(sizeof(*dial));
+	*dial = (struct Dialog){
+		.pix = None,
+		.maxw = rect.width,
+		.maxh = rect.height,
+		.obj.win = win,
+		.obj.class = &dialog_class,
+	};
+	dial->frame = createframe((XRectangle){0, 0, rect.width, rect.height});
+	context_add(win, &dial->obj);
+	context_add(dial->frame, &dial->obj);
+	XReparentWindow(dpy, dial->obj.win, dial->frame, 0, 0);
+	XMapWindow(dpy, dial->obj.win);
+	dial->tab = tab;
+	TAILQ_INSERT_HEAD(&tab->dialq, (struct Object *)dial, entry);
+	XReparentWindow(dpy, dial->frame, tab->frame, 0, 0);
+	icccmwmstate(dial->obj.win, NormalState);
+	dialogmoveresize(dial);
+	XMapRaised(dpy, dial->frame);
+	if (wm.focused != NULL && wm.focused->selcol->selrow->seltab == tab)
+		tabfocus(tab, 0);
+}
+
+static void
+unmanagedialog(struct Object *obj)
+{
+	struct Dialog *dial = (struct Dialog *)obj;
+
+	TAILQ_REMOVE(&dial->tab->dialq, (struct Object *)dial, entry);
+	if (dial->pix != None)
+		XFreePixmap(dpy, dial->pix);
+	icccmdeletestate(dial->obj.win);
+	XReparentWindow(dpy, dial->obj.win, root, 0, 0);
+	context_del(dial->obj.win);
+	window_del(dial->frame);
+	free(dial);
+	wm.setclientlist = True;
 }
 
 /* calculate position and width of tabs of a row */
@@ -182,6 +310,13 @@ rowcalctabs(struct Row *row)
 		}
 		i++;
 	}
+}
+
+static int
+columncontentheight(struct Column *col)
+{
+	return col->c->h - col->nrows * config.titlewidth
+	       - (col->nrows - 1) * config.divwidth - 2 * col->c->b;
 }
 
 /* calculate position and height of rows of a column */
@@ -257,7 +392,7 @@ tabnew(Window win, Window leader)
 		.title = None,
 		.leader = leader,
 		.obj.win = win,
-		.obj.class = tab_class,
+		.obj.class = &tab_class,
 	};
 	TAILQ_INIT(&tab->dialq);
 	tab->frame = createframe((XRectangle){0, 0, 1, 1});
@@ -290,7 +425,6 @@ tabremove(struct Row *row, struct Tab *tab)
 	tab->row = NULL;
 }
 
-/* delete tab */
 static void
 tabdel(struct Tab *tab)
 {
@@ -315,17 +449,16 @@ tabdel(struct Tab *tab)
 	free(tab);
 }
 
-/* create new row */
-struct Row *
+static struct Row *
 rownew(void)
 {
-	extern struct Class *row_class;
+	extern struct Class row_class;
 	struct Row *row;
 
 	row = emalloc(sizeof(*row));
 	*row = (struct Row){
 		.isunmapped = 0,
-		.obj.class = row_class,
+		.obj.class = &row_class,
 	};
 	TAILQ_INIT(&row->tabq);
 	row->frame = createframe((XRectangle){0, 0, 1, 1});
@@ -396,12 +529,12 @@ rowdel(struct Row *row)
 static struct Column *
 colnew(void)
 {
-	extern struct Class *column_class;
+	extern struct Class column_class;
 	struct Column *col;
 
 	col = emalloc(sizeof(*col));
 	*col = (struct Column){
-		.obj.class = column_class,
+		.obj.class = &column_class,
 	};
 	TAILQ_INIT(&col->rowq);
 	col->obj.win = createdecoration(
@@ -413,419 +546,44 @@ colnew(void)
 	return col;
 }
 
-/* detach column from container */
 static void
-coldetach(struct Column *col)
+containerdecorate(struct Container *c)
 {
-	struct Container *c;
-
-	c = col->c;
-	if (c->selcol == col) {
-		c->selcol = (struct Column *)TAILQ_PREV(&col->obj, Queue, entry);
-		if (c->selcol == NULL) {
-			c->selcol = (struct Column *)TAILQ_NEXT(&col->obj, entry);
-		}
-	}
-	c->ncols--;
-	TAILQ_REMOVE(&c->colq, &col->obj, entry);
-	containercalccols(col->c);
-}
-
-/* delete column */
-static void
-coldel(struct Column *col)
-{
-	struct Row *row;
-
-	while ((row = (struct Row *)TAILQ_FIRST(&col->rowq)) != NULL)
-		rowdel(row);
-	coldetach(col);
-	window_del(col->obj.win);
-	free(col);
-}
-
-/* add row to column */
-static void
-coladdrow(struct Column *col, struct Row *row, struct Row *prev)
-{
-	struct Container *c;
-	struct Column *oldcol;
-
-	c = col->c;
-	oldcol = row->col;
-	row->col = col;
-	col->selrow = row;
-	col->nrows++;
-	if (prev == NULL || TAILQ_EMPTY(&col->rowq))
-		TAILQ_INSERT_HEAD(&col->rowq, &row->obj, entry);
-	else
-		TAILQ_INSERT_AFTER(&col->rowq, &prev->obj, &row->obj, entry);
-	colcalcrows(col, 1);    /* set row->y, row->h, etc */
-	XReparentWindow(dpy, row->obj.win, c->obj.win, col->x + col->w, c->b);
-	XReparentWindow(dpy, row->bar, c->obj.win, col->x, row->y);
-	XReparentWindow(dpy, row->frame, c->obj.win, col->x, row->y);
-	XMapWindow(dpy, row->bar);
-	XMapWindow(dpy, row->frame);
-	if (oldcol != NULL && oldcol->nrows == 0) {
-		coldel(oldcol);
-	}
-}
-
-/* add tab to row */
-static void
-rowaddtab(struct Row *row, struct Tab *tab, struct Tab *prev)
-{
-	struct Row *oldrow;
-
-	oldrow = tab->row;
-	tab->row = row;
-	row->seltab = tab;
-	row->ntabs++;
-	if (prev == NULL || TAILQ_EMPTY(&row->tabq))
-		TAILQ_INSERT_HEAD(&row->tabq, (struct Object *)tab, entry);
-	else
-		TAILQ_INSERT_AFTER(&row->tabq, (struct Object *)prev, (struct Object *)tab, entry);
-	rowcalctabs(row);               /* set tab->x, tab->w, etc */
-	XReparentWindow(dpy, tab->title, row->bar, tab->x, 0);
-	XReparentWindow(dpy, tab->frame, row->frame, 0, 0);
-	XMapWindow(dpy, tab->frame);
-	XMapWindow(dpy, tab->title);
-	if (oldrow != NULL) {           /* deal with the row this tab came from */
-		if (oldrow->ntabs == 0) {
-			rowdel(oldrow);
-		} else {
-			rowcalctabs(oldrow);
-		}
-	}
-}
-
-/* decorate dialog window */
-static void
-dialogdecorate(struct Dialog *d)
-{
-	int fullw, fullh;       /* size of dialog window + borders */
-
-	fullw = d->w + 2 * config.borderwidth;
-	fullh = d->h + 2 * config.borderwidth;
-	updatepixmap(&d->pix, &d->pw, &d->ph, fullw, fullh);
-	drawborders(d->pix, fullw, fullh, tabgetstyle(d->tab));
-	drawcommit(d->pix, d->frame);
-}
-
-static void
-containerinsertfocus(struct Container *container)
-{
-	TAILQ_INSERT_HEAD(&wm.focusq, &container->obj, entry);
-}
-
-static void
-containerinsertraise(struct Container *container)
-{
-	TAILQ_INSERT_HEAD(&wm.stackq, container, raiseentry);
-}
-
-static void
-containerdelfocus(struct Container *container)
-{
-	TAILQ_REMOVE(&wm.focusq, &container->obj, entry);
-}
-
-static void
-containeraddfocus(struct Container *c)
-{
-	if (c == NULL || c->state & MINIMIZED)
-		return;
-	containerdelfocus(c);
-	containerinsertfocus(c);
-}
-
-/* remove container from the raise list */
-static void
-containerdelraise(struct Container *c)
-{
-	TAILQ_REMOVE(&wm.stackq, c, raiseentry);
-}
-
-/* hide container */
-void
-containerhide(struct Container *c, int hide)
-{
-	struct Object *t, *d;
+	struct Object *l, *r, *t, *d;
+	int style;
 
 	if (c == NULL)
 		return;
-	c->ishidden = hide;
-	if (hide) {
-		XUnmapWindow(dpy, c->obj.win);
-	} else {
-		XMapWindow(dpy, c->obj.win);
-	}
-	TAB_FOREACH_BEGIN(c, t) {
-		icccmwmstate(t->win, (hide ? IconicState : NormalState));
-		TAILQ_FOREACH(d, &((struct Tab *)t)->dialq, entry) {
-			icccmwmstate(d->win, (hide ? IconicState : NormalState));
-		}
-	}TAB_FOREACH_END
-}
-
-static void
-unmanagecontainer(struct Object *self)
-{
-	struct Container *container = (struct Container *)self;
-	struct Column *col;
-	int i;
-
-	containerdelfocus(container);
-	containerdelraise(container);
-	if (wm.focused == container)
-		wm.focused = NULL;
-	TAILQ_REMOVE(&wm.focusq, &container->obj, entry);
-	while ((col = (struct Column *)TAILQ_FIRST(&container->colq)) != NULL)
-		coldel(col);
-	window_del(container->obj.win);
-	for (i = 0; i < BORDER_LAST; i++)
-		window_del(container->borders[i]);
-	free(container);
-}
-
-/* add column to container */
-static void
-containeraddcol(struct Container *c, struct Column *col, struct Column *prev)
-{
-	struct Container *oldc;
-
-	oldc = col->c;
-	col->c = c;
-	c->selcol = col;
-	c->ncols++;
-	if (prev == NULL || TAILQ_EMPTY(&c->colq))
-		TAILQ_INSERT_HEAD(&c->colq, &col->obj, entry);
-	else
-		TAILQ_INSERT_AFTER(&c->colq, &prev->obj, &col->obj, entry);
-	XReparentWindow(dpy, col->obj.win, c->obj.win, 0, 0);
-	containercalccols(c);
-	if (oldc != NULL && oldc->ncols == 0) {
-		unmanagecontainer(&oldc->obj);
-	}
-}
-
-/* send container to desktop and raise it; return nonzero if it was actually sent anywhere */
-static int
-containersendtodesk(struct Container *c, struct Monitor *mon, unsigned long desk)
-{
-	void containerstick(struct Container *c, int stick);
-
-	if (c == NULL || c->state & MINIMIZED)
-		return 0;
-	if (desk == 0xFFFFFFFF) {
-		containerstick(c, ADD);
-	} else if ((int)desk < config.ndesktops) {
-		c->desk = (int)desk;
-		if (c->mon != mon)
-			containerplace(c, mon, desk, 1);
-		c->mon = mon;
-		c->state &= ~STICKY;
-		if ((int)desk != mon->seldesk)  /* container was sent to invisible desktop */
-			containerhide(c, 1);
-		else
-			containerhide(c, 0);
-		containerraise(c, c->state);
-	} else {
-		return 0;
-	}
-	wm.setclientlist = True;
-	ewmhsetwmdesktop(c);
-	ewmhsetstate(c);
-	return 1;
-}
-
-/* make a container occupy the whole monitor */
-static void
-containerfullscreen(struct Container *c, int fullscreen)
-{
-	if (fullscreen == REMOVE && !(c->state & FULLSCREEN))
-		return;         /* already unset */
-	if (fullscreen == ADD    &&  (c->state & FULLSCREEN))
-		return;         /* already set */
-	c->state ^= FULLSCREEN;
-	containercalccols(c);
-	containermoveresize(c, 1);
-	containerdecorate(c);
-	ewmhsetstate(c);
-	if (wm.focused == c) {
-		restackdocks();
-	}
-}
-
-/* maximize a container on the monitor */
-static void
-containermaximize(struct Container *c, int maximize)
-{
-	if (maximize == REMOVE && !(c->state & MAXIMIZED))
-		return;         /* already unset */
-	if (maximize == ADD    &&  (c->state & MAXIMIZED))
-		return;         /* already set */
-	c->state ^= MAXIMIZED;
-	containercalccols(c);
-	containermoveresize(c, 1);
-	containerdecorate(c);
-}
-
-/* minimize container; optionally focus another container */
-static void
-containerminimize(struct Container *c, int minimize, int focus)
-{
-	struct Container *tofocus;
-
-	if (minimize != REMOVE && !(c->state & MINIMIZED)) {
-		c->state |= MINIMIZED;
-		containerhide(c, 1);
-		if (focus) {
-			if ((tofocus = getnextfocused(c->mon, c->desk)) != NULL) {
-				tabfocus(tofocus->selcol->selrow->seltab, 0);
-				containerraise(c, c->state);
-			} else {
-				tabfocus(NULL, 0);
+	style = containergetstyle(c);
+	backgroundcommit(c->obj.win, style);
+	drawcommit(wm.decorations[style].bar_horz, c->borders[BORDER_N]);
+	drawcommit(wm.decorations[style].bar_horz, c->borders[BORDER_S]);
+	drawcommit(wm.decorations[style].bar_vert, c->borders[BORDER_W]);
+	drawcommit(wm.decorations[style].bar_vert, c->borders[BORDER_E]);
+	drawcommit(wm.decorations[style].corner_nw, c->borders[BORDER_NW]);
+	drawcommit(wm.decorations[style].corner_ne, c->borders[BORDER_NE]);
+	drawcommit(wm.decorations[style].corner_sw, c->borders[BORDER_SW]);
+	drawcommit(wm.decorations[style].corner_se, c->borders[BORDER_SE]);
+	TAILQ_FOREACH(l, &c->colq, entry) {
+		struct Column *col = (struct Column *)l;
+		drawcommit(wm.decorations[style].bar_vert, col->obj.win);
+		TAILQ_FOREACH(r, &col->rowq, entry) {
+			struct Row *row = (struct Row *)r;
+			drawcommit(wm.decorations[style].bar_horz, row->obj.win);
+			drawcommit(wm.decorations[style].btn_left, row->bl);
+			drawcommit(wm.decorations[style].btn_right, row->br);
+			backgroundcommit(row->bar, style);
+			TAILQ_FOREACH(t, &row->tabq, entry) {
+				tabdecorate((struct Tab *)t, 0);
+				TAILQ_FOREACH(d, &((struct Tab *)t)->dialq, entry) {
+					dialogdecorate((struct Dialog *)d);
+				}
 			}
 		}
-	} else if (minimize != ADD && (c->state & MINIMIZED)) {
-		(void)containersendtodesk(c, wm.selmon, wm.selmon->seldesk);
-		containermoveresize(c, 1);
-		tabfocus(c->selcol->selrow->seltab, 0);
-		containerraise(c, c->state);
 	}
 }
 
-/* shade container title bar */
 static void
-containershade(struct Container *c, int shade)
-{
-	if (shade != REMOVE && !(c->state & SHADED)) {
-		XDefineCursor(dpy, c->borders[BORDER_NW], wm.cursors[CURSOR_W]);
-		XDefineCursor(dpy, c->borders[BORDER_SW], wm.cursors[CURSOR_W]);
-		XDefineCursor(dpy, c->borders[BORDER_NE], wm.cursors[CURSOR_E]);
-		XDefineCursor(dpy, c->borders[BORDER_SE], wm.cursors[CURSOR_E]);
-	} else if (shade != ADD && (c->state & SHADED)) {
-		XDefineCursor(dpy, c->borders[BORDER_NW], wm.cursors[CURSOR_NW]);
-		XDefineCursor(dpy, c->borders[BORDER_SW], wm.cursors[CURSOR_SW]);
-		XDefineCursor(dpy, c->borders[BORDER_NE], wm.cursors[CURSOR_NE]);
-		XDefineCursor(dpy, c->borders[BORDER_SE], wm.cursors[CURSOR_SE]);
-	} else {
-		return;
-	}
-	c->state ^= SHADED;
-	containercalccols(c);
-	containermoveresize(c, 1);
-	containerdecorate(c);
-	if (c == wm.focused) {
-		tabfocus(c->selcol->selrow->seltab, 0);
-	}
-}
-
-/* stick a container on the monitor */
-void
-containerstick(struct Container *c, int stick)
-{
-	if (stick != REMOVE && !(c->state & STICKY)) {
-		c->state |= STICKY;
-		ewmhsetwmdesktop(c);
-	} else if (stick != ADD && (c->state & STICKY)) {
-		c->state &= ~STICKY;
-		(void)containersendtodesk(c, c->mon, c->mon->seldesk);
-	}
-}
-
-/* raise container above others */
-static void
-containerabove(struct Container *c, int above)
-{
-	enum State state;
-
-	state = c->state & ~(ABOVE|BELOW);
-	if (above != REMOVE && !(c->state & ABOVE))
-		containerraise(c, state | ABOVE);
-	else if (above != ADD && (c->state & ABOVE))
-		containerraise(c, state);
-}
-
-/* lower container below others */
-static void
-containerbelow(struct Container *c, int below)
-{
-	enum State state;
-
-	state = c->state & ~(ABOVE|BELOW);
-	if (below != REMOVE && !(c->state & BELOW))
-		containerraise(c, state | BELOW);
-	else if (below != ADD && (c->state & BELOW))
-		containerraise(c, state);
-}
-
-/* create new container */
-struct Container *
-containernew(int x, int y, int w, int h, enum State state)
-{
-	struct Container *c;
-	int corner = config.corner + config.shadowthickness;
-	struct { int window, cursor, gravity, x, y; } table[] = {
-		{ BORDER_N,  CURSOR_N,  NorthWestGravity, 0, 0,                  },
-		{ BORDER_W,  CURSOR_W,  NorthWestGravity, 0, 0,                  },
-		{ BORDER_S,  CURSOR_S,  SouthWestGravity, 0, config.borderwidth, },
-		{ BORDER_E,  CURSOR_E,  NorthEastGravity, config.borderwidth, 0, },
-		{ BORDER_NW, CURSOR_NW, NorthWestGravity, 0, 0,                  },
-		{ BORDER_SW, CURSOR_SW, SouthWestGravity, 0, corner,             },
-		{ BORDER_NE, CURSOR_NE, NorthEastGravity, corner, 0,             },
-		{ BORDER_SE, CURSOR_SE, SouthEastGravity, corner, corner,        },
-	};
-
-	x -= config.borderwidth,
-	y -= config.borderwidth,
-	w += 2 * config.borderwidth,
-	h += 2 * config.borderwidth + config.titlewidth,
-	c = emalloc(sizeof *c);
-	*c = (struct Container) {
-		.x  = x, .y  = y, .w  = w, .h  = h,
-		.nx = x, .ny = y, .nw = w, .nh = h,
-		.b = config.borderwidth,
-		.state = state,
-		.ishidden = 0,
-		.isobscured = 0,
-		.obj.class = container_class,
-	};
-	c->obj.win = createframe((XRectangle){c->x, c->y, c->w, c->h});
-	context_add(c->obj.win, &c->obj);
-	TAILQ_INIT(&c->colq);
-	for (size_t i = 0; i < LEN(table); i++) {
-		int x = table[i].x != 0 ? c->w - table[i].x : 0;
-		int y = table[i].y != 0 ? c->h - table[i].y : 0;
-
-		context_add(c->borders[table[i].window], &c->obj);
-		c->borders[table[i].window] = createdecoration(
-			c->obj.win,
-			(XRectangle){
-				/*
-				 * Corners have fixed size, set it now.
-				 * Edges are resized at will.
-				 */
-				x, y, corner, corner
-			},
-			wm.cursors[table[i].cursor], table[i].gravity
-		);
-		XMapRaised(dpy, c->borders[table[i].window]);
-	}
-	containerinsertfocus(c);
-	containerinsertraise(c);
-	return c;
-}
-
-static int
-containerisshaded(struct Container *c)
-{
-	return (c->state & (SHADED|FULLSCREEN)) == (SHADED & ~FULLSCREEN);
-}
-
-/* commit container size and position */
-void
 containermoveresize(struct Container *c, int checkstack)
 {
 	struct Object *l, *r, *t, *d;
@@ -895,45 +653,14 @@ containermoveresize(struct Container *c, int checkstack)
 	}
 }
 
-void
-containerdecorate(struct Container *c)
+static int
+containercontentwidth(struct Container *c)
 {
-	struct Object *l, *r, *t, *d;
-	int style;
-
-	if (c == NULL)
-		return;
-	style = containergetstyle(c);
-	backgroundcommit(c->obj.win, style);
-	drawcommit(wm.decorations[style].bar_horz, c->borders[BORDER_N]);
-	drawcommit(wm.decorations[style].bar_horz, c->borders[BORDER_S]);
-	drawcommit(wm.decorations[style].bar_vert, c->borders[BORDER_W]);
-	drawcommit(wm.decorations[style].bar_vert, c->borders[BORDER_E]);
-	drawcommit(wm.decorations[style].corner_nw, c->borders[BORDER_NW]);
-	drawcommit(wm.decorations[style].corner_ne, c->borders[BORDER_NE]);
-	drawcommit(wm.decorations[style].corner_sw, c->borders[BORDER_SW]);
-	drawcommit(wm.decorations[style].corner_se, c->borders[BORDER_SE]);
-	TAILQ_FOREACH(l, &c->colq, entry) {
-		struct Column *col = (struct Column *)l;
-		drawcommit(wm.decorations[style].bar_vert, col->obj.win);
-		TAILQ_FOREACH(r, &col->rowq, entry) {
-			struct Row *row = (struct Row *)r;
-			drawcommit(wm.decorations[style].bar_horz, row->obj.win);
-			drawcommit(wm.decorations[style].btn_left, row->bl);
-			drawcommit(wm.decorations[style].btn_right, row->br);
-			backgroundcommit(row->bar, style);
-			TAILQ_FOREACH(t, &row->tabq, entry) {
-				tabdecorate((struct Tab *)t, 0);
-				TAILQ_FOREACH(d, &((struct Tab *)t)->dialq, entry) {
-					dialogdecorate((struct Dialog *)d);
-				}
-			}
-		}
-	}
+	return c->w - (c->ncols - 1) * config.divwidth - 2 * c->b;
 }
 
 /* calculate position and width of columns of a container */
-void
+static void
 containercalccols(struct Container *c)
 {
 	struct Object *obj;
@@ -1010,8 +737,554 @@ containercalccols(struct Container *c)
 	}
 }
 
+#define DIV 15  /* see containerplace() for details */
+
+/* fill placement grid for given rectangle */
+static void
+fillgrid(struct Monitor *mon, int x, int y, int w, int h, int grid[DIV][DIV])
+{
+	int i, j;
+	int ha, hb, wa, wb;
+	int ya, yb, xa, xb;
+
+	for (i = 0; i < DIV; i++) {
+		for (j = 0; j < DIV; j++) {
+			ha = mon->wy + (mon->wh * i)/DIV;
+			hb = mon->wy + (mon->wh * (i + 1))/DIV;
+			wa = mon->wx + (mon->ww * j)/DIV;
+			wb = mon->wx + (mon->ww * (j + 1))/DIV;
+			ya = y;
+			yb = y + h;
+			xa = x;
+			xb = x + w;
+			if (ya <= hb && ha <= yb && xa <= wb && wa <= xb) {
+				if (ya < ha && yb > hb)
+					grid[i][j]++;
+				if (xa < wa && xb > wb)
+					grid[i][j]++;
+				grid[i][j]++;
+			}
+		}
+	}
+}
+
+/* find best position to place a container on screen */
+static void
+containerplace(struct Container *c, struct Monitor *mon, int desk, int userplaced)
+{
+	struct Object *obj;
+	int grid[DIV][DIV] = {{0}, {0}};
+	int lowest;
+	int i, j, k, w, h;
+	int subx, suby;         /* position of the larger subregion */
+	int subw, subh;         /* larger subregion width and height */
+
+	if (desk < 0 || desk >= config.ndesktops)
+		return;
+	if (c == NULL || c->state & MINIMIZED)
+		return;
+
+	fitmonitor(mon, &c->nx, &c->ny, &c->nw, &c->nh, 1.0);
+
+	/* if the user placed the window, we should not re-place it */
+	if (userplaced)
+		return;
+
+	/*
+	 * The container area is the region of the screen where containers live,
+	 * that is, the area of the monitor not occupied by bars or the dock; it
+	 * corresponds to the region occupied by a maximized container.
+	 *
+	 * Shod tries to find an empty region on the container area or a region
+	 * with few containers in it to place a new container.  To do that, shod
+	 * cuts the container area in DIV divisions horizontally and vertically,
+	 * creating DIV*DIV regions; shod then counts how many containers are on
+	 * each region; and places the new container on those regions with few
+	 * containers over them.
+	 *
+	 * After some trial and error, I found out that a DIV equals to 15 is
+	 * optimal.  It is not too low to provide a incorrect placement, nor too
+	 * high to take so much computer time.
+	 */
+
+	/* increment cells of grid a window is in */
+	TAILQ_FOREACH(obj, &focus_history, entry) {
+#warning TODO: use stack_order rather than focus_history
+		struct Container *tmp = (struct Container *)obj;
+		if (tmp != c && containerisvisible(tmp, c->mon, c->desk)) {
+			fillgrid(mon, tmp->nx, tmp->ny, tmp->nw, tmp->nh, grid);
+		}
+	}
+
+	/* find biggest region in grid with less windows in it */
+	lowest = INT_MAX;
+	subx = suby = 0;
+	subw = subh = 0;
+	for (i = 0; i < DIV; i++) {
+		for (j = 0; j < DIV; j++) {
+			if (grid[i][j] > lowest)
+				continue;
+			else if (grid[i][j] < lowest) {
+				lowest = grid[i][j];
+				subw = subh = 0;
+			}
+			for (w = 0; j+w < DIV && grid[i][j + w] == lowest; w++)
+				;
+			for (h = 1; i+h < DIV && grid[i + h][j] == lowest; h++) {
+				for (k = 0; k < w && grid[i + h][j + k] == lowest; k++)
+					;
+				if (k < w) {
+					h--;
+					break;
+				}
+			}
+			if (w * h > subw * subh) {
+				subw = w;
+				subh = h;
+				suby = i;
+				subx = j;
+			}
+		}
+	}
+	subx = subx * mon->ww / DIV;
+	suby = suby * mon->wh / DIV;
+	subw = subw * mon->ww / DIV;
+	subh = subh * mon->wh / DIV;
+	c->nx = min(mon->wx + mon->ww - c->nw, max(mon->wx, mon->wx + subx + subw / 2 - c->nw / 2));
+	c->ny = min(mon->wy + mon->wh - c->nh, max(mon->wy, mon->wy + suby + subh / 2 - c->nh / 2));
+	containercalccols(c);
+}
+
+/* detach column from container */
+static void
+coldetach(struct Column *col)
+{
+	struct Container *c;
+
+	c = col->c;
+	if (c->selcol == col) {
+		c->selcol = (struct Column *)TAILQ_PREV(&col->obj, Queue, entry);
+		if (c->selcol == NULL) {
+			c->selcol = (struct Column *)TAILQ_NEXT(&col->obj, entry);
+		}
+	}
+	c->ncols--;
+	TAILQ_REMOVE(&c->colq, &col->obj, entry);
+	containercalccols(col->c);
+}
+
+static void
+coldel(struct Column *col)
+{
+	struct Row *row;
+
+	while ((row = (struct Row *)TAILQ_FIRST(&col->rowq)) != NULL)
+		rowdel(row);
+	coldetach(col);
+	window_del(col->obj.win);
+	free(col);
+}
+
+static void
+coladdrow(struct Column *col, struct Row *row, struct Row *prev)
+{
+	struct Container *c;
+	struct Column *oldcol;
+
+	c = col->c;
+	oldcol = row->col;
+	row->col = col;
+	col->selrow = row;
+	col->nrows++;
+	if (prev == NULL || TAILQ_EMPTY(&col->rowq))
+		TAILQ_INSERT_HEAD(&col->rowq, &row->obj, entry);
+	else
+		TAILQ_INSERT_AFTER(&col->rowq, &prev->obj, &row->obj, entry);
+	colcalcrows(col, 1);    /* set row->y, row->h, etc */
+	XReparentWindow(dpy, row->obj.win, c->obj.win, col->x + col->w, c->b);
+	XReparentWindow(dpy, row->bar, c->obj.win, col->x, row->y);
+	XReparentWindow(dpy, row->frame, c->obj.win, col->x, row->y);
+	XMapWindow(dpy, row->bar);
+	XMapWindow(dpy, row->frame);
+	if (oldcol != NULL && oldcol->nrows == 0) {
+		coldel(oldcol);
+	}
+}
+
+static void
+rowaddtab(struct Row *row, struct Tab *tab, struct Tab *prev)
+{
+	struct Row *oldrow;
+
+	oldrow = tab->row;
+	tab->row = row;
+	row->seltab = tab;
+	row->ntabs++;
+	if (prev == NULL || TAILQ_EMPTY(&row->tabq))
+		TAILQ_INSERT_HEAD(&row->tabq, (struct Object *)tab, entry);
+	else
+		TAILQ_INSERT_AFTER(&row->tabq, (struct Object *)prev, (struct Object *)tab, entry);
+	rowcalctabs(row);               /* set tab->x, tab->w, etc */
+	XReparentWindow(dpy, tab->title, row->bar, tab->x, 0);
+	XReparentWindow(dpy, tab->frame, row->frame, 0, 0);
+	XMapWindow(dpy, tab->frame);
+	XMapWindow(dpy, tab->title);
+	if (oldrow != NULL) {           /* deal with the row this tab came from */
+		if (oldrow->ntabs == 0) {
+			rowdel(oldrow);
+		} else {
+			rowcalctabs(oldrow);
+		}
+	}
+}
+
+static void
+containerinsertfocus(struct Container *container)
+{
+	TAILQ_INSERT_HEAD(&focus_history, &container->obj, entry);
+}
+
+static void
+containerinsertraise(struct Container *container)
+{
+	TAILQ_INSERT_HEAD(&wm.stackq, container, raiseentry);
+}
+
+static void
+containerdelfocus(struct Container *container)
+{
+	TAILQ_REMOVE(&focus_history, &container->obj, entry);
+}
+
+static void
+containeraddfocus(struct Container *c)
+{
+	if (c == NULL || c->state & MINIMIZED)
+		return;
+	containerdelfocus(c);
+	containerinsertfocus(c);
+}
+
+/* remove container from the raise list */
+static void
+containerdelraise(struct Container *c)
+{
+	TAILQ_REMOVE(&wm.stackq, c, raiseentry);
+}
+
+static void
+containerraise(struct Container *c, enum State state)
+{
+	Window wins[2];
+	int layer;
+
+	if (c == NULL || c->state & MINIMIZED)
+		return;
+	layer = LAYER_NORMAL;
+	if (state & ABOVE)
+		layer = LAYER_ABOVE;
+	else if (state & BELOW)
+		layer = LAYER_BELOW;
+	if (c == TAILQ_NEXT(&wm.layers[layer], raiseentry)) {
+		/* container already at top of stack */
+		return;
+	}
+	containerdelraise(c);
+	TAILQ_INSERT_AFTER(&wm.stackq, &wm.layers[layer], c, raiseentry);
+	wins[0] = wm.layers[layer].obj.win;
+	wins[1] = c->obj.win;
+	c->state &= ~(ABOVE|BELOW);
+	c->state |= state;
+	XRestackWindows(dpy, wins, 2);
+	wm.setclientlist = True;
+}
+
+static void
+containerhide(struct Container *c, int hide)
+{
+	struct Object *t, *d;
+
+	if (c == NULL)
+		return;
+	c->ishidden = hide;
+	if (hide) {
+		XUnmapWindow(dpy, c->obj.win);
+	} else {
+		XMapWindow(dpy, c->obj.win);
+	}
+	TAB_FOREACH_BEGIN(c, t) {
+		icccmwmstate(t->win, (hide ? IconicState : NormalState));
+		TAILQ_FOREACH(d, &((struct Tab *)t)->dialq, entry) {
+			icccmwmstate(d->win, (hide ? IconicState : NormalState));
+		}
+	}TAB_FOREACH_END
+}
+
+static void containerstick(struct Container *c, int stick);
+
+/* send container to desktop and raise it; return nonzero if it was actually sent anywhere */
+static int
+containersendtodesk(struct Container *c, struct Monitor *mon, unsigned long desk)
+{
+	if (c == NULL || c->state & MINIMIZED)
+		return 0;
+	if (desk == 0xFFFFFFFF) {
+		containerstick(c, ADD);
+	} else if ((int)desk < config.ndesktops) {
+		c->desk = (int)desk;
+		if (c->mon != mon)
+			containerplace(c, mon, desk, 1);
+		c->mon = mon;
+		c->state &= ~STICKY;
+		if ((int)desk != mon->seldesk)  /* container was sent to invisible desktop */
+			containerhide(c, 1);
+		else
+			containerhide(c, 0);
+		containerraise(c, c->state);
+	} else {
+		return 0;
+	}
+	wm.setclientlist = True;
+	ewmhsetwmdesktop(c);
+	ewmhsetstate(c);
+	return 1;
+}
+
+static void
+containerfullscreen(struct Container *c, int fullscreen)
+{
+	if (fullscreen == REMOVE && !(c->state & FULLSCREEN))
+		return;         /* already unset */
+	if (fullscreen == ADD    &&  (c->state & FULLSCREEN))
+		return;         /* already set */
+	c->state ^= FULLSCREEN;
+	containercalccols(c);
+	containermoveresize(c, 1);
+	containerdecorate(c);
+	ewmhsetstate(c);
+	if (wm.focused == c) {
+		restackdocks();
+	}
+}
+
+static void
+containermaximize(struct Container *c, int maximize)
+{
+	if (maximize == REMOVE && !(c->state & MAXIMIZED))
+		return;         /* already unset */
+	if (maximize == ADD    &&  (c->state & MAXIMIZED))
+		return;         /* already set */
+	c->state ^= MAXIMIZED;
+	containercalccols(c);
+	containermoveresize(c, 1);
+	containerdecorate(c);
+}
+
+static void
+containerminimize(struct Container *c, int minimize, int focus)
+{
+	struct Container *tofocus;
+
+	if (minimize != REMOVE && !(c->state & MINIMIZED)) {
+		c->state |= MINIMIZED;
+		containerhide(c, 1);
+		if (focus) {
+			if ((tofocus = getnextfocused(c->mon, c->desk)) != NULL) {
+				tabfocus(tofocus->selcol->selrow->seltab, 0);
+				containerraise(c, c->state);
+			} else {
+				tabfocus(NULL, 0);
+			}
+		}
+	} else if (minimize != ADD && (c->state & MINIMIZED)) {
+		(void)containersendtodesk(c, wm.selmon, wm.selmon->seldesk);
+		containermoveresize(c, 1);
+		tabfocus(c->selcol->selrow->seltab, 0);
+		containerraise(c, c->state);
+	}
+}
+
+static void
+containershade(struct Container *c, int shade)
+{
+	if (shade != REMOVE && !(c->state & SHADED)) {
+		XDefineCursor(dpy, c->borders[BORDER_NW], wm.cursors[CURSOR_W]);
+		XDefineCursor(dpy, c->borders[BORDER_SW], wm.cursors[CURSOR_W]);
+		XDefineCursor(dpy, c->borders[BORDER_NE], wm.cursors[CURSOR_E]);
+		XDefineCursor(dpy, c->borders[BORDER_SE], wm.cursors[CURSOR_E]);
+	} else if (shade != ADD && (c->state & SHADED)) {
+		XDefineCursor(dpy, c->borders[BORDER_NW], wm.cursors[CURSOR_NW]);
+		XDefineCursor(dpy, c->borders[BORDER_SW], wm.cursors[CURSOR_SW]);
+		XDefineCursor(dpy, c->borders[BORDER_NE], wm.cursors[CURSOR_NE]);
+		XDefineCursor(dpy, c->borders[BORDER_SE], wm.cursors[CURSOR_SE]);
+	} else {
+		return;
+	}
+	c->state ^= SHADED;
+	containercalccols(c);
+	containermoveresize(c, 1);
+	containerdecorate(c);
+	if (c == wm.focused) {
+		tabfocus(c->selcol->selrow->seltab, 0);
+	}
+}
+
+static void
+containerstick(struct Container *c, int stick)
+{
+	if (stick != REMOVE && !(c->state & STICKY)) {
+		c->state |= STICKY;
+		ewmhsetwmdesktop(c);
+	} else if (stick != ADD && (c->state & STICKY)) {
+		c->state &= ~STICKY;
+		(void)containersendtodesk(c, c->mon, c->mon->seldesk);
+	}
+}
+
+static void
+containerabove(struct Container *c, int above)
+{
+	enum State state;
+
+	state = c->state & ~(ABOVE|BELOW);
+	if (above != REMOVE && !(c->state & ABOVE))
+		containerraise(c, state | ABOVE);
+	else if (above != ADD && (c->state & ABOVE))
+		containerraise(c, state);
+}
+
+static void
+containerbelow(struct Container *c, int below)
+{
+	enum State state;
+
+	state = c->state & ~(ABOVE|BELOW);
+	if (below != REMOVE && !(c->state & BELOW))
+		containerraise(c, state | BELOW);
+	else if (below != ADD && (c->state & BELOW))
+		containerraise(c, state);
+}
+
+static void
+unmanagecontainer(struct Object *self)
+{
+	struct Container *container = (struct Container *)self;
+	struct Column *col;
+	int i;
+
+	containerdelfocus(container);
+	containerdelraise(container);
+	if (wm.focused == container)
+		wm.focused = NULL;
+	TAILQ_REMOVE(&focus_history, &container->obj, entry);
+	while ((col = (struct Column *)TAILQ_FIRST(&container->colq)) != NULL)
+		coldel(col);
+	window_del(container->obj.win);
+	for (i = 0; i < BORDER_LAST; i++)
+		window_del(container->borders[i]);
+	free(container);
+}
+
+/* add column to container */
+static void
+containeraddcol(struct Container *c, struct Column *col, struct Column *prev)
+{
+	struct Container *oldc;
+
+	oldc = col->c;
+	col->c = c;
+	c->selcol = col;
+	c->ncols++;
+	if (prev == NULL || TAILQ_EMPTY(&c->colq))
+		TAILQ_INSERT_HEAD(&c->colq, &col->obj, entry);
+	else
+		TAILQ_INSERT_AFTER(&c->colq, &prev->obj, &col->obj, entry);
+	XReparentWindow(dpy, col->obj.win, c->obj.win, 0, 0);
+	containercalccols(c);
+	if (oldc != NULL && oldc->ncols == 0) {
+		unmanagecontainer(&oldc->obj);
+	}
+}
+
+static void
+rowstretch(struct Column *col, struct Row *row)
+{
+	struct Object *r;
+	double fact;
+	int refact;
+
+	fact = 1.0 / (double)col->nrows;
+	refact = (row->fact == 1.0);
+	TAILQ_FOREACH(r, &col->rowq, entry) {
+		if (refact) {
+			((struct Row *)r)->fact = fact;
+		} else if (((struct Row *)r) == row) {
+			((struct Row *)r)->fact = 1.0;
+		} else {
+			((struct Row *)r)->fact = 0.0;
+		}
+	}
+	colcalcrows(col, 0);
+	containermoveresize(col->c, 0);
+}
+
+static struct Container *
+containernew(int x, int y, int w, int h, enum State state)
+{
+	struct Container *c;
+	int corner = config.corner + config.shadowthickness;
+	struct { int window, cursor, gravity, x, y; } table[] = {
+		{ BORDER_N,  CURSOR_N,  NorthWestGravity, 0, 0,                  },
+		{ BORDER_W,  CURSOR_W,  NorthWestGravity, 0, 0,                  },
+		{ BORDER_S,  CURSOR_S,  SouthWestGravity, 0, config.borderwidth, },
+		{ BORDER_E,  CURSOR_E,  NorthEastGravity, config.borderwidth, 0, },
+		{ BORDER_NW, CURSOR_NW, NorthWestGravity, 0, 0,                  },
+		{ BORDER_SW, CURSOR_SW, SouthWestGravity, 0, corner,             },
+		{ BORDER_NE, CURSOR_NE, NorthEastGravity, corner, 0,             },
+		{ BORDER_SE, CURSOR_SE, SouthEastGravity, corner, corner,        },
+	};
+
+	x -= config.borderwidth,
+	y -= config.borderwidth,
+	w += 2 * config.borderwidth,
+	h += 2 * config.borderwidth + config.titlewidth,
+	c = emalloc(sizeof *c);
+	*c = (struct Container) {
+		.x  = x, .y  = y, .w  = w, .h  = h,
+		.nx = x, .ny = y, .nw = w, .nh = h,
+		.b = config.borderwidth,
+		.state = state,
+		.ishidden = 0,
+		.obj.class = &container_class,
+	};
+	c->obj.win = createframe((XRectangle){c->x, c->y, c->w, c->h});
+	context_add(c->obj.win, &c->obj);
+	TAILQ_INIT(&c->colq);
+	for (size_t i = 0; i < LEN(table); i++) {
+		int x = table[i].x != 0 ? c->w - table[i].x : 0;
+		int y = table[i].y != 0 ? c->h - table[i].y : 0;
+
+		context_add(c->borders[table[i].window], &c->obj);
+		c->borders[table[i].window] = createdecoration(
+			c->obj.win,
+			(XRectangle){
+				/*
+				 * Corners have fixed size, set it now.
+				 * Edges are resized at will.
+				 */
+				x, y, corner, corner
+			},
+			wm.cursors[table[i].cursor], table[i].gravity
+		);
+		XMapRaised(dpy, c->borders[table[i].window]);
+	}
+	containerinsertfocus(c);
+	containerinsertraise(c);
+	return c;
+}
+
 /* send container to desktop and focus another on the original desktop */
-void
+static void
 containersendtodeskandfocus(struct Container *c, struct Monitor *mon, unsigned long d)
 {
 	struct Monitor *prevmon;
@@ -1061,7 +1334,7 @@ containersendtodeskandfocus(struct Container *c, struct Monitor *mon, unsigned l
 }
 
 /* move container x pixels to the right and y pixels down */
-void
+static void
 containermove(struct Container *c, int x, int y, int relative)
 {
 	struct Monitor *monto;
@@ -1101,232 +1374,63 @@ containermove(struct Container *c, int x, int y, int relative)
 	}
 }
 
-/* raise container */
-void
-containerraise(struct Container *c, enum State state)
+static void
+container_configure(struct Object *self, unsigned int valuemask, XWindowChanges *wc)
 {
-	struct Tab *tab;
-	struct Menu *menu;
-	struct Object *obj;
-	Window wins[2];
-	int layer;
+	struct Container *container;
 
-	if (c == NULL || c->state & MINIMIZED)
+	if (self->class == &tab_class)
+		container = ((struct Tab *)self)->row->col->c;
+	else if (self->class == &container_class)
+		container = (struct Container *)self;
+	else
 		return;
-	layer = LAYER_NORMAL;
-	if (state & ABOVE)
-		layer = LAYER_ABOVE;
-	else if (state & BELOW)
-		layer = LAYER_BELOW;
-	if (c == TAILQ_NEXT(&wm.layers[layer], raiseentry)) {
-		/* container already at top of stack */
-		return;
-	}
-	containerdelraise(c);
-	TAILQ_INSERT_AFTER(&wm.stackq, &wm.layers[layer], c, raiseentry);
-	wins[0] = wm.layers[layer].obj.win;
-	wins[1] = c->obj.win;
-	c->state &= ~(ABOVE|BELOW);
-	c->state |= state;
-	XRestackWindows(dpy, wins, 2);
-	tab = c->selcol->selrow->seltab;
-
-	/* raise any menu for the container */
-	wins[0] = wm.layers[LAYER_MENU].obj.win;
-	TAILQ_FOREACH(obj, &wm.menuq, entry) {
-		menu = ((struct Menu *)obj);
-		if (!istabformenu(tab, menu))
-			continue;
-		menu = (struct Menu *)obj;
-		wins[1] = menu->frame;
-		XRestackWindows(dpy, wins, 2);
-		wins[0] = menu->frame;
-	}
-	wm.setclientlist = True;
-}
-
-/* configure container size and position */
-void
-containerconfigure(struct Container *c, unsigned int valuemask, XWindowChanges *wc)
-{
-	if (c == NULL || c->state & (MINIMIZED|FULLSCREEN|MAXIMIZED))
+	if (container->state & (MINIMIZED|FULLSCREEN|MAXIMIZED))
 		return;
 	if (valuemask & CWX)
-		c->nx = wc->x;
+		container->nx = wc->x;
 	if (valuemask & CWY)
-		c->ny = wc->y;
+		container->ny = wc->y;
 	if ((valuemask & CWWidth) && wc->width >= wm.minsize)
-		c->nw = wc->width;
+		container->nw = wc->width;
 	if ((valuemask & CWHeight) && wc->height >= wm.minsize)
-		c->nh = wc->height;
-	containercalccols(c);
-	containermoveresize(c, 1);
-	containerdecorate(c);
+		container->nh = wc->height;
+	containercalccols(container);
+	containermoveresize(container, True);
+	containerdecorate(container);
 }
 
-/* set container state from client message */
 static void
 containersetstate(struct Object *obj, enum State state, int set)
 {
-	struct Container *c;
+	struct Container *container;
 	struct Tab *tab;
 
 	tab = (struct Tab *)obj;
 	if (tab == NULL)
 		return;
-	c = tab->row->col->c;
+	container = tab->row->col->c;
 	if (state & MAXIMIZED)
-		containermaximize(c, set);
+		containermaximize(container, set);
 	if (state & FULLSCREEN)
-		containerfullscreen(c, set);
+		containerfullscreen(container, set);
 	if (state & SHADED)
-		containershade(c, set);
+		containershade(container, set);
 	if (state & STICKY)
-		containerstick(c, set);
+		containerstick(container, set);
 	if (state & MINIMIZED)
-		containerminimize(c, set, (c == wm.focused));
+		containerminimize(container, set, (container == wm.focused));
 	if (state & ABOVE)
-		containerabove(c, set);
+		containerabove(container, set);
 	if (state & BELOW)
-		containerbelow(c, set);
+		containerbelow(container, set);
 	if (state & ATTENTION)
 		tabupdateurgency(tab, set == ADD || (set == TOGGLE && !tab->isurgent));
 	if (state & STRETCHED) {
 		rowstretch(tab->row->col, tab->row);
 		tabfocus(tab->row->seltab, 0);
 	}
-	ewmhsetstate(c);
-}
-
-/* fill placement grid for given rectangle */
-static void
-fillgrid(struct Monitor *mon, int x, int y, int w, int h, int grid[DIV][DIV])
-{
-	int i, j;
-	int ha, hb, wa, wb;
-	int ya, yb, xa, xb;
-
-	for (i = 0; i < DIV; i++) {
-		for (j = 0; j < DIV; j++) {
-			ha = mon->wy + (mon->wh * i)/DIV;
-			hb = mon->wy + (mon->wh * (i + 1))/DIV;
-			wa = mon->wx + (mon->ww * j)/DIV;
-			wb = mon->wx + (mon->ww * (j + 1))/DIV;
-			ya = y;
-			yb = y + h;
-			xa = x;
-			xb = x + w;
-			if (ya <= hb && ha <= yb && xa <= wb && wa <= xb) {
-				if (ya < ha && yb > hb)
-					grid[i][j]++;
-				if (xa < wa && xb > wb)
-					grid[i][j]++;
-				grid[i][j]++;
-			}
-		}
-	}
-}
-
-/* find best position to place a container on screen */
-void
-containerplace(struct Container *c, struct Monitor *mon, int desk, int userplaced)
-{
-	struct Object *obj;
-	struct Menu *menu;
-	int grid[DIV][DIV] = {{0}, {0}};
-	int lowest;
-	int i, j, k, w, h;
-	int subx, suby;         /* position of the larger subregion */
-	int subw, subh;         /* larger subregion width and height */
-
-	if (desk < 0 || desk >= config.ndesktops)
-		return;
-	if (c == NULL || c->state & MINIMIZED)
-		return;
-
-	fitmonitor(mon, &c->nx, &c->ny, &c->nw, &c->nh, 1.0);
-
-	/* if the user placed the window, we should not re-place it */
-	if (userplaced)
-		return;
-
-	/*
-	 * The container area is the region of the screen where containers live,
-	 * that is, the area of the monitor not occupied by bars or the dock; it
-	 * corresponds to the region occupied by a maximized container.
-	 *
-	 * Shod tries to find an empty region on the container area or a region
-	 * with few containers in it to place a new container.  To do that, shod
-	 * cuts the container area in DIV divisions horizontally and vertically,
-	 * creating DIV*DIV regions; shod then counts how many containers are on
-	 * each region; and places the new container on those regions with few
-	 * containers over them.
-	 *
-	 * After some trial and error, I found out that a DIV equals to 15 is
-	 * optimal.  It is not too low to provide a incorrect placement, nor too
-	 * high to take so much computer time.
-	 */
-
-	/* increment cells of grid a window is in */
-	TAILQ_FOREACH(obj, &wm.focusq, entry) {
-		struct Container *tmp = (struct Container *)obj;
-		if (tmp != c && containerisvisible(tmp, c->mon, c->desk)) {
-			fillgrid(mon, tmp->nx, tmp->ny, tmp->nw, tmp->nh, grid);
-		}
-	}
-	TAILQ_FOREACH(obj, &wm.menuq, entry) {
-		menu = ((struct Menu *)obj);
-		if (istabformenu(c->selcol->selrow->seltab, menu)) {
-			fillgrid(mon, menu->x, menu->y, menu->w, menu->h, grid);
-		}
-	}
-
-	/* find biggest region in grid with less windows in it */
-	lowest = INT_MAX;
-	subx = suby = 0;
-	subw = subh = 0;
-	for (i = 0; i < DIV; i++) {
-		for (j = 0; j < DIV; j++) {
-			if (grid[i][j] > lowest)
-				continue;
-			else if (grid[i][j] < lowest) {
-				lowest = grid[i][j];
-				subw = subh = 0;
-			}
-			for (w = 0; j+w < DIV && grid[i][j + w] == lowest; w++)
-				;
-			for (h = 1; i+h < DIV && grid[i + h][j] == lowest; h++) {
-				for (k = 0; k < w && grid[i + h][j + k] == lowest; k++)
-					;
-				if (k < w) {
-					h--;
-					break;
-				}
-			}
-			if (w * h > subw * subh) {
-				subw = w;
-				subh = h;
-				suby = i;
-				subx = j;
-			}
-		}
-	}
-	subx = subx * mon->ww / DIV;
-	suby = suby * mon->wh / DIV;
-	subw = subw * mon->ww / DIV;
-	subh = subh * mon->wh / DIV;
-	c->nx = min(mon->wx + mon->ww - c->nw, max(mon->wx, mon->wx + subx + subw / 2 - c->nw / 2));
-	c->ny = min(mon->wy + mon->wh - c->nh, max(mon->wy, mon->wy + suby + subh / 2 - c->nh / 2));
-	containercalccols(c);
-}
-
-/* check whether container is sticky or is on given desktop */
-int
-containerisvisible(struct Container *c, struct Monitor *mon, int desk)
-{
-	return !(c->state & MINIMIZED) &&
-		c->mon == mon &&
-		(c->state & STICKY || c->desk == desk);
+	ewmhsetstate(container);
 }
 
 /* attach tab into row; return nonzero if an attachment was performed */
@@ -1422,14 +1526,14 @@ found:
 	return 1;
 }
 
-/* delete row, then column if empty, then container if empty */
-void
+static void
 containerdelrow(struct Row *row)
 {
 	struct Container *c;
 	struct Column *col;
 	int recalc;
 
+	/* delete row; then column if empty; then container if empty */
 	col = row->col;
 	c = col->c;
 	recalc = 1;
@@ -1450,7 +1554,7 @@ containerdelrow(struct Row *row)
 }
 
 /* temporarily raise prev/next container and return it; also unhide it if hidden */
-struct Container *
+static struct Container *
 containerraisetemp(struct Container *prevc, int backward)
 {
 	struct Object *obj;
@@ -1468,7 +1572,7 @@ containerraisetemp(struct Container *prevc, int backward)
 				break;
 			}
 		}
-		if (newc == NULL) TAILQ_FOREACH_REVERSE(obj, &wm.focusq, Queue, entry) {
+		if (newc == NULL) TAILQ_FOREACH_REVERSE(obj, &focus_history, Queue, entry) {
 			newc = (struct Container *)obj;
 			if (newc != prevc &&
 			    newc->mon == prevc->mon &&
@@ -1477,7 +1581,7 @@ containerraisetemp(struct Container *prevc, int backward)
 			}
 		}
 	} else {
-		for (obj = prevc; obj != NULL; obj = TAILQ_NEXT(obj, entry)) {
+		for (obj = &prevc->obj; obj != NULL; obj = TAILQ_NEXT(obj, entry)) {
 			newc = (struct Container *)obj;
 			if (newc != prevc &&
 			    newc->mon == prevc->mon &&
@@ -1485,7 +1589,7 @@ containerraisetemp(struct Container *prevc, int backward)
 				break;
 			}
 		}
-		if (newc == NULL) TAILQ_FOREACH(obj, &wm.focusq, entry) {
+		if (newc == NULL) TAILQ_FOREACH(obj, &focus_history, entry) {
 			newc = (struct Container *)obj;
 			if (newc != prevc &&
 			    newc->mon == prevc->mon &&
@@ -1509,8 +1613,7 @@ containerraisetemp(struct Container *prevc, int backward)
 	return newc;
 }
 
-/* revert container to its previous position after temporarily raised */
-void
+static void
 containerbacktoplace(struct Container *c, int restack)
 {
 	Window wins[2];
@@ -1529,8 +1632,7 @@ containerbacktoplace(struct Container *c, int restack)
 	XFlush(dpy);
 }
 
-/* detach tab from row, placing it at x,y */
-void
+static void
 tabdetach(struct Tab *tab, int x, int y)
 {
 	struct Row *row;
@@ -1541,168 +1643,7 @@ tabdetach(struct Tab *tab, int x, int y)
 	rowcalctabs(row);
 }
 
-/* focus tab */
-void
-tabfocus(struct Tab *tab, int gotodesk)
-{
-	struct Container *c;
-	struct Dialog *dial;
-
-	wm.prevfocused = wm.focused;
-	if (tab == NULL) {
-		wm.focused = NULL;
-		XSetInputFocus(dpy, wm.focuswin, RevertToParent, CurrentTime);
-		ewmhsetactivewindow(None);
-	} else {
-		c = tab->row->col->c;
-		wm.focused = c;
-		tab->row->seltab = tab;
-		tab->row->col->selrow = tab->row;
-		tab->row->col->c->selcol = tab->row->col;
-		if (gotodesk)
-			deskupdate(c->mon, c->state & STICKY ? c->mon->seldesk : c->desk);
-		if (tab->row->fact == 0.0)
-			rowstretch(tab->row->col, tab->row);
-		XRaiseWindow(dpy, tab->row->frame);
-		XRaiseWindow(dpy, tab->frame);
-		if (c->state & SHADED || tab->row->isunmapped) {
-			XSetInputFocus(dpy, tab->row->bar, RevertToParent, CurrentTime);
-		} else if (!TAILQ_EMPTY(&tab->dialq)) {
-			dial = (struct Dialog *)TAILQ_FIRST(&tab->dialq);
-			XRaiseWindow(dpy, dial->frame);
-			XSetInputFocus(dpy, dial->obj.win, RevertToParent, CurrentTime);
-		} else {
-			XSetInputFocus(dpy, tab->obj.win, RevertToParent, CurrentTime);
-		}
-		ewmhsetactivewindow(tab->obj.win);
-		tabclearurgency(tab);
-		containeraddfocus(c);
-		containerdecorate(c);
-		c->state &= ~MINIMIZED;
-		containerhide(c, 0);
-		shodgrouptab(c);
-		shodgroupcontainer(c);
-		ewmhsetstate(c);
-	}
-	if (wm.prevfocused != NULL && wm.prevfocused != wm.focused) {
-		containerdecorate(wm.prevfocused);
-		ewmhsetstate(wm.prevfocused);
-	}
-	menuupdate();
-	restackdocks();
-	wm.setclientlist = True;
-}
-
-/* decorate tab */
-void
-tabdecorate(struct Tab *t, int pressed)
-{
-	int style;
-	int drawlines = 0;
-
-	style = tabgetstyle(t);
-	if (t->row != NULL && t != t->row->col->c->selcol->selrow->seltab) {
-		pressed = 0;
-		drawlines = 0;
-	} else if (t->row != NULL && pressed) {
-		pressed = 1;
-		drawlines = 1;
-	} else {
-		pressed = 0;
-		drawlines = 1;
-	}
-
-	updatepixmap(&t->pixtitle, &t->ptw, NULL, t->w, config.titlewidth);
-	updatepixmap(&t->pix, &t->pw, &t->ph, t->winw, t->winh);
-	drawbackground(t->pixtitle, 0, 0, t->w, config.titlewidth, style);
-	drawshadow(t->pixtitle, 0, 0, t->w, config.titlewidth, style, pressed, config.shadowthickness);
-
-	/* write tab title */
-	if (t->name != NULL)
-		drawtitle(t->pixtitle, t->name, t->w, drawlines, style, pressed, 0);
-
-	/* draw frame background */
-	drawbackground(t->pix, 0, 0, t->winw, t->winh, style);
-
-	drawcommit(t->pixtitle, t->title);
-	drawcommit(t->pix, t->frame);
-}
-
-/* update tab urgency */
-void
-tabupdateurgency(struct Tab *t, int isurgent)
-{
-	int prev;
-
-	prev = t->isurgent;
-	if (wm.focused != NULL && t == wm.focused->selcol->selrow->seltab)
-		t->isurgent = False;
-	else
-		t->isurgent = isurgent;
-	if (prev != t->isurgent) {
-		tabdecorate(t, 0);
-	}
-}
-
-/* stretch row */
-void
-rowstretch(struct Column *col, struct Row *row)
-{
-	struct Object *r;
-	double fact;
-	int refact;
-
-	fact = 1.0 / (double)col->nrows;
-	refact = (row->fact == 1.0);
-	TAILQ_FOREACH(r, &col->rowq, entry) {
-		if (refact) {
-			((struct Row *)r)->fact = fact;
-		} else if (((struct Row *)r) == row) {
-			((struct Row *)r)->fact = 1.0;
-		} else {
-			((struct Row *)r)->fact = 0.0;
-		}
-	}
-	colcalcrows(col, 0);
-	containermoveresize(col->c, 0);
-}
-
-/* configure dialog window */
-void
-dialogconfigure(struct Dialog *d, unsigned int valuemask, XWindowChanges *wc)
-{
-	if (d == NULL)
-		return;
-	if (valuemask & CWWidth)
-		d->maxw = wc->width;
-	if (valuemask & CWHeight)
-		d->maxh = wc->height;
-	dialogmoveresize(d);
-}
-
-/* commit dialog size and position */
-void
-dialogmoveresize(struct Dialog *dial)
-{
-	struct Container *c;
-	int dx, dy, dw, dh;
-
-	dialogcalcsize(dial);
-	c = dial->tab->row->col->c;
-	dx = dial->x - config.borderwidth;
-	dy = dial->y - config.borderwidth;
-	dw = dial->w + 2 * config.borderwidth;
-	dh = dial->h + 2 * config.borderwidth;
-	XMoveResizeWindow(dpy, dial->frame, dx, dy, dw, dh);
-	XMoveResizeWindow(dpy, dial->obj.win, config.borderwidth, config.borderwidth, dial->w, dial->h);
-	winnotify(dial->obj.win, c->x + dial->tab->row->col->x + dial->x, c->y + dial->tab->row->y + dial->y, dial->w, dial->h);
-	if (dial->pw != dw || dial->ph != dh) {
-		dialogdecorate(dial);
-	}
-}
-
-/* create container for tab */
-void
+static void
 containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle rect, enum State state)
 {
 	struct Container *c;
@@ -1761,39 +1702,6 @@ managecontainer(struct Tab *prev, struct Monitor *mon, int desk, Window win, Win
 	}
 }
 
-/* create container for tab */
-static void
-managedialog(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
-{
-	struct Dialog *dial;
-
-	(void)mon;
-	(void)desk;
-	(void)leader;
-	(void)state;
-	dial = emalloc(sizeof(*dial));
-	*dial = (struct Dialog){
-		.pix = None,
-		.maxw = rect.width,
-		.maxh = rect.height,
-		.obj.win = win,
-		.obj.class = dialog_class,
-	};
-	dial->frame = createframe((XRectangle){0, 0, rect.width, rect.height});
-	context_add(win, &dial->obj);
-	context_add(dial->frame, &dial->obj);
-	XReparentWindow(dpy, dial->obj.win, dial->frame, 0, 0);
-	XMapWindow(dpy, dial->obj.win);
-	dial->tab = tab;
-	TAILQ_INSERT_HEAD(&tab->dialq, (struct Object *)dial, entry);
-	XReparentWindow(dpy, dial->frame, tab->frame, 0, 0);
-	icccmwmstate(dial->obj.win, NormalState);
-	dialogmoveresize(dial);
-	XMapRaised(dpy, dial->frame);
-	if (wm.focused != NULL && wm.focused->selcol->selrow->seltab == tab)
-		tabfocus(tab, 0);
-}
-
 static void
 unmanagetab(struct Object *obj)
 {
@@ -1828,46 +1736,13 @@ change_focus:
 }
 
 static void
-unmanagedialog(struct Object *obj)
-{
-	struct Dialog *dial = (struct Dialog *)obj;
-
-	TAILQ_REMOVE(&dial->tab->dialq, (struct Object *)dial, entry);
-	if (dial->pix != None)
-		XFreePixmap(dpy, dial->pix);
-	icccmdeletestate(dial->obj.win);
-	XReparentWindow(dpy, dial->obj.win, root, 0, 0);
-	context_del(dial->obj.win);
-	window_del(dial->frame);
-	free(dial);
-	wm.setclientlist = True;
-}
-
-/* get height of column without borders, divisors, title bars, etc */
-int
-columncontentheight(struct Column *col)
-{
-	return col->c->h - col->nrows * config.titlewidth
-	       - (col->nrows - 1) * config.divwidth - 2 * col->c->b;
-}
-
-/* get width of container without borders, divisors, etc */
-int
-containercontentwidth(struct Container *c)
-{
-	return c->w - (c->ncols - 1) * config.divwidth - 2 * c->b;
-}
-
-static void
 drag_move(struct Container *container, int xroot, int yroot)
 {
-	struct Object *obj;
 	XEvent event;
 	int x, y;
 
 	if (container->state & (FULLSCREEN|MINIMIZED))
 		return;
-	obj = (struct Object *)container->selcol->selrow->seltab;
 	if (XGrabPointer(
 		dpy, container->obj.win, False,
 		ButtonReleaseMask|PointerMotionMask,
@@ -1885,11 +1760,11 @@ drag_move(struct Container *container, int xroot, int yroot)
 		x = event.xmotion.x_root - xroot;
 		y = event.xmotion.y_root - yroot;
 		if (!(container->state & MAXIMIZED) && event.xmotion.y_root <= 0) {
-			containersetstate(obj, MAXIMIZED, ADD);
+			containersetstate(&container->obj, MAXIMIZED, ADD);
 		} else if (!(container->state & MAXIMIZED)) {
 			containermove(container, x, y, 1);
 		} else if (event.xmotion.y_root > 0 && event.xmotion.y_root < config.titlewidth) {
-			containersetstate(obj, MAXIMIZED, REMOVE);
+			containersetstate(&container->obj, MAXIMIZED, REMOVE);
 			containermove(
 				container,
 				event.xmotion.x_root - container->nw / 2,
@@ -2081,8 +1956,8 @@ drag_tab(struct Tab *tab, int xroot, int yroot, int x, int y)
 	obj = context_get(event.xbutton.subwindow);
 	container = NULL;
 #warning TODO: attaching will break after I create classes for borders and divisors
-	if (obj != NULL && obj->class == container_class) {
-		container = (struct container *)obj;
+	if (obj != NULL && obj->class == &container_class) {
+		container = (struct Container *)obj;
 		XTranslateCoordinates(
 			dpy, event.xbutton.window, container->obj.win,
 			event.xbutton.x_root, event.xbutton.y_root, &x,
@@ -2119,9 +1994,9 @@ tab_btnpress(struct Object *self, XButtonPressedEvent *press)
 	struct Tab *tab;
 	struct Container *container;
 
-	if (self->class == tab_class)
+	if (self->class == &tab_class)
 		tab = (struct Tab *)self;
-	else if (self->class == dialog_class)
+	else if (self->class == &dialog_class)
 		tab = ((struct Dialog *)self)->tab;
 	else
 		return;
@@ -2132,7 +2007,6 @@ tab_btnpress(struct Object *self, XButtonPressedEvent *press)
 		containerraise(container, container->state);
 	}
 #warning TODO: implement tab button presses
-#warning TODO: implement retiling container by dragging divisor with Button1
 	if (press->window == tab->title && press->button == Button1 && press->serial == 2) {
 		rowstretch(tab->row->col, tab->row);
 	} else if (press->window == tab->title && press->button == Button1) {
@@ -2140,9 +2014,9 @@ tab_btnpress(struct Object *self, XButtonPressedEvent *press)
 	} else if (press->window == tab->title && press->button == Button3) {
 		drag_tab(tab, press->x_root, press->y_root, press->x, press->y);
 	} else if (press->window == tab->title && press->button == Button4) {
-		containersetstate(self, SHADED, ADD);
+		containersetstate(&container->obj, SHADED, ADD);
 	} else if (press->window == tab->title && press->button == Button5) {
-		containersetstate(self, SHADED, REMOVE);
+		containersetstate(&container->obj, SHADED, REMOVE);
 	}
 }
 
@@ -2271,9 +2145,7 @@ container_btnpress(struct Object *self, XButtonPressedEvent *press)
 		return;
 	if (isvalidstate(press->state) && press->button == Button1) {
 		drag_move(container, press->x_root, press->y_root);
-		return;
-	}
-	if (isvalidstate(press->state) && press->button == Button3) {
+	} else if (isvalidstate(press->state) && press->button == Button3) {
 		enum border border;
 
 		if (press->x <= container->w/2 && press->y <= container->h/2)
@@ -2288,9 +2160,7 @@ container_btnpress(struct Object *self, XButtonPressedEvent *press)
 			container, border,
 			press->x_root, press->y_root
 		);
-		return;
-	}
-	for (enum border border = 0; border < BORDER_LAST; border++) {
+	} else for (enum border border = 0; border < BORDER_LAST; border++) {
 		if (press->subwindow != container->borders[border])
 			continue;
 		if (press->button == Button1) {
@@ -2308,42 +2178,562 @@ container_btnpress(struct Object *self, XButtonPressedEvent *press)
 	}
 }
 
-struct Class *container_class = &(struct Class){
-	.type           = TYPE_UNKNOWN,
+static int
+isurgent(Window win)
+{
+	XWMHints *wmh;
+	int ret;
+
+	ret = 0;
+	if ((wmh = XGetWMHints(dpy, win)) != NULL) {
+		ret = wmh->flags & XUrgencyHint;
+		XFree(wmh);
+	}
+	return ret;
+}
+
+static void
+init(void)
+{
+	TAILQ_INIT(&focus_history);
+}
+
+static void
+clean(void)
+{
+	struct Object *obj;
+
+	while ((obj = TAILQ_FIRST(&focus_history)) != NULL)
+		unmanagecontainer(obj);
+}
+
+static void
+monitor_delete(struct Monitor *mon)
+{
+	struct Object *obj;
+
+	TAILQ_FOREACH(obj, &focus_history, entry) {
+		struct Container *container = (struct Container *)obj;
+		if (container->mon == mon)
+			container->mon = NULL;
+	}
+}
+
+static void
+monitor_reset(void)
+{
+	struct Object *obj;
+	struct Container *container;
+	Bool refocus;
+
+	refocus = False;
+	TAILQ_FOREACH(obj, &focus_history, entry) {
+		container = (struct Container *)obj;
+		if (!(container->state & MINIMIZED) && container->mon == NULL) {
+			if (wm.focused == container)
+				refocus = True;
+			container->mon = wm.selmon;
+			container->desk = wm.selmon->seldesk;
+			containerplace(container, wm.selmon, wm.selmon->seldesk, 0);
+			containermoveresize(container, 0);
+			ewmhsetwmdesktop(container);
+			ewmhsetstate(container);
+		}
+		if (container->state & MAXIMIZED) {
+			containercalccols(container);
+			containermoveresize(container, False);
+			containerdecorate(container);
+		}
+	}
+	if (refocus)
+		tabfocus(wm.focused->selcol->selrow->seltab, 1);
+}
+
+static void
+redecorate_all(void)
+{
+	struct Object *obj;
+
+	TAILQ_FOREACH(obj, &focus_history, entry)
+		containerdecorate((struct Container *)obj);
+}
+
+static void
+show_desktop(void)
+{
+	struct Object *obj;
+
+	TAILQ_FOREACH(obj, &focus_history, entry)
+		if (!(((struct Container *)obj)->state & MINIMIZED))
+			containerhide((struct Container *)obj, True);
+}
+
+static void
+hide_desktop(void)
+{
+	struct Object *obj;
+
+	TAILQ_FOREACH(obj, &focus_history, entry)
+		if (!(((struct Container *)obj)->state & MINIMIZED))
+			containerhide((struct Container *)obj, False);
+}
+
+static void
+change_desktop(struct Monitor *mon, int desk_old, int desk_new)
+{
+	struct Object *obj;
+
+	TAILQ_FOREACH(obj, &focus_history, entry) {
+		struct Container *container = (struct Container *)obj;
+
+		if (container->mon != mon)
+			continue;
+		if (!(container->state & MINIMIZED) && container->desk == desk_new) {
+			containerhide(container, REMOVE);
+		} else if (!(container->state & STICKY) && container->desk == desk_old) {
+			containerhide(container, ADD);
+		}
+	}
+}
+
+static void
+handle_property(struct Object *self, Atom property)
+{
+	struct Tab *tab = (struct Tab *)self;
+
+	if (property == XA_WM_NAME || property == atoms[_NET_WM_NAME]) {
+		winupdatetitle(tab->obj.win, &tab->name);
+		tabdecorate(tab, False);
+	} else if (property == XA_WM_HINTS) {
+		tabupdateurgency(tab, isurgent(tab->obj.win));
+	}
+}
+
+static void
+handle_enter(struct Object *self)
+{
+	struct Tab *tab;
+	struct Container *container;
+
+	if (self->class == &tab_class)
+		tab = (struct Tab *)self;
+	else if (self->class == &dialog_class)
+		tab = ((struct Dialog *)self)->tab;
+	else if (self->class == &container_class)
+		tab = ((struct Container *)self)->selcol->selrow->seltab;
+	else
+		return;
+	container = tab->row->col->c;
+	if (container == wm.focused && config.sloppytiles)
+		tabfocus(tab, True);
+	if (container != wm.focused && config.sloppyfocus)
+		tabfocus(container->selcol->selrow->seltab, True);
+}
+
+static enum State
+atoms2statemask(Atom atoms[], size_t natoms)
+{
+	enum State state = 0;
+
+	/*
+	 * EWMH allows to set two states for a client in a single client
+	 * message.  This is a hack to allow window maximization; for it
+	 * does not define a state for fully maximized windows.  Rather,
+	 * EWMH defines two partial states: horizontally, and vertically
+	 * maximized.  A fully maximized window should be represented as
+	 * having both states set.
+	 *
+	 * Since shod does not do partial maximization, we normalize
+	 * either as an internal MAXIMIZED state.
+	 */
+	for (size_t i = 0; i < natoms; i++) {
+		if (atoms[i] == atoms[_NET_WM_STATE_MAXIMIZED_HORZ])
+			state |= MAXIMIZED;
+		else if (atoms[i] == atoms[_NET_WM_STATE_MAXIMIZED_VERT])
+			state |= MAXIMIZED;
+		else if (atoms[i] == atoms[_NET_WM_STATE_ABOVE])
+			state |= ABOVE;
+		else if (atoms[i] == atoms[_NET_WM_STATE_BELOW])
+			state |= BELOW;
+		else if (atoms[i] == atoms[_NET_WM_STATE_FULLSCREEN])
+			state |= FULLSCREEN;
+		else if (atoms[i] == atoms[_NET_WM_STATE_HIDDEN])
+			state |= MINIMIZED;
+		else if (atoms[i] == atoms[_NET_WM_STATE_SHADED])
+			state |= SHADED;
+		else if (atoms[i] == atoms[_NET_WM_STATE_STICKY])
+			state |= STICKY;
+		else if (atoms[i] == atoms[_NET_WM_STATE_DEMANDS_ATTENTION])
+			state |= ATTENTION;
+		else if (atoms[i] == atoms[_SHOD_WM_STATE_STRETCHED])
+			state |= STRETCHED;
+	}
+	return state;
+}
+
+#define _SHOD_MOVERESIZE_RELATIVE ((long)(1 << 16))
+
+static void
+handle_message(struct Object *self, Atom message, long int data[5])
+{
+	struct Tab *tab;
+	struct Container *container;
+
+	if (self->class == &tab_class) {
+		tab = (struct Tab *)self;
+		container = tab->row->col->c;
+	} else if (self->class == &container_class) {
+		container = (struct Container *)self;
+		tab = container->selcol->selrow->seltab;
+	} else {
+		return;
+	}
+	if (message == atoms[_NET_WM_STATE]) {
+		containersetstate(
+			&container->obj,
+			atoms2statemask((Atom *)&data[1], 2),
+			data[0]
+		);
+	} else if (message == atoms[_NET_MOVERESIZE_WINDOW]) {
+		XWindowChanges changes = {
+			.x	= data[1],
+			.y	= data[2],
+			.width	= data[3],
+			.height	= data[4],
+		};
+
+		if (data[0] & _SHOD_MOVERESIZE_RELATIVE) {
+			changes.x	+= container->x;
+			changes.y	+= container->y;
+			changes.width	+= container->w;
+			changes.height	+= container->h;
+		}
+		container_configure(self, CWX | CWY | CWWidth | CWHeight, &changes);
+	} else if (message == atoms[_NET_WM_DESKTOP]) {
+		containersendtodeskandfocus(container, container->mon, data[0]);
+	} else if (message == atoms[_NET_ACTIVE_WINDOW]) {
+#define ACTIVECOL(col) if ((col) != NULL) tabfocus(((struct Column *)(col))->selrow->seltab, True)
+#define ACTIVEROW(row) if ((row) != NULL) tabfocus(((struct Row *)(row))->seltab, True)
+		enum relative_focus_direction {
+			_SHOD_FOCUS_ABSOLUTE            = 0,
+			_SHOD_FOCUS_LEFT_CONTAINER      = 1,
+			_SHOD_FOCUS_RIGHT_CONTAINER     = 2,
+			_SHOD_FOCUS_TOP_CONTAINER       = 3,
+			_SHOD_FOCUS_BOTTOM_CONTAINER    = 4,
+			_SHOD_FOCUS_PREVIOUS_CONTAINER  = 5,
+			_SHOD_FOCUS_NEXT_CONTAINER      = 6,
+			_SHOD_FOCUS_LEFT_WINDOW         = 7,
+			_SHOD_FOCUS_RIGHT_WINDOW        = 8,
+			_SHOD_FOCUS_TOP_WINDOW          = 9,
+			_SHOD_FOCUS_BOTTOM_WINDOW       = 10,
+			_SHOD_FOCUS_PREVIOUS_WINDOW     = 11,
+			_SHOD_FOCUS_NEXT_WINDOW         = 12,
+		};
+
+		switch (data[3]) {
+		case _SHOD_FOCUS_LEFT_CONTAINER:
+		case _SHOD_FOCUS_RIGHT_CONTAINER:
+		case _SHOD_FOCUS_TOP_CONTAINER:
+		case _SHOD_FOCUS_BOTTOM_CONTAINER:
+			// TODO
+			break;
+		case _SHOD_FOCUS_PREVIOUS_CONTAINER:
+			// TODO
+			break;
+		case _SHOD_FOCUS_NEXT_CONTAINER:
+			// TODO
+			break;
+		case _SHOD_FOCUS_LEFT_WINDOW:
+			ACTIVECOL(TAILQ_PREV(&tab->row->col->obj, Queue, entry));
+			break;
+		case _SHOD_FOCUS_RIGHT_WINDOW:
+			ACTIVECOL(TAILQ_NEXT(&tab->row->col->obj, entry));
+			break;
+		case _SHOD_FOCUS_TOP_WINDOW:
+			ACTIVEROW(TAILQ_PREV(&tab->row->obj, Queue, entry));
+			break;
+		case _SHOD_FOCUS_BOTTOM_WINDOW:
+			ACTIVEROW(TAILQ_NEXT(&tab->row->obj, entry));
+			break;
+		case _SHOD_FOCUS_PREVIOUS_WINDOW:
+			if (TAILQ_PREV(&tab->obj, Queue, entry) != NULL)
+				tabfocus((struct Tab *)TAILQ_PREV(&tab->obj, Queue, entry), True);
+			else
+				tabfocus((struct Tab *)TAILQ_LAST(&tab->row->tabq, Queue), True);
+			break;
+		case _SHOD_FOCUS_NEXT_WINDOW:
+			if (TAILQ_NEXT(&tab->obj, entry) != NULL)
+				tabfocus((struct Tab *)TAILQ_NEXT(&tab->obj, entry), True);
+			else
+				tabfocus((struct Tab *)TAILQ_FIRST(&tab->row->tabq), True);
+			break;
+		default:
+			tabfocus(tab, True);
+			containerraise(container, container->state);
+			break;
+		}
+	} else if (message == atoms[_NET_WM_MOVERESIZE]) {
+		/*
+		 * Client-side decorated Gtk3 windows emit this signal when being
+		 * dragged by their GtkHeaderBar
+		 */
+		switch (data[2]) {
+		case _NET_WM_MOVERESIZE_SIZE_TOPLEFT:
+			drag_resize(container, BORDER_NW, data[0], data[1]);
+			break;
+		case _NET_WM_MOVERESIZE_SIZE_TOP:
+			drag_resize(container, BORDER_N, data[0], data[1]);
+			break;
+		case _NET_WM_MOVERESIZE_SIZE_TOPRIGHT:
+			drag_resize(container, BORDER_NE, data[0], data[1]);
+			break;
+		case _NET_WM_MOVERESIZE_SIZE_RIGHT:
+			drag_resize(container, BORDER_E, data[0], data[1]);
+			break;
+		case _NET_WM_MOVERESIZE_SIZE_BOTTOMRIGHT:
+			drag_resize(container, BORDER_SE, data[0], data[1]);
+			break;
+		case _NET_WM_MOVERESIZE_SIZE_BOTTOM:
+			drag_resize(container, BORDER_S, data[0], data[1]);
+			break;
+		case _NET_WM_MOVERESIZE_SIZE_BOTTOMLEFT:
+			drag_resize(container, BORDER_SW, data[0], data[1]);
+			break;
+		case _NET_WM_MOVERESIZE_SIZE_LEFT:
+			drag_resize(container, BORDER_W, data[0], data[1]);
+			break;
+		case _NET_WM_MOVERESIZE_MOVE:
+			drag_move(container, data[0], data[1]);
+			break;
+		default:
+			XUngrabPointer(dpy, CurrentTime);
+			break;
+		}
+	}
+}
+
+static void
+dialog_message(struct Object *self, Atom message, long int data[5])
+{
+	struct Dialog *dialog = (struct Dialog *)self;
+
+	if (message == atoms[_NET_MOVERESIZE_WINDOW]) {
+		XWindowChanges changes = {
+			.x	= data[1],
+			.y	= data[2],
+			.width	= data[3],
+			.height	= data[4],
+		};
+
+		if (data[0] & _SHOD_MOVERESIZE_RELATIVE) {
+			changes.x	+= dialog->x;
+			changes.y	+= dialog->y;
+			changes.width	+= dialog->maxw;
+			changes.height	+= dialog->maxh;
+		}
+		dialog_configure(self, CWX | CWY | CWWidth | CWHeight, &changes);
+	}
+}
+
+/* get next focused container after old on given monitor and desktop */
+struct Container *
+getnextfocused(struct Monitor *mon, int desk)
+{
+	struct Object *obj;
+
+	TAILQ_FOREACH(obj, &focus_history, entry) {
+		struct Container *container = (struct Container *)obj;
+		if (containerisvisible(container, mon, desk))
+			return container;
+	}
+	return NULL;
+}
+
+/* check whether container is sticky or is on given desktop */
+int
+containerisvisible(struct Container *c, struct Monitor *mon, int desk)
+{
+	return !(c->state & MINIMIZED) &&
+		c->mon == mon &&
+		(c->state & STICKY || c->desk == desk);
+}
+
+void
+tabfocus(struct Tab *tab, int gotodesk)
+{
+	struct Container *c;
+	struct Dialog *dial;
+
+	wm.prevfocused = wm.focused;
+	if (tab == NULL) {
+		wm.focused = NULL;
+		XSetInputFocus(dpy, wm.focuswin, RevertToParent, CurrentTime);
+		ewmhsetactivewindow(None);
+	} else {
+		c = tab->row->col->c;
+		wm.focused = c;
+		tab->row->seltab = tab;
+		tab->row->col->selrow = tab->row;
+		tab->row->col->c->selcol = tab->row->col;
+		if (gotodesk)
+			deskupdate(c->mon, c->state & STICKY ? c->mon->seldesk : c->desk);
+		if (tab->row->fact == 0.0)
+			rowstretch(tab->row->col, tab->row);
+		XRaiseWindow(dpy, tab->row->frame);
+		XRaiseWindow(dpy, tab->frame);
+		if (c->state & SHADED || tab->row->isunmapped) {
+			XSetInputFocus(dpy, tab->row->bar, RevertToParent, CurrentTime);
+		} else if (!TAILQ_EMPTY(&tab->dialq)) {
+			dial = (struct Dialog *)TAILQ_FIRST(&tab->dialq);
+			XRaiseWindow(dpy, dial->frame);
+			XSetInputFocus(dpy, dial->obj.win, RevertToParent, CurrentTime);
+		} else {
+			XSetInputFocus(dpy, tab->obj.win, RevertToParent, CurrentTime);
+		}
+		ewmhsetactivewindow(tab->obj.win);
+		tabclearurgency(tab);
+		containeraddfocus(c);
+		containerdecorate(c);
+		c->state &= ~MINIMIZED;
+		containerhide(c, 0);
+		shodgrouptab(c);
+		shodgroupcontainer(c);
+		ewmhsetstate(c);
+		menu_class.restack();
+	}
+	if (wm.prevfocused != NULL && wm.prevfocused != wm.focused) {
+		containerdecorate(wm.prevfocused);
+		ewmhsetstate(wm.prevfocused);
+	}
+	menuupdate();
+	restackdocks();
+	wm.setclientlist = True;
+}
+
+struct Tab *
+gettabfrompid(unsigned long pid)
+{
+	struct Object *c, *tab;
+
+	if (pid <= 1)
+		return NULL;
+	TAILQ_FOREACH(c, &focus_history, entry) {
+		TAB_FOREACH_BEGIN((struct Container *)c, tab){
+			if (pid == ((struct Tab *)tab)->pid)
+				return (struct Tab *)tab;
+		}TAB_FOREACH_END
+	}
+	return NULL;
+}
+
+struct Tab *
+getleaderof(Window leader)
+{
+	struct Object *c, *tab;
+
+	if (leader == None)
+		return NULL;
+	if ((tab = context_get(leader)) != NULL)
+		return (struct Tab *)tab;
+	TAILQ_FOREACH(c, &focus_history, entry) {
+		TAB_FOREACH_BEGIN((struct Container *)c, tab){
+			if (((struct Tab *)tab)->leader == leader)
+				return (struct Tab *)tab;
+		}TAB_FOREACH_END
+	}
+	return NULL;
+}
+
+void
+alttab(KeyCode altkey, KeyCode tabkey, Bool shift)
+{
+	struct Container *c, *prevfocused;
+	XEvent ev;
+
+	prevfocused = wm.focused;
+	if ((c = (struct Container *)TAILQ_FIRST(&focus_history)) == NULL)
+		return;
+	if (XGrabKeyboard(dpy, root, True, GrabModeAsync, GrabModeAsync, CurrentTime) != GrabSuccess)
+		goto done;
+	if (XGrabPointer(dpy, root, False, 0, GrabModeAsync, GrabModeAsync, None, None, CurrentTime) != GrabSuccess)
+		goto done;
+	containerbacktoplace(c, 0);
+	c = containerraisetemp(c, shift);
+	while (!XMaskEvent(dpy, KeyPressMask|KeyReleaseMask, &ev)) {
+		switch (ev.type) {
+		case KeyPress:
+			if (ev.xkey.keycode == tabkey && isvalidstate(ev.xkey.state)) {
+				containerbacktoplace(c, 1);
+				c = containerraisetemp(c, (ev.xkey.state & ShiftMask));
+			}
+			break;
+		case KeyRelease:
+			if (ev.xkey.keycode == altkey)
+				goto done;
+			break;
+		}
+	}
+done:
+	XUngrabKeyboard(dpy, CurrentTime);
+	XUngrabPointer(dpy, CurrentTime);
+	if (c == NULL)
+		return;
+	containerbacktoplace(c, 1);
+	wm.focused = prevfocused;
+	tabfocus(c->selcol->selrow->seltab, 0);
+	containerraise(c, c->state);
+}
+
+struct Class container_class = {
 	.setstate       = containersetstate,
 	.manage         = NULL,
 	.unmanage       = unmanagecontainer,
 	.btnpress       = container_btnpress,
+	.init           = init,
+	.clean          = clean,
+	.monitor_delete = monitor_delete,
+	.monitor_reset  = monitor_reset,
+	.redecorate_all = redecorate_all,
+	.show_desktop   = show_desktop,
+	.hide_desktop   = hide_desktop,
+	.change_desktop  = change_desktop,
+	.handle_configure = container_configure,
+	.handle_enter   = handle_enter,
 };
 
-struct Class *tab_class = &(struct Class){
-	.type           = TYPE_NORMAL,
+struct Class tab_class = {
 	.setstate       = containersetstate,
 	.manage         = managecontainer,
 	.unmanage       = unmanagetab,
 	.btnpress       = tab_btnpress,
+	.monitor_delete = NULL,
+	.handle_property = handle_property,
+	.handle_configure = container_configure,
+	.handle_enter   = handle_enter,
 };
 
-struct Class *dialog_class = &(struct Class){
-	.type           = TYPE_DIALOG,
+struct Class dialog_class = {
 	.setstate       = NULL,
 	.manage         = managedialog,
 	.unmanage       = unmanagedialog,
 	.btnpress       = tab_btnpress,
+	.monitor_delete = NULL,
+	.handle_configure = dialog_configure,
+	.handle_enter   = handle_enter,
 };
 
-struct Class *row_class = &(struct Class){
-	.type           = TYPE_UNKNOWN,
+struct Class row_class = {
 	.setstate       = NULL,
 	.manage         = NULL,
 	.unmanage       = NULL,
 	.btnpress       = rowdiv_btnpress,
+	.monitor_delete = NULL,
 };
 
-struct Class *column_class = &(struct Class){
-	.type           = TYPE_UNKNOWN,
+struct Class column_class = {
 	.setstate       = NULL,
 	.manage         = NULL,
 	.unmanage       = NULL,
 	.btnpress       = coldiv_btnpress,
+	.monitor_delete = NULL,
 };

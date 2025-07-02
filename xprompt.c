@@ -95,7 +95,7 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win,
 			break;
 		case ButtonPress:
 			if (ev.xbutton.window != win && ev.xbutton.window != frame)
-				winclose(win);
+				window_close(win);
 			XAllowEvents(dpy, ReplayPointer, CurrentTime);
 			break;
 		}
@@ -110,8 +110,7 @@ done:
 	}
 }
 
-struct Class *prompt_class = &(struct Class){
-	.type           = TYPE_PROMPT,
+struct Class prompt_class = {
 	.setstate       = NULL,
 	.manage         = manage,
 	.unmanage       = NULL,

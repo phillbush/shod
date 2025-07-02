@@ -1,14 +1,15 @@
 #include "shod.h"
 
 #define BORDER          1       /* pixel size of decoration around menus */
+static struct Queue managed_menus;
 
 /* remove menu from the menu list */
 static void
 menudelraise(struct Menu *menu)
 {
-	if (TAILQ_EMPTY(&wm.menuq))
+	if (TAILQ_EMPTY(&managed_menus))
 		return;
-	TAILQ_REMOVE(&wm.menuq, (struct Object *)menu, entry);
+	TAILQ_REMOVE(&managed_menus, (struct Object *)menu, entry);
 }
 
 /* configure menu window */
@@ -100,7 +101,7 @@ void
 menufocusraise(struct Menu *menu)
 {
 	menudelraise(menu);
-	TAILQ_INSERT_HEAD(&wm.menuq, (struct Object *)menu, entry);
+	TAILQ_INSERT_HEAD(&managed_menus, (struct Object *)menu, entry);
 	menufocus(menu);
 }
 
@@ -148,7 +149,7 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader
 		.titlebar = None,
 		.button = None,
 		.obj.win = win,
-		.obj.class = menu_class,
+		.obj.class = &menu_class,
 		.pixtitlebar = None,
 		.x = framex,
 		.y = framey,
@@ -178,7 +179,7 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader
 
 	menu->leader = leader;
 	winupdatetitle(menu->obj.win, &menu->name);
-	TAILQ_INSERT_HEAD(&wm.menuq, (struct Object *)menu, entry);
+	TAILQ_INSERT_HEAD(&managed_menus, (struct Object *)menu, entry);
 	icccmwmstate(menu->obj.win, NormalState);
 	menuplace(mon, menu);           /* this will set menu->mon for us */
 	menudecorate(menu);
@@ -223,7 +224,7 @@ menuupdate(void)
 	struct Object *obj;
 	struct Menu *menu;
 
-	TAILQ_FOREACH(obj, &wm.menuq, entry) {
+	TAILQ_FOREACH(obj, &managed_menus, entry) {
 		menu = ((struct Menu *)obj);
 		if (menu->leader == None)
 			continue;
@@ -267,24 +268,280 @@ drag_move(struct Menu *menu, int xroot, int yroot)
 }
 
 static void
-btnpress(struct Object *obj, XButtonPressedEvent *ev)
+drag_resize(struct Menu *menu, int border, int xroot, int yroot)
 {
-	struct Menu *menu = (struct Menu *)obj;
+	enum {
+		TOP    = (1 << 0),
+		BOTTOM = (1 << 1),
+		LEFT   = (1 << 2),
+		RIGHT  = (1 << 3),
+	};
+	Cursor cursor;
+	XEvent event;
+	XMotionEvent *motion = &event.xmotion;
+	int x, y;
+	int direction;
+
+	switch (border) {
+	case BORDER_NW:
+		direction = TOP | LEFT;
+		cursor = wm.cursors[CURSOR_NW];
+		break;
+	case BORDER_NE:
+		direction = TOP | RIGHT;
+		cursor = wm.cursors[CURSOR_NE];
+		break;
+	case BORDER_N:
+		direction = TOP;
+		cursor = wm.cursors[CURSOR_N];
+		break;
+	case BORDER_SW:
+		direction = BOTTOM | LEFT;
+		cursor = wm.cursors[CURSOR_SW];
+		break;
+	case BORDER_SE:
+		direction = BOTTOM | RIGHT;
+		cursor = wm.cursors[CURSOR_SE];
+		break;
+	case BORDER_S:
+		direction = BOTTOM;
+		cursor = wm.cursors[CURSOR_S];
+		break;
+	case BORDER_W:
+		direction = LEFT;
+		cursor = wm.cursors[CURSOR_W];
+		break;
+	case BORDER_E:
+		direction = RIGHT;
+		cursor = wm.cursors[CURSOR_E];
+		break;
+	}
+	if (direction & LEFT)
+		x = xroot - menu->x;
+	else if (direction & RIGHT)
+		x = menu->x + menu->w - xroot;
+	else
+		x = 0;
+	if (direction & TOP)
+		y = yroot - menu->y;
+	else if (direction & BOTTOM)
+		y = menu->y + menu->h - yroot;
+	else
+		y = 0;
+	if (XGrabPointer(
+		dpy, menu->frame, False,
+		ButtonReleaseMask|PointerMotionMask,
+		GrabModeAsync, GrabModeAsync,
+		None, cursor, CurrentTime
+	) != GrabSuccess)
+		return;
+	while (!XMaskEvent(dpy, ButtonReleaseMask|PointerMotionMask, &event)) {
+		int dx, dy;
+
+		if (event.type == ButtonRelease)
+			break;
+		if (event.type != MotionNotify)
+			continue;
+		if (x > menu->w) x = 0;
+		if (y > menu->h) y = 0;
+		if (direction & LEFT &&
+		    ((motion->x_root < xroot && x > motion->x_root - menu->x) ||
+		     (motion->x_root > xroot && x < motion->x_root - menu->x))) {
+			dx = xroot - motion->x_root;
+			if (menu->w + dx < wm.minsize) continue;
+			menu->x -= dx;
+			menu->w += dx;
+		} else if (direction & RIGHT &&
+		    ((motion->x_root > xroot && x > menu->x + menu->w - motion->x_root) ||
+		     (motion->x_root < xroot && x < menu->x + menu->w - motion->x_root))) {
+			dx = motion->x_root - xroot;
+			if (menu->w + dx < wm.minsize) continue;
+			menu->w += dx;
+		}
+		if (direction & TOP &&
+		    ((motion->y_root < yroot && y > motion->y_root - menu->y) ||
+		     (motion->y_root > yroot && y < motion->y_root - menu->y))) {
+			dy = yroot - motion->y_root;
+			if (menu->h + dy < wm.minsize) continue;
+			menu->y -= dy;
+			menu->h += dy;
+		} else if (direction & BOTTOM &&
+		    ((motion->y_root > yroot && menu->y + menu->h - motion->y_root < y) ||
+		     (motion->y_root < yroot && menu->y + menu->h - motion->y_root > y))) {
+			dy = motion->y_root - yroot;
+			if (menu->h + dy < wm.minsize) continue;
+			menu->h += dy;
+		}
+		xroot = motion->x_root;
+		yroot = motion->y_root;
+		if (!compress_motion(&event))
+			continue;
+		menumoveresize(menu);
+	}
+	XUngrabPointer(dpy, CurrentTime);
+}
+
+static void
+btnpress(struct Object *self, XButtonPressedEvent *press)
+{
+	struct Menu *menu = (struct Menu *)self;
 
 	menufocusraise(menu);
 #warning TODO: implement menu button presses
-#warning TODO: implement resizing menu by dragging frame with MOD+Button3
-	if (ev->window == menu->titlebar && ev->button == Button1) {
-		drag_move(menu, ev->x_root, ev->y_root);
-	} else if (isvalidstate(ev->state) && ev->button == Button1) {
-		drag_move(menu, ev->x_root, ev->y_root);
+	if (press->window == menu->titlebar && press->button == Button1) {
+		drag_move(menu, press->x_root, press->y_root);
+	} else if (isvalidstate(press->state) && press->button == Button1) {
+		drag_move(menu, press->x_root, press->y_root);
+	} else if (isvalidstate(press->state) && press->button == Button3) {
+		enum border border;
+
+		if (press->x <= menu->w/2 && press->y <= menu->h/2)
+			border = BORDER_NW;
+		else if (press->x > menu->w/2 && press->y <= menu->h/2)
+			border = BORDER_NE;
+		else if (press->x <= menu->w/2 && press->y > menu->h/2)
+			border = BORDER_SW;
+		else
+			border = BORDER_SE;
+		drag_resize(
+			menu, border,
+			press->x_root, press->y_root
+		);
 	}
 }
 
-struct Class *menu_class = &(struct Class){
-	.type           = TYPE_MENU,
+static void
+init(void)
+{
+	TAILQ_INIT(&managed_menus);
+}
+
+static void
+clean(void)
+{
+	struct Object *obj;
+
+	while ((obj = TAILQ_FIRST(&managed_menus)) != NULL)
+		unmanage(obj);
+}
+
+static void
+monitor_delete(struct Monitor *mon)
+{
+	struct Object *obj;
+
+	TAILQ_FOREACH(obj, &managed_menus, entry) {
+		struct Menu *menu = (struct Menu *)obj;
+		if (menu->mon == mon)
+			menu->mon = NULL;
+	}
+}
+
+static void
+monitor_reset(void)
+{
+	struct Object *obj;
+
+	TAILQ_FOREACH(obj, &managed_menus, entry) {
+		struct Menu *menu = (struct Menu *)obj;
+		if (menu->mon == NULL)
+			menuplace(wm.selmon, menu);
+	}
+}
+
+static void
+redecorate_all(void)
+{
+	struct Object *obj;
+
+	TAILQ_FOREACH(obj, &managed_menus, entry)
+		menudecorate((struct Menu *)obj);
+}
+
+static void
+handle_property(struct Object *self, Atom property)
+{
+	struct Menu *menu = (struct Menu *)self;
+
+	if (property == XA_WM_NAME || property == atoms[_NET_WM_NAME]) {
+		winupdatetitle(menu->obj.win, &menu->name);
+		menudecorate(menu);
+	}
+}
+
+static void
+handle_message(struct Object *self, Atom message, long int data[5])
+{
+	struct Menu *menu = (struct Menu *)self;
+
+	if (message == atoms[_NET_WM_MOVERESIZE]) {
+		/*
+		 * Client-side decorated Gtk3 windows emit this signal when being
+		 * dragged by their GtkHeaderBar
+		 */
+		switch (data[2]) {
+		case _NET_WM_MOVERESIZE_SIZE_TOPLEFT:
+			drag_resize(menu, BORDER_NW, data[0], data[1]);
+			break;
+		case _NET_WM_MOVERESIZE_SIZE_TOP:
+			drag_resize(menu, BORDER_N, data[0], data[1]);
+			break;
+		case _NET_WM_MOVERESIZE_SIZE_TOPRIGHT:
+			drag_resize(menu, BORDER_NE, data[0], data[1]);
+			break;
+		case _NET_WM_MOVERESIZE_SIZE_RIGHT:
+			drag_resize(menu, BORDER_E, data[0], data[1]);
+			break;
+		case _NET_WM_MOVERESIZE_SIZE_BOTTOMRIGHT:
+			drag_resize(menu, BORDER_SE, data[0], data[1]);
+			break;
+		case _NET_WM_MOVERESIZE_SIZE_BOTTOM:
+			drag_resize(menu, BORDER_S, data[0], data[1]);
+			break;
+		case _NET_WM_MOVERESIZE_SIZE_BOTTOMLEFT:
+			drag_resize(menu, BORDER_SW, data[0], data[1]);
+			break;
+		case _NET_WM_MOVERESIZE_SIZE_LEFT:
+			drag_resize(menu, BORDER_W, data[0], data[1]);
+			break;
+		case _NET_WM_MOVERESIZE_MOVE:
+			drag_move(menu, data[0], data[1]);
+			break;
+		default:
+			XUngrabPointer(dpy, CurrentTime);
+			break;
+		}
+	}
+}
+
+static void
+restack(void)
+{
+	Window wins[2];
+	struct Object *obj;
+
+	wins[0] = wm.layers[LAYER_MENU].obj.win;
+	TAILQ_FOREACH(obj, &managed_menus, entry) {
+		struct Menu *menu = ((struct Menu *)obj);
+		if (!istabformenu(wm.focused->selcol->selrow->seltab, menu))
+			continue;
+		menu = (struct Menu *)obj;
+		wins[1] = menu->frame;
+		XRestackWindows(dpy, wins, 2);
+		wins[0] = menu->frame;
+	}
+}
+
+struct Class menu_class = {
 	.setstate       = NULL,
 	.manage         = manage,
 	.unmanage       = unmanage,
 	.btnpress       = btnpress,
+	.init           = init,
+	.clean          = clean,
+	.monitor_delete = monitor_delete,
+	.monitor_reset  = monitor_reset,
+	.redecorate_all = redecorate_all,
+	.handle_property = handle_property,
+	.restack        = restack,
 };
