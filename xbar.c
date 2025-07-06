@@ -1,9 +1,17 @@
 #include "shod.h"
 
+struct Bar {
+	struct Object obj;
+	struct Monitor *mon;
+	int strut[STRUT_LAST];                  /* strut values */
+	Bool ispartial;                         /* whether strut has 12 elements rather than 4 */
+	enum State state;
+};
+
 static struct Queue managed_bars;
 
 /* fill strut array of bar */
-void
+static void
 barstrut(struct Bar *bar)
 {
 	unsigned long *arr;
@@ -12,10 +20,10 @@ barstrut(struct Bar *bar)
 	for (i = 0; i < STRUT_LAST; i++)
 		bar->strut[i] = 0;
 	bar->ispartial = 1;
-	l = getcardsprop(bar->obj.win, atoms[_NET_WM_STRUT_PARTIAL], &arr);
+	l = getcardsprop(dpy, bar->obj.win, atoms[_NET_WM_STRUT_PARTIAL], &arr);
 	if (arr == NULL) {
 		bar->ispartial = 0;
-		l = getcardsprop(bar->obj.win, atoms[_NET_WM_STRUT], &arr);
+		l = getcardsprop(dpy, bar->obj.win, atoms[_NET_WM_STRUT], &arr);
 		if (arr == NULL) {
 			return;
 		}

@@ -95,7 +95,7 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win,
 			break;
 		case ButtonPress:
 			if (ev.xbutton.window != win && ev.xbutton.window != frame)
-				window_close(win);
+				window_close(dpy, win);
 			XAllowEvents(dpy, ReplayPointer, CurrentTime);
 			break;
 		}

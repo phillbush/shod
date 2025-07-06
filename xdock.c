@@ -2,6 +2,15 @@
 
 #define DOCKBORDER 1
 
+struct Dockapp {
+	struct Object obj;
+	int x, y, w, h;                 /* dockapp position and size */
+	int ignoreunmap;                /* number of unmap requests to ignore */
+	int dockpos;                    /* position of the dockapp in the dock */
+	int state;                      /* dockapp state */
+	int slotsize;                   /* size of the slot the dockapp is in */
+};
+
 static void
 restack(void)
 {
@@ -18,7 +27,7 @@ restack(void)
 	XRestackWindows(dpy, wins, 2);
 }
 
-void
+static void
 dockdecorate(void)
 {
 	Bool isfullscreen;
@@ -71,12 +80,11 @@ dockdecorate(void)
 	drawcommit(dock.pix, dock.obj.win);
 }
 
-/* configure dockapp window */
-void
-dockappconfigure(struct Dockapp *dapp, unsigned int valuemask, XWindowChanges *wc)
+static void
+handle_configure(struct Object *self, unsigned int valuemask, XWindowChanges *wc)
 {
-	if (dapp == NULL)
-		return;
+	struct Dockapp *dapp = (struct Dockapp *)self;
+
 	if (valuemask & CWWidth)
 		dapp->w = wc->width;
 	if (valuemask & CWHeight)
@@ -119,8 +127,8 @@ dockappinsert(struct Dockapp *dapp)
 			TAILQ_INSERT_HEAD(&dock.dappq, (struct Object *)dapp, entry);
 		}
 	}
-	dockappconfigure(
-		dapp,
+	handle_configure(
+		&dapp->obj,
 		CWWidth | CWHeight,
 		&(XWindowChanges){
 			.width = dapp->w,
@@ -460,6 +468,7 @@ dockreset(void)
 		TAILQ_REMOVE(&dappq, obj, entry);
 		win = obj->win;
 		dapp = (struct Dockapp *)obj;
+#warning TODO remove getwinclass call here; check property directly instead
 		if (getwinclass(win, &dummyw, &dummyt, &state, &rect, &desk) == &dockapp_class) {
 			if (rect.x > 0) {
 				dapp->dockpos = rect.x;
@@ -498,6 +507,33 @@ changestate(struct Object *obj, enum State mask, int set)
 	}
 	dockupdate();
 	update_window_area();
+}
+
+void
+settitle(Window win, const char *title)
+{
+	struct {
+		Atom prop, type;
+	} props[] = {
+		{ atoms[_NET_WM_NAME],          atoms[UTF8_STRING] },
+		{ atoms[_NET_WM_ICON_NAME],     atoms[UTF8_STRING] },
+		{ XA_WM_NAME,                   XA_STRING },
+		{ XA_WM_ICON_NAME,              XA_STRING },
+	};
+	size_t len, i;
+
+	len = strlen(title);
+	for (i = 0; i < LEN(props); i++) {
+		XChangeProperty(
+			dpy, win,
+			props[i].prop,
+			props[i].type,
+			8,
+			PropModeReplace,
+			(unsigned char *)title,
+			len
+		);
+	}
 }
 
 static void
@@ -544,4 +580,5 @@ struct Class dockapp_class = {
 	.unmanage       = unmanage,
 	.init           = init,
 	.clean          = clean,
+	.handle_configure = handle_configure,
 };

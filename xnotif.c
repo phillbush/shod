@@ -1,8 +1,16 @@
 #include "shod.h"
 
+struct Notification {
+	struct Object obj;
+	Window frame;                           /* window to reparent the actual client window */
+	Pixmap pix;                             /* pixmap to draw the frame */
+	int w, h;                               /* geometry of the entire thing (content + decoration) */
+	int pw, ph;                             /* pixmap width and height */
+};
+
 static struct Queue managed_notifications;
 
-void
+static void
 notifdecorate(struct Notification *n)
 {
 	/* (re)create pixmap */

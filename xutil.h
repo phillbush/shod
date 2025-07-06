@@ -77,32 +77,19 @@ enum Atom {
 #undef  X
 };
 
-extern Visual *visual;
-extern Colormap colormap;
-extern unsigned int depth;
-extern XrmDatabase xdb;
-extern Display *dpy;
-extern Window root;
-extern Atom atoms[NATOMS];
-extern int screen;
-
 int max(int x, int y);
 int min(int x, int y);
 void *ecalloc(size_t nmemb, size_t size);
 void *emalloc(size_t size);
 char *estrndup(const char *s, size_t maxlen);
 
-unsigned long getwinsprop(Window win, Atom prop, Window **wins);
-unsigned long getcardsprop(Window win, Atom prop, unsigned long **array);
-unsigned long getcardprop(Window win, Atom prop);
-unsigned long getatomsprop(Window win, Atom prop, Atom **atoms);
-char *getwinname(Window win);
-Window getwinprop(Window win, Atom prop);
-Atom getatomprop(Window win, Atom prop);
-void initatoms(void);
-void xinit(void);
-void xinitvisual(void);
-void settitle(Window win, const char *title);
-char *getresource(XrmDatabase xdb, XrmClass *class, XrmName *name);
-Bool compress_motion(XEvent *);
-void window_close(Window win);
+long getprop(Display *display, Window window, Atom property, Atom type,
+		int format, unsigned long length, void **data);
+long getwinsprop(Display *display, Window window, Atom property, Window **data);
+long getatomsprop(Display *display, Window window, Atom property, Atom **data);
+long getcardsprop(Display *display, Window window, Atom property, long **data);
+Window getwinprop(Display *display, Window window, Atom property);
+Atom getatomprop(Display *display, Window window, Atom property);
+long getcardprop(Display *display, Window window, Atom property);
+
+Bool compress_motion(Display *, XEvent *);

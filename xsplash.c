@@ -1,9 +1,16 @@
 #include "shod.h"
 
+struct Splash {
+	struct Object obj;
+	struct Monitor *mon;
+	int desk;
+	int x, y, w, h;
+};
+
 static struct Queue managed_splashs;
 
 /* center splash screen on monitor and raise it above other windows */
-void
+static void
 splashplace(struct Monitor *mon, struct Splash *splash)
 {
 	fitmonitor(mon, &splash->x, &splash->y, &splash->w, &splash->h, 0.5);
@@ -13,7 +20,7 @@ splashplace(struct Monitor *mon, struct Splash *splash)
 }
 
 /* (un)hide splash screen */
-void
+static void
 splashhide(struct Splash *splash, int hide)
 {
 	if (hide)
@@ -22,7 +29,7 @@ splashhide(struct Splash *splash, int hide)
 		mapwin(splash->obj.win);
 }
 
-void
+static void
 splashrise(struct Splash *splash)
 {
 	Window wins[2];

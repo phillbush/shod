@@ -1,17 +1,12 @@
 #include <err.h>
 #include <errno.h>
-#include <fcntl.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "xutil.h"
 
 #include <X11/extensions/Xrender.h>
-
-Display *dpy;
-Window root;
-Atom atoms[NATOMS];
-int screen;
 
 int
 max(int x, int y)
@@ -54,221 +49,117 @@ estrndup(const char *s, size_t maxlen)
 	return p;
 }
 
-unsigned long
-getwinsprop(Window win, Atom prop, Window **wins)
+long
+getprop(Display *display, Window window, Atom property, Atom type,
+		int format, unsigned long length, void **data)
 {
-	unsigned char *list;
-	unsigned long len;
-	unsigned long dl;   /* dummy variable */
-	int di;             /* dummy variable */
-	Atom da;            /* dummy variable */
+	unsigned long actual_length;
+	int actual_format;
+	Atom actual_type;
 
-	list = NULL;
-	if (XGetWindowProperty(dpy, win, prop, 0L, 1024, False, XA_WINDOW,
-		               &da, &di, &len, &dl, &list) != Success || list == NULL) {
-		*wins = NULL;
-		return 0;
-	}
-	*wins = (Window *)list;
-	return len;
+	*data = NULL;
+	if (XGetWindowProperty(
+		display, window, property, 0, INT_MAX, False, type,
+		&actual_type, &actual_format, &actual_length,
+		&(unsigned long){0}, (void *)data
+	) != Success)
+		goto error;
+	if (data == NULL)
+		goto error;
+	if (type != AnyPropertyType && actual_type != type)
+		goto error;
+	if (length > 0 && actual_length != length)
+		goto error;
+	if (format != 0 && actual_format != format)
+		goto error;
+	return actual_length;
+error:
+	XFree(*data);
+	*data = NULL;
+	return -1;
+}
+
+long
+getwinsprop(Display *display, Window window, Atom property, Window **data)
+{
+	return getprop(
+		display, window, property,
+		XA_WINDOW, 32, 0, (void *)data
+	);
 }
 
 Window
-getwinprop(Window win, Atom prop)
+getwinprop(Display *display, Window window, Atom property)
 {
-	Window *wins;
-	Window ret = None;
+	Window *data = NULL;
+	Window retval = None;
 
-	getwinsprop(win, prop, &wins);
-	if (wins != NULL)
-		ret = *wins;
-	XFree(wins);
-	return ret;
+	if (getwinsprop(display, window, property, &data) == 1)
+		retval = data[0];
+	XFree(data);
+	return retval;
 }
 
-unsigned long
-getcardsprop(Window win, Atom prop, Atom **array)
+long
+getcardsprop(Display *display, Window window, Atom property, long **data)
 {
-	unsigned char *p;
-	unsigned long len;
-	unsigned long dl;
-	int di;
-	Atom da;
-
-	p = NULL;
-	if (XGetWindowProperty(dpy, win, prop, 0L, 1024, False, XA_CARDINAL, &da, &di, &len, &dl, &p) != Success || p == NULL) {
-		*array = NULL;
-		XFree(p);
-		return 0;
-	}
-	*array = (Atom *)p;
-	return len;
+	return getprop(
+		display, window, property,
+		XA_CARDINAL, 32, 0, (void *)data
+	);
 }
 
-unsigned long
-getcardprop(Window win, Atom prop)
+long
+getcardprop(Display *display, Window window, Atom property)
 {
-	unsigned long *array;
-	unsigned long card = 0;
+	long *data = NULL;
+	long retval = 0;
 
-	getcardsprop(win, prop, &array);
-	if (array != NULL)
-		card = *array;
-	XFree(array);
-	return card;
+	if (getcardsprop(display, window, property, &data) == 1)
+		retval = data[0];
+	XFree(data);
+	return retval;
 }
 
-unsigned long
-getatomsprop(Window win, Atom prop, Atom **atoms)
+long
+getatomsprop(Display *display, Window window, Atom property, Atom **data)
 {
-	unsigned char *p;
-	unsigned long len;
-	unsigned long dl;   /* dummy variable */
-	int di;             /* dummy variable */
-	Atom da;            /* dummy variable */
-
-	p = NULL;
-	if (XGetWindowProperty(dpy, win, prop, 0L, 1024, False, XA_ATOM, &da, &di, &len, &dl, &p) != Success || p == NULL) {
-		*atoms = NULL;
-		XFree(p);
-		return 0;
-	}
-	*atoms = (Atom *)p;
-	return len;
+	return getprop(display, window, property, XA_ATOM, 32, 0, data);
 }
 
 Atom
-getatomprop(Window win, Atom prop)
+getatomprop(Display *display, Window window, Atom property)
 {
-	Atom *atoms;
-	Atom atom = None;
+	Atom *data = NULL;
+	Atom retval = 0;
 
-	getatomsprop(win, prop, &atoms);
-	if (atoms != NULL)
-		atom = *atoms;
-	XFree(atoms);
-	return atom;
-}
-
-char *
-getwinname(Window win)
-{
-#define MAXLEN 512
-	char *name = NULL;
-	unsigned long length, remain;
-	int format;
-	Atom props[] = {atoms[_NET_WM_NAME], XA_WM_NAME};
-	Atom type;
-
-	for (size_t i = 0; i < LEN(props); i++) {
-		if (XGetWindowProperty(
-			dpy, win, atoms[_NET_WM_NAME],
-			0L, 1024, False,
-			AnyPropertyType, &type, &format,
-			&length, &remain, (void*)&name
-		) == Success && format == 8)
-			return name;
-		XFree(name);
-	}
-	return NULL;
-}
-
-void
-settitle(Window win, const char *title)
-{
-	struct {
-		Atom prop, type;
-	} props[] = {
-		{ atoms[_NET_WM_NAME],          atoms[UTF8_STRING] },
-		{ atoms[_NET_WM_ICON_NAME],     atoms[UTF8_STRING] },
-		{ XA_WM_NAME,                   XA_STRING },
-		{ XA_WM_ICON_NAME,              XA_STRING },
-	};
-	size_t len, i;
-
-	len = strlen(title);
-	for (i = 0; i < LEN(props); i++) {
-		XChangeProperty(
-			dpy, win,
-			props[i].prop,
-			props[i].type,
-			8,
-			PropModeReplace,
-			(unsigned char *)title,
-			len
-		);
-	}
-}
-
-void
-initatoms(void)
-{
-	static char *atomnames[NATOMS] = {
-#define X(atom) [atom] = #atom,
-		ATOMS
-#undef  X
-	};
-	XInternAtoms(dpy, atomnames, NATOMS, False, atoms);
-}
-
-void
-xinit(void)
-{
-	int fd;
-
-	if ((dpy = XOpenDisplay(NULL)) == NULL)
-		errx(1, "could not open display");
-	screen = DefaultScreen(dpy);
-	root = RootWindow(dpy, screen);
-	fd = XConnectionNumber(dpy);
-	while (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1) {
-		if (errno == EINTR)
-			continue;
-		err(EXIT_FAILURE, "fcntl");
-	}
+	if (getatomsprop(display, window, property, &data) == 1)
+		retval = data[0];
+	XFree(data);
+	return retval;
 }
 
 Bool
-compress_motion(XEvent *event)
+compress_motion(Display *display, XEvent *event)
 {
-#define DELAY_MOUSE 24
+#define DELAY_MOUSE 32
 	static Time last_motion = 0;
 	XEvent next;
 
 	if (event->type != MotionNotify)
 		return False;
-	while (XPending(dpy)) {
-		XPeekEvent(dpy, &next);
+	while (XPending(display)) {
+		XPeekEvent(display, &next);
 		if (next.type != MotionNotify)
 			break;
 		if (next.xmotion.window != event->xmotion.window)
 			break;
 		if (next.xmotion.subwindow != event->xmotion.subwindow)
 			break;
-		XNextEvent(dpy, event);
+		XNextEvent(display, event);
 	}
 	if (event->xmotion.time - last_motion < DELAY_MOUSE)
 		return False;
 	last_motion = event->xmotion.time;
 	return True;
-}
-
-void
-window_close(Window win)
-{
-	XEvent ev;
-
-	ev.type = ClientMessage;
-	ev.xclient.window = win;
-	ev.xclient.message_type = atoms[WM_PROTOCOLS];
-	ev.xclient.format = 32;
-	ev.xclient.data.l[0] = atoms[WM_DELETE_WINDOW];
-	ev.xclient.data.l[1] = CurrentTime;
-
-	/*
-	 * communicate with the given Client, kindly telling it to
-	 * close itself and terminate any associated processes using
-	 * the WM_DELETE_WINDOW protocol
-	 */
-	XSendEvent(dpy, win, False, NoEventMask, &ev);
 }

@@ -1,6 +1,53 @@
 #include "shod.h"
 
+struct Dialog {
+	struct Object obj;
+	struct Tab *tab;                        /* pointer to parent tab */
+
+	/*
+	 * Frames, pixmaps, saved pixmap geometry, etc
+	 */
+	Window frame;                           /* window to reparent the client window */
+	Pixmap pix;                             /* pixmap to draw the frame */
+	int pw, ph;                             /* pixmap size */
+
+	/*
+	 * Dialog geometry, which can be resized as the user resizes the
+	 * container.  The dialog can grow up to a maximum width and
+	 * height.
+	 */
+	int x, y, w, h;                         /* geometry of the dialog inside the tab frame */
+	int maxw, maxh;                         /* maximum size of the dialog */
+
+	int ignoreunmap;                        /* number of unmapnotifys to ignore */
+};
+
 static struct Queue focus_history;
+
+static void
+window_setdesk(Window window, int desk)
+{
+	XChangeProperty(
+		dpy, window,
+		atoms[_NET_WM_DESKTOP], XA_CARDINAL, 32,
+		PropModeReplace, (void *)&desk, 1
+	);
+}
+
+void
+container_setdesk(struct Container *container)
+{
+	struct Object *obj;
+	unsigned long desk;
+
+	if (container->state & (STICKY|MINIMIZED))
+		desk = 0xFFFFFFFF;
+	else
+		desk = (unsigned long)container->desk;
+	TAB_FOREACH_BEGIN(container, obj){
+		window_setdesk(obj->win, desk);
+	}TAB_FOREACH_END
+}
 
 static void
 restackdocks(void)
@@ -403,7 +450,7 @@ tabnew(Window win, Window leader)
 	context_add(tab->obj.win, &tab->obj);
 	context_add(tab->frame, &tab->obj);
 	context_add(tab->title, &tab->obj);
-	tab->pid = getcardprop(tab->obj.win, atoms[_NET_WM_PID]);
+	tab->pid = getcardprop(dpy, tab->obj.win, atoms[_NET_WM_PID]);
 	XReparentWindow(dpy, tab->obj.win, tab->frame, 0, 0);
 	mapwin(tab->obj.win);
 	clientsincr();
@@ -640,10 +687,8 @@ containermoveresize(struct Container *c, int checkstack)
 				TAILQ_FOREACH(d, &tab->dialq, entry) {
 					dial = (struct Dialog *)d;
 					dialogmoveresize(dial);
-					ewmhsetframeextents(dial->obj.win, c->b, 0);
 				}
 				XResizeWindow(dpy, tab->obj.win, tab->winw, tab->winh);
-				ewmhsetframeextents(tab->obj.win, config.borderwidth, config.titlewidth);
 				tabmoveresize(tab);
 			}
 		}
@@ -1045,7 +1090,7 @@ containersendtodesk(struct Container *c, struct Monitor *mon, unsigned long desk
 		return 0;
 	}
 	wm.setclientlist = True;
-	ewmhsetwmdesktop(c);
+	container_setdesk(c);
 	ewmhsetstate(c);
 	return 1;
 }
@@ -1134,7 +1179,7 @@ containerstick(struct Container *c, int stick)
 {
 	if (stick != REMOVE && !(c->state & STICKY)) {
 		c->state |= STICKY;
-		ewmhsetwmdesktop(c);
+		container_setdesk(c);
 	} else if (stick != ADD && (c->state & STICKY)) {
 		c->state &= ~STICKY;
 		(void)containersendtodesk(c, c->mon, c->mon->seldesk);
@@ -1258,6 +1303,11 @@ containernew(int x, int y, int w, int h, enum State state)
 		.obj.class = &container_class,
 	};
 	c->obj.win = createframe((XRectangle){c->x, c->y, c->w, c->h});
+	XGrabButton(
+		dpy, AnyButton, AnyModifier,
+		c->obj.win, False, MOUSE_EVENTS,
+		GrabModeSync, GrabModeAsync, None, None
+	);
 	context_add(c->obj.win, &c->obj);
 	TAILQ_INIT(&c->colq);
 	for (size_t i = 0; i < LEN(table); i++) {
@@ -1520,7 +1570,7 @@ found:
 	containerraise(c, c->state);
 	XMapSubwindows(dpy, c->obj.win);
 	/* no need to call shodgrouptab() and shodgroupcontainer(); tabfocus() already calls them */
-	ewmhsetdesktop(det->obj.win, c->desk);
+	window_setdesk(det->obj.win, c->desk);
 	containermoveresize(c, 0);
 	containerdecorate(c);
 	return 1;
@@ -1670,7 +1720,7 @@ containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle r
 		tabfocus(tab, 0);
 	}
 	/* no need to call shodgrouptab() and shodgroupcontainer(); tabfocus() already calls them */
-	ewmhsetwmdesktop(c);
+	container_setdesk(c);
 	wm.setclientlist = True;
 }
 
@@ -1691,7 +1741,7 @@ managecontainer(struct Tab *prev, struct Monitor *mon, int desk, Window win, Win
 		c = row->col->c;
 		rowaddtab(row, tab, prev);
 		rowcalctabs(row);
-		ewmhsetdesktop(win, c->desk);
+		window_setdesk(win, c->desk);
 		wm.setclientlist = True;
 		containermoveresize(c, 0);
 		containerdecorate(c);
@@ -1755,7 +1805,7 @@ drag_move(struct Container *container, int xroot, int yroot)
 			break;
 		if (event.type != MotionNotify)
 			continue;
-		if (!compress_motion(&event))
+		if (!compress_motion(dpy, &event))
 			continue;
 		x = event.xmotion.x_root - xroot;
 		y = event.xmotion.y_root - yroot;
@@ -1892,7 +1942,7 @@ drag_resize(struct Container *container, int border, int xroot, int yroot)
 		}
 		xroot = motion->x_root;
 		yroot = motion->y_root;
-		if (!compress_motion(&event))
+		if (!compress_motion(dpy, &event))
 			continue;
 		containercalccols(container);
 		containermoveresize(container, False);
@@ -1938,7 +1988,7 @@ drag_tab(struct Tab *tab, int xroot, int yroot, int x, int y)
 			break;
 		if (event.type != MotionNotify)
 			continue;
-		if (!compress_motion(&event))
+		if (!compress_motion(dpy, &event))
 			continue;
 		XMoveWindow(
 			dpy, wm.dragwin,
@@ -2048,7 +2098,7 @@ coldiv_btnpress(struct Object *self, XButtonPressedEvent *press)
 			break;
 		if (event.type != MotionNotify)
 			continue;
-		if (!compress_motion(&event))
+		if (!compress_motion(dpy, &event))
 			continue;
 		width = containercontentwidth(container);
 		fact = (double)(event.xmotion.x - x_prev) / (double)width;
@@ -2092,7 +2142,7 @@ rowdiv_btnpress(struct Object *self, XButtonPressedEvent *press)
 			break;
 		if (event.type != MotionNotify)
 			continue;
-		if (!compress_motion(&event))
+		if (!compress_motion(dpy, &event))
 			continue;
 		dy = event.xmotion.y - y_prev;
 		height = columncontentheight(thisrow->col);
@@ -2236,7 +2286,7 @@ monitor_reset(void)
 			container->desk = wm.selmon->seldesk;
 			containerplace(container, wm.selmon, wm.selmon->seldesk, 0);
 			containermoveresize(container, 0);
-			ewmhsetwmdesktop(container);
+			container_setdesk(container);
 			ewmhsetstate(container);
 		}
 		if (container->state & MAXIMIZED) {
@@ -2698,6 +2748,7 @@ struct Class container_class = {
 	.hide_desktop   = hide_desktop,
 	.change_desktop  = change_desktop,
 	.handle_configure = container_configure,
+	.handle_message = handle_message,
 	.handle_enter   = handle_enter,
 };
 
@@ -2709,6 +2760,7 @@ struct Class tab_class = {
 	.monitor_delete = NULL,
 	.handle_property = handle_property,
 	.handle_configure = container_configure,
+	.handle_message = handle_message,
 	.handle_enter   = handle_enter,
 };
 
@@ -2719,6 +2771,7 @@ struct Class dialog_class = {
 	.btnpress       = tab_btnpress,
 	.monitor_delete = NULL,
 	.handle_configure = dialog_configure,
+	.handle_message = dialog_message,
 	.handle_enter   = handle_enter,
 };
 

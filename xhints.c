@@ -2,30 +2,6 @@
 
 #define ISDUMMY(c)              ((c)->ncols == 0)
 
-/* set desktop for a given window */
-void
-ewmhsetdesktop(Window win, long d)
-{
-	XChangeProperty(dpy, win, atoms[_NET_WM_DESKTOP], XA_CARDINAL, 32, PropModeReplace, (unsigned char *)&d, 1);
-}
-
-/* initialize ewmh hints */
-void
-ewmhinit(const char *wmname)
-{
-	/* set window and property that indicates that the wm is ewmh compliant */
-	XChangeProperty(dpy, wm.checkwin, atoms[_NET_SUPPORTING_WM_CHECK], XA_WINDOW, 32, PropModeReplace, (unsigned char *)&wm.checkwin, 1);
-	XChangeProperty(dpy, wm.checkwin, atoms[_NET_WM_NAME], atoms[UTF8_STRING], 8, PropModeReplace, (unsigned char *)wmname, strlen(wmname));
-	XChangeProperty(dpy, root, atoms[_NET_SUPPORTING_WM_CHECK], XA_WINDOW, 32, PropModeReplace, (unsigned char *)&wm.checkwin, 1);
-
-	/* set properties that the window manager supports */
-	XChangeProperty(dpy, root, atoms[_NET_SUPPORTED], XA_ATOM, 32, PropModeReplace, (unsigned char *)atoms, NATOMS);
-	XDeleteProperty(dpy, root, atoms[_NET_CLIENT_LIST]);
-
-	/* set number of desktops */
-	XChangeProperty(dpy, root, atoms[_NET_NUMBER_OF_DESKTOPS], XA_CARDINAL, 32, PropModeReplace, (unsigned char *)&config.ndesktops, 1);
-}
-
 /* set current desktop hint */
 void
 ewmhsetcurrentdesktop(unsigned long n)
@@ -115,22 +91,6 @@ void
 ewmhsetactivewindow(Window w)
 {
 	XChangeProperty(dpy, root, atoms[_NET_ACTIVE_WINDOW], XA_WINDOW, 32, PropModeReplace, (unsigned char *)&w, 1);
-}
-
-/* set desktop for all windows in a container */
-void
-ewmhsetwmdesktop(struct Container *c)
-{
-	struct Object *t;
-	unsigned long n;
-
-	if (c->state & (STICKY|MINIMIZED))
-		n = 0xFFFFFFFF;
-	else
-		n = (unsigned long)c->desk;
-	TAB_FOREACH_BEGIN(c, t){
-		ewmhsetdesktop(t->win, n);
-	}TAB_FOREACH_END
 }
 
 /* set frames of window */
@@ -226,8 +186,19 @@ shodgroupcontainer(struct Container *c)
 void
 winupdatetitle(Window win, char **name)
 {
+	Atom properties[] = {atoms[_NET_WM_NAME], XA_WM_NAME};
+
 	free(*name);
-	*name = getwinname(win);
+	for (size_t i = 0; i < LEN(properties); i++) {
+		if (getprop(
+			dpy, win, properties[i],
+			AnyPropertyType, 8, 0,
+			(void *)name
+		) > 0)
+			return;
+		XFree(*name);
+	}
+	*name = NULL;
 }
 
 /* notify window of configuration changing */

@@ -2,6 +2,7 @@
 
 #include "xutil.h"
 
+#define MOUSE_EVENTS (ButtonReleaseMask|ButtonPressMask|PointerMotionMask)
 #define TAB_FOREACH_BEGIN(c, tab) {                             \
 	struct Object *col, *row;                                     \
 	TAILQ_FOREACH_REVERSE(col, &(c)->colq, Queue, entry) {           \
@@ -400,80 +401,6 @@ struct Tab {
 	char *name;                             /* client name */
 };
 
-struct Dialog {
-	struct Object obj;
-	struct Tab *tab;                        /* pointer to parent tab */
-
-	/*
-	 * Frames, pixmaps, saved pixmap geometry, etc
-	 */
-	Window frame;                           /* window to reparent the client window */
-	Pixmap pix;                             /* pixmap to draw the frame */
-	int pw, ph;                             /* pixmap size */
-
-	/*
-	 * Dialog geometry, which can be resized as the user resizes the
-	 * container.  The dialog can grow up to a maximum width and
-	 * height.
-	 */
-	int x, y, w, h;                         /* geometry of the dialog inside the tab frame */
-	int maxw, maxh;                         /* maximum size of the dialog */
-
-	int ignoreunmap;                        /* number of unmapnotifys to ignore */
-};
-
-struct Menu {
-	struct Object obj;
-	struct Monitor *mon;
-	Window leader;
-
-	/*
-	 * Frames, pixmaps, saved pixmap geometry, etc
-	 */
-	Window titlebar;                        /* close button */
-	Window button;                          /* close button */
-	Window frame;                           /* frame window */
-	Pixmap pixtitlebar;                     /* pixmap to draw the titlebar */
-	int pw, ph;                             /* pixmap size */
-	int tw;                                 /* titlebar pixmap size */
-
-	int x, y, w, h;                         /* geometry of the menu window + the frame */
-	int ignoreunmap;                        /* number of unmapnotifys to ignore */
-	char *name;                             /* client name */
-};
-
-struct Bar {
-	struct Object obj;
-	struct Monitor *mon;
-	int strut[STRUT_LAST];                  /* strut values */
-	Bool ispartial;                         /* whether strut has 12 elements rather than 4 */
-	enum State state;
-};
-
-struct Dockapp {
-	struct Object obj;
-	int x, y, w, h;                 /* dockapp position and size */
-	int ignoreunmap;                /* number of unmap requests to ignore */
-	int dockpos;                    /* position of the dockapp in the dock */
-	int state;                      /* dockapp state */
-	int slotsize;                   /* size of the slot the dockapp is in */
-};
-
-struct Splash {
-	struct Object obj;
-	struct Monitor *mon;
-	int desk;
-	int x, y, w, h;
-};
-
-struct Notification {
-	struct Object obj;
-	Window frame;                           /* window to reparent the actual client window */
-	Pixmap pix;                             /* pixmap to draw the frame */
-	int w, h;                               /* geometry of the entire thing (content + decoration) */
-	int pw, ph;                             /* pixmap width and height */
-};
-
 struct WM {
 	Bool running;
 
@@ -621,48 +548,15 @@ void tabfocus(struct Tab *tab, int gotodesk);
 struct Tab *gettabfrompid(unsigned long pid);
 struct Tab *getleaderof(Window leader);
 int containerisvisible(struct Container *c, struct Monitor *mon, int desk);
-
-/* menu */
-void menufocus(struct Menu *menu);
-void menuconfigure(struct Menu *menu, unsigned int valuemask, XWindowChanges *wc);
-void menumoveresize(struct Menu *menu);
-void menudecorate(struct Menu *menu);
-void menufocusraise(struct Menu *menu);
-void menuraise(struct Menu *menu);
-void menuplace(struct Monitor *mon, struct Menu *menu);
 void menuupdate(void);
-int istabformenu(struct Tab *tab, struct Menu *menu);
-
-/* other object routines */
-void dockappconfigure(struct Dockapp *dapp, unsigned int valuemask, XWindowChanges *wc);
-void barstrut(struct Bar *bar);
-void notifplace(void);
-void notifdecorate(struct Notification *n);
-void splashplace(struct Monitor *mon, struct Splash *splash);
-void splashhide(struct Splash *splash, int hide);
-void splashrise(struct Splash *splash);
-void dockdecorate(void);
 void dockreset(void);
-void dockstack(void);
-
-/* monitor routines */
-struct Monitor *getmon(int x, int y);
-void mondel(struct Monitor *mon);
-void monupdate(void);
-void monupdatearea(void);
-void fitmonitor(struct Monitor *mon, int *x, int *y, int *w, int *h, float factor);
-void moninit(void);
-void monevent(XEvent *e);
 
 /* wm hints and messages routines */
 void icccmdeletestate(Window win);
 void icccmwmstate(Window win, int state);
-void ewmhinit(const char *wmname);
-void ewmhsetdesktop(Window win, long d);
 void ewmhsetframeextents(Window win, int b, int t);
 void ewmhsetclients(void);
 void ewmhsetstate(struct Container *c);
-void ewmhsetwmdesktop(struct Container *c);
 void ewmhsetactivewindow(Window w);
 void ewmhsetcurrentdesktop(unsigned long n);
 void ewmhsetshowingdesktop(int n);
@@ -678,6 +572,7 @@ void mapwin(Window win);
 /* decoration routines */
 Window createframe(XRectangle geom);
 Window createdecoration(Window frame, XRectangle geom, Cursor curs, int gravity);
+char *getresource(XrmDatabase xdb, XrmClass *class, XrmName *name);
 void updatepixmap(Pixmap *pix, int *pixw, int *pixh, int w, int h);
 void drawcommit(Pixmap pix, Window win);
 void backgroundcommit(Window, int style);
@@ -692,27 +587,32 @@ void setresources(char *xrm);
 void initdepth(void);
 void inittheme(void);
 
-/* window management routines */
-void setmod(void);
-void scan(void);
+void fitmonitor(struct Monitor *mon, int *x, int *y, int *w, int *h, float factor);
+struct Monitor *getmon(int x, int y);
 void deskupdate(struct Monitor *mon, int desk);
-int getwintype(Window win, Window *leader, struct Tab **tab, int *state, XRectangle *rect, int *desk);
 struct Class *getwinclass(Window win, Window *leader, struct Tab **tab,
                           enum State *state, XRectangle *rect, int *desk);
 
+Bool isvalidstate(unsigned int state);
 
-void window_del(Window);
 void context_add(XID, struct Object *);
 void context_del(XID);
 struct Object *context_get(XID);
-Bool isvalidstate(unsigned int state);
+void window_del(Window);
+void window_close(Display *, Window win);
 
 /* extern variables */
-extern XContext context;
-extern void (*xevents[LASTEvent])(XEvent *);
+extern Display *dpy;
+extern Window root;
+extern Atom atoms[NATOMS];
+extern int screen;
 extern struct Config config;
 extern struct WM wm;
 extern struct Dock dock;
+extern Visual *visual;
+extern Colormap colormap;
+extern unsigned int depth;
+extern XrmDatabase xdb;
 
 /* object classes */
 extern struct Class bar_class;

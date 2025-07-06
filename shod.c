@@ -2,6 +2,7 @@
 
 #include <err.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <locale.h>
 #include <signal.h>
@@ -62,6 +63,12 @@ static struct Class unknown_class = {
 
 static KeyCode altkey;
 static KeyCode tabkey;
+static XContext context;
+
+Display *dpy;
+Window root;
+Atom atoms[NATOMS];
+int screen;
 
 unsigned long clientmask = CWEventMask | CWColormap | CWBackPixel | CWBorderPixel;
 XSetWindowAttributes clientswa = {
@@ -71,7 +78,6 @@ XSetWindowAttributes clientswa = {
 };
 struct WM wm = { .running = 1 };
 struct Dock dock;
-XContext context;
 
 static void
 usage(void)
@@ -97,7 +103,6 @@ deskisvisible(struct Monitor *mon, int desk)
 	return mon->seldesk == desk;
 }
 
-/* check whether given state matches modifier */
 Bool
 isvalidstate(unsigned int state)
 {
@@ -480,7 +485,7 @@ getwinclass(Window win, Window *leader, struct Tab **tab, enum State *state, XRe
 		goto done;
 
 	/* try to guess window type */
-	prop = getatomprop(win, atoms[_NET_WM_WINDOW_TYPE]);
+	prop = getatomprop(dpy, win, atoms[_NET_WM_WINDOW_TYPE]);
 	wmhints = XGetWMHints(dpy, win);
 	getextrahints(win, atoms[_MOTIF_WM_HINTS], PROP_MWM_HINTS_ELEMENTS, sizeof(mwmhints), &mwmhints);
 	getextrahints(win, atoms[_GNUSTEP_WM_ATTR], PROP_GNU_HINTS_ELEMENTS, sizeof(gnuhints), &gnuhints);
@@ -489,7 +494,7 @@ getwinclass(Window win, Window *leader, struct Tab **tab, enum State *state, XRe
 		FLAG(wmhints->flags, IconWindowHint | StateHint) &&
 		wmhints->initial_state == WithdrawnState
 	);
-	*leader = getwinprop(win, atoms[WM_CLIENT_LEADER]);
+	*leader = getwinprop(dpy, win, atoms[WM_CLIENT_LEADER]);
 	if (*leader == None)
 		*leader = (wmhints != NULL && (wmhints->flags & WindowGroupHint)) ? wmhints->window_group : None;
 	*tab = getdialogfor(win);
@@ -533,7 +538,7 @@ getwinclass(Window win, Window *leader, struct Tab **tab, enum State *state, XRe
 	} else {
 		*tab = getleaderof(*leader);
 		if (*tab == NULL)
-			*tab = gettabfrompid(getcardprop(win, atoms[_NET_WM_PID]));
+			*tab = gettabfrompid(getcardprop(dpy, win, atoms[_NET_WM_PID]));
 		class = &tab_class;
 	}
 
@@ -565,7 +570,6 @@ deskshow(int show)
 	menuupdate();
 }
 
-/* update desktop */
 void
 deskupdate(struct Monitor *mon, int desk)
 {
@@ -611,6 +615,69 @@ manage(Window win, XRectangle rect)
 	preparewin(win);
 	class = getwinclass(win, &leader, &tab, &state, &rect, &desk);
 	(*class->manage)(tab, wm.selmon, desk, win, leader, rect, state);
+}
+
+struct Monitor *
+getmon(int x, int y)
+{
+	struct Monitor *mon;
+
+	TAILQ_FOREACH(mon, &wm.monq, entry)
+		if (x >= mon->mx && x < mon->mx + mon->mw && y >= mon->my && y < mon->my + mon->mh)
+			return mon;
+	return NULL;
+}
+
+/* set modifier and Alt key code from given key sym */
+static void
+setmod(void)
+{
+	size_t i;
+	static unsigned int lock_modifiers[] = {
+		/* CapsLk | NumLk     | ScrLk  */
+		0         | 0         | 0       ,
+		0         | 0         | Mod3Mask,
+		0         | Mod2Mask  | 0       ,
+		0         | Mod2Mask  | Mod3Mask,
+		LockMask  | 0         | 0       ,
+		LockMask  | 0         | Mod3Mask,
+		LockMask  | Mod2Mask  | 0       ,
+		LockMask  | Mod2Mask  | Mod3Mask,
+	};
+
+	XUngrabKey(dpy, AnyKey, AnyModifier, root);
+	if ((altkey = XKeysymToKeycode(dpy, config.altkeysym)) == 0) {
+		warnx("could not get keycode from keysym");
+		return;
+	}
+	if ((tabkey = XKeysymToKeycode(dpy, config.tabkeysym)) == 0) {
+		warnx("could not get keycode from keysym");
+		return;
+	}
+	if (config.disablealttab)
+		return;
+	for (i = 0; i < LEN(lock_modifiers); i++) {
+		/* alt+tab */
+		XGrabKey(
+			dpy,
+			tabkey,
+			config.modifier | lock_modifiers[i],
+			root,
+			False,
+			GrabModeAsync,
+			GrabModeAsync
+		);
+		/* alt+shift+tab */
+		XGrabKey(
+			dpy,
+			tabkey,
+			config.modifier | ShiftMask | lock_modifiers[i],
+			root,
+			False,
+			GrabModeAsync,
+			GrabModeAsync
+		);
+	}
 }
 
 static void
@@ -665,7 +732,7 @@ xeventclientmessage(XEvent *event)
 	else if (message->message_type == atoms[_NET_SHOWING_DESKTOP])
 		deskshow(message->data.l[0]);
 	else if (message->message_type == atoms[_NET_CLOSE_WINDOW])
-		window_close(message->window);
+		window_close(dpy, message->window);
 	else if ((obj = context_get(message->window)) != NULL &&
 	         obj->win == message->window)
 		handle_message(obj, message->message_type, message->data.l);
@@ -874,7 +941,7 @@ xeventunmapnotify(XEvent *e)
 }
 
 /* scan for already existing windows and adopt them */
-void
+static void
 scan(void)
 {
 	unsigned int i, num;
@@ -924,58 +991,6 @@ scan(void)
 	}
 	XSync(dpy, True);
 	XUngrabServer(dpy);
-}
-
-/* set modifier and Alt key code from given key sym */
-void
-setmod(void)
-{
-	size_t i;
-	static unsigned int lock_modifiers[] = {
-		/* CapsLk | NumLk     | ScrLk  */
-		0         | 0         | 0       ,
-		0         | 0         | Mod3Mask,
-		0         | Mod2Mask  | 0       ,
-		0         | Mod2Mask  | Mod3Mask,
-		LockMask  | 0         | 0       ,
-		LockMask  | 0         | Mod3Mask,
-		LockMask  | Mod2Mask  | 0       ,
-		LockMask  | Mod2Mask  | Mod3Mask,
-	};
-
-	XUngrabKey(dpy, AnyKey, AnyModifier, root);
-	if ((altkey = XKeysymToKeycode(dpy, config.altkeysym)) == 0) {
-		warnx("could not get keycode from keysym");
-		return;
-	}
-	if ((tabkey = XKeysymToKeycode(dpy, config.tabkeysym)) == 0) {
-		warnx("could not get keycode from keysym");
-		return;
-	}
-	if (config.disablealttab)
-		return;
-	for (i = 0; i < LEN(lock_modifiers); i++) {
-		/* alt+tab */
-		XGrabKey(
-			dpy,
-			tabkey,
-			config.modifier | lock_modifiers[i],
-			root,
-			False,
-			GrabModeAsync,
-			GrabModeAsync
-		);
-		/* alt+shift+tab */
-		XGrabKey(
-			dpy,
-			tabkey,
-			config.modifier | ShiftMask | lock_modifiers[i],
-			root,
-			False,
-			GrabModeAsync,
-			GrabModeAsync
-		);
-	}
 }
 
 /* call fork checking for error; exit on error */
@@ -1178,63 +1193,6 @@ autostart(char *filename)
 }
 
 static void
-checkotherwm(void)
-{
-	/*
-	 * NOTE: Do we need to select SubstructureNotifyMask on the root window?
-	 *
-	 * We will always select StructureNotifyMask on the client windows we
-	 * are requested to map, so selecting StructureNotifyMask on the root
-	 * window seems redundant.
-	 *
-	 * I have removed this mask in the bitmask passed as the third parameter
-	 * to XSelectInput(3) down here.  If anything ever brake, just add it
-	 * back.
-	 */
-	xerrorxlib = XSetErrorHandler(xerrorstart);
-	XSelectInput(
-		dpy, root,
-		SubstructureRedirectMask |      /* so clients request us to map */
-		StructureNotifyMask |           /* get changes on root configuration */
-		PropertyChangeMask |            /* get changes on root properties */
-		ButtonPressMask                 /* to change monitor when clicking */
-	);
-	XSync(dpy, False);
-	(void)XSetErrorHandler(xerror);
-	XSync(dpy, False);
-}
-
-void
-context_add(XID id, struct Object *data)
-{
-	if (XSaveContext(dpy, id, context, (void *)data))
-		err(EXIT_FAILURE, "cannot save context");
-}
-
-void
-context_del(XID id)
-{
-	XDeleteContext(dpy, id, context);
-}
-
-struct Object *
-context_get(XID id)
-{
-	XPointer data;
-
-	if (XFindContext(dpy, id, context, &data))
-		return NULL;
-	return (struct Object *)data;
-}
-
-void
-window_del(Window window)
-{
-	context_del(window);
-	XDestroyWindow(dpy, window);
-}
-
-void
 moninit(void)
 {
 	int i;
@@ -1244,7 +1202,7 @@ moninit(void)
 	wm.xrandrev += RRScreenChangeNotify;
 }
 
-void
+static void
 mondel(struct Monitor *mon)
 {
 	TAILQ_REMOVE(&wm.monq, mon, entry);
@@ -1254,18 +1212,7 @@ mondel(struct Monitor *mon)
 	free(mon);
 }
 
-struct Monitor *
-getmon(int x, int y)
-{
-	struct Monitor *mon;
-
-	TAILQ_FOREACH(mon, &wm.monq, entry)
-		if (x >= mon->mx && x < mon->mx + mon->mw && y >= mon->my && y < mon->my + mon->mh)
-			return mon;
-	return NULL;
-}
-
-void
+static void
 monupdate(void)
 {
 	XRRScreenResources *sr;
@@ -1332,6 +1279,109 @@ next:
 	wm.setclientlist = True;
 }
 
+static void
+init(void)
+{
+	static char *atomnames[NATOMS] = {
+#define X(atom) [atom] = #atom,
+		ATOMS
+#undef  X
+	};
+	char const *dpyname;
+
+	if ((dpyname = XDisplayName(NULL)) == NULL || dpyname[0] == '\0')
+		errx(EXIT_FAILURE, "DISPLAY is not set");
+	if ((dpy = XOpenDisplay(NULL)) == NULL)
+		errx(EXIT_FAILURE, "%s: cannot open display", dpyname);
+	if (fcntl(XConnectionNumber(dpy), F_SETFD, FD_CLOEXEC) == -1)
+		err(EXIT_FAILURE, "connection to display \"%s\"", dpyname);
+	if (!XInternAtoms(dpy, atomnames, NATOMS, False, atoms))
+		errx(EXIT_FAILURE, "%s: cannot intern atoms", dpyname);
+	screen = DefaultScreen(dpy);
+	root = RootWindow(dpy, screen);
+	context = XUniqueContext();
+
+	/*
+	 * XXX: Should we select SubstructureNotifyMask on root window?
+	 * We already select StructureNotifyMask on client windows we
+	 * are requested to map, so selecting SubstructureNotifyMask on
+	 * the root window seems redundant.
+	 */
+	xerrorxlib = XSetErrorHandler(xerrorstart);
+	XSelectInput(
+		dpy, root,
+		SubstructureRedirectMask |  /* so clients request us to map */
+		StructureNotifyMask |       /* get changes on rootwin configuration */
+		PropertyChangeMask |        /* get changes on rootwin properties */
+		ButtonPressMask             /* to change monitor on mouseclick */
+	);
+	XSync(dpy, False);
+	(void)XSetErrorHandler(xerror);
+	XSync(dpy, False);
+
+	/* set properties declaring that we are EWMH compliant */
+	(void)XChangeProperty(
+		dpy, wm.checkwin, atoms[_NET_SUPPORTING_WM_CHECK],
+		XA_WINDOW, 32, PropModeReplace,
+		(void *)&wm.checkwin, 1
+	);
+	(void)XChangeProperty(
+		dpy, wm.checkwin, atoms[_NET_WM_NAME],
+		atoms[UTF8_STRING], 8, PropModeReplace,
+		(void *)"shod", strlen("shod")
+	);
+	(void)XChangeProperty(
+		dpy, root, atoms[_NET_SUPPORTING_WM_CHECK],
+		XA_WINDOW, 32, PropModeReplace,
+		(void *)&wm.checkwin, 1
+	);
+	(void)XChangeProperty(
+		dpy, root, atoms[_NET_SUPPORTED],
+		XA_ATOM, 32, PropModeReplace,
+		(void *)atoms, NATOMS
+	);
+}
+
+static void
+reset_hints(void)
+{
+	(void)XChangeProperty(
+		dpy, root, atoms[_NET_ACTIVE_WINDOW],
+		XA_WINDOW, 32, PropModeReplace, (void *)&(Window){None}, 0
+	);
+	(void)XChangeProperty(
+		dpy, root, atoms[_NET_CLIENT_LIST],
+		XA_WINDOW, 32, PropModeReplace, NULL, 0
+	);
+	(void)XChangeProperty(
+		dpy, root, atoms[_NET_CLIENT_LIST_STACKING],
+		XA_WINDOW, 32, PropModeReplace, NULL, 0
+	);
+	(void)XChangeProperty(
+		dpy, root, atoms[_SHOD_CONTAINER_LIST],
+		XA_WINDOW, 32, PropModeReplace, NULL, 0
+	);
+	(void)XChangeProperty(
+		dpy, root, atoms[_SHOD_DOCK_LIST],
+		XA_WINDOW, 32, PropModeReplace, NULL, 0
+	);
+	(void)XChangeProperty(
+		dpy, root, atoms[_NET_CURRENT_DESKTOP],
+		XA_CARDINAL, 32, PropModeReplace,
+		(void *)&(unsigned long){0}, 1
+	);
+	(void)XChangeProperty(
+		dpy, root, atoms[_NET_SHOWING_DESKTOP],
+		XA_CARDINAL, 32, PropModeReplace,
+		(void *)&(unsigned long){0}, 1
+	);
+	(void)XChangeProperty(
+		dpy, root, atoms[_NET_NUMBER_OF_DESKTOPS],
+		XA_CARDINAL, 32, PropModeReplace,
+		(void *)&config.ndesktops, 1
+	);
+}
+
 void
 fitmonitor(struct Monitor *mon, int *x, int *y, int *w, int *h, float factor)
 {
@@ -1355,28 +1405,70 @@ fitmonitor(struct Monitor *mon, int *x, int *y, int *w, int *h, float factor)
 	*y = max(mon->wy, min(mon->wy + mon->wh - *h, *y));
 }
 
+void
+context_add(XID id, struct Object *data)
+{
+	if (XSaveContext(dpy, id, context, (void *)data))
+		err(EXIT_FAILURE, "cannot save context");
+}
+
+void
+context_del(XID id)
+{
+	XDeleteContext(dpy, id, context);
+}
+
+struct Object *
+context_get(XID id)
+{
+	XPointer data;
+
+	if (XFindContext(dpy, id, context, &data))
+		return NULL;
+	return (struct Object *)data;
+}
+
+void
+window_del(Window window)
+{
+	context_del(window);
+	XDestroyWindow(dpy, window);
+}
+
+void
+window_close(Display *display, Window window)
+{
+	XEvent ev;
+
+	ev.type = ClientMessage;
+	ev.xclient.window = window;
+	ev.xclient.message_type = atoms[WM_PROTOCOLS];
+	ev.xclient.format = 32;
+	ev.xclient.data.l[0] = atoms[WM_DELETE_WINDOW];
+	ev.xclient.data.l[1] = CurrentTime;
+
+	/*
+	 * communicate with the given Client, kindly telling it to
+	 * close itself and terminate any associated processes using
+	 * the WM_DELETE_WINDOW protocol
+	 */
+	XSendEvent(display, window, False, NoEventMask, &ev);
+}
+
 int
 main(int argc, char *argv[])
 {
-	char *filename, *wmname;
+	char *filename;
 
 	if (!setlocale(LC_ALL, "") || !XSupportsLocale())
 		warnx("warning: no locale support");
-	xinit();
-	context = XUniqueContext();
-	checkotherwm();
+	init();
+	reset_hints();
 	moninit();
 	initdepth();
 	clientswa.colormap = colormap;
 	clientswa.border_pixel = BlackPixel(dpy, screen);
 	clientswa.background_pixel = BlackPixel(dpy, screen);
-
-	if ((wmname = strrchr(argv[0], '/')) != NULL)
-		wmname++;
-	else if (argv[0] != NULL && argv[0][0] != '\0')
-		wmname = argv[0];
-	else
-		wmname = "shod";
 	filename = getoptions(argc, argv);
 
 	/* check sloppy focus */
@@ -1388,7 +1480,6 @@ main(int argc, char *argv[])
 	TAILQ_INIT(&wm.stackq);
 	initsignal();
 	initcursors();
-	initatoms();
 	initdummywindows();
 	inittheme();
 	for (size_t i = 0; i < LEN(classes); i++)
@@ -1398,13 +1489,6 @@ main(int argc, char *argv[])
 	/* set up list of monitors */
 	monupdate();
 	wm.selmon = TAILQ_FIRST(&wm.monq);
-
-	/* initialize ewmh hints */
-	ewmhinit(wmname);
-	ewmhsetcurrentdesktop(0);
-	ewmhsetshowingdesktop(0);
-	ewmhsetclients();
-	ewmhsetactivewindow(None);
 
 	/* run sh script */
 	autostart(filename);
@@ -1467,10 +1551,7 @@ main(int argc, char *argv[])
 	)
 		mondel(mon);
 
-	/* clear ewmh hints */
-	ewmhsetclients();
-	ewmhsetactivewindow(None);
-
+	reset_hints();
 	XUngrabPointer(dpy, CurrentTime);
 	XUngrabKeyboard(dpy, CurrentTime);
 	XCloseDisplay(dpy);

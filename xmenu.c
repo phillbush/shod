@@ -1,7 +1,34 @@
 #include "shod.h"
 
 #define BORDER          1       /* pixel size of decoration around menus */
+
+struct Menu {
+	struct Object obj;
+	struct Monitor *mon;
+	Window leader;
+
+	/*
+	 * Frames, pixmaps, saved pixmap geometry, etc
+	 */
+	Window titlebar;                        /* close button */
+	Window button;                          /* close button */
+	Window frame;                           /* frame window */
+	Pixmap pixtitlebar;                     /* pixmap to draw the titlebar */
+	int pw, ph;                             /* pixmap size */
+	int tw;                                 /* titlebar pixmap size */
+
+	int x, y, w, h;                         /* geometry of the menu window + the frame */
+	int ignoreunmap;                        /* number of unmapnotifys to ignore */
+	char *name;                             /* client name */
+};
+
 static struct Queue managed_menus;
+
+static int
+istabformenu(struct Tab *tab, struct Menu *menu)
+{
+	return (menu->leader == tab->obj.win || menu->leader == tab->leader);
+}
 
 /* remove menu from the menu list */
 static void
@@ -12,22 +39,21 @@ menudelraise(struct Menu *menu)
 	TAILQ_REMOVE(&managed_menus, (struct Object *)menu, entry);
 }
 
-/* configure menu window */
-void
-menuconfigure(struct Menu *menu, unsigned int valuemask, XWindowChanges *wc)
+static void
+menudecorate(struct Menu *menu)
 {
-	if (menu == NULL)
-		return;
-	if (valuemask & CWX)
-		menu->x = wc->x - BORDER;
-	if (valuemask & CWY)
-		menu->y = wc->y - config.titlewidth;
-	if (valuemask & CWWidth)
-		menu->w = wc->width + 2 * BORDER;
-	if (valuemask & CWHeight)
-		menu->h = wc->height + BORDER + config.titlewidth;
-	menumoveresize(menu);
-	menudecorate(menu);
+	int tw;
+
+	tw = max(1, menu->w - config.titlewidth);
+	updatepixmap(&menu->pixtitlebar, &menu->tw, NULL, tw, config.titlewidth);
+	drawshadow(
+		menu->pixtitlebar,
+		0, 0, tw, config.titlewidth,
+		FOCUSED, False, config.shadowthickness
+	);
+	drawtitle(menu->pixtitlebar, menu->name, tw, 0, FOCUSED, 0, 1);
+	drawcommit(wm.decorations[FOCUSED].btn_right, menu->button);
+	drawcommit(menu->pixtitlebar, menu->titlebar);
 }
 
 static void
@@ -42,17 +68,8 @@ menunotify(struct Menu *menu)
 	);
 }
 
-static void
-menuincrmove(struct Menu *menu, int x, int y)
-{
-	menu->x += x;
-	menu->y += y;
-	XMoveWindow(dpy, menu->frame, menu->x, menu->y);
-	menunotify(menu);
-}
-
 /* commit menu geometry */
-void
+static void
 menumoveresize(struct Menu *menu)
 {
 	XMoveResizeWindow(dpy, menu->frame, menu->x, menu->y, menu->w, menu->h);
@@ -72,32 +89,23 @@ menumoveresize(struct Menu *menu)
 	menunotify(menu);
 }
 
-/* decorate menu */
-void
-menudecorate(struct Menu *menu)
+static void
+menuincrmove(struct Menu *menu, int x, int y)
 {
-	int tw;
-
-	tw = max(1, menu->w - config.titlewidth);
-	updatepixmap(&menu->pixtitlebar, &menu->tw, NULL, tw, config.titlewidth);
-	drawshadow(
-		menu->pixtitlebar,
-		0, 0, tw, config.titlewidth,
-		FOCUSED, False, config.shadowthickness
-	);
-	drawtitle(menu->pixtitlebar, menu->name, tw, 0, FOCUSED, 0, 1);
-	drawcommit(wm.decorations[FOCUSED].btn_right, menu->button);
-	drawcommit(menu->pixtitlebar, menu->titlebar);
+	menu->x += x;
+	menu->y += y;
+	XMoveWindow(dpy, menu->frame, menu->x, menu->y);
+	menunotify(menu);
 }
 
-void
+static void
 menufocus(struct Menu *menu)
 {
 	XSetInputFocus(dpy, menu->obj.win, RevertToParent, CurrentTime);
 }
 
 /* put menu on beginning of menu list */
-void
+static void
 menufocusraise(struct Menu *menu)
 {
 	menudelraise(menu);
@@ -106,7 +114,7 @@ menufocusraise(struct Menu *menu)
 }
 
 /* place menu next to its container */
-void
+static void
 menuplace(struct Monitor *mon, struct Menu *menu)
 {
 	fitmonitor(mon, &menu->x, &menu->y, &menu->w, &menu->h, 1.0);
@@ -114,7 +122,7 @@ menuplace(struct Monitor *mon, struct Menu *menu)
 }
 
 /* raise desktop menu */
-void
+static void
 menuraise(struct Menu *menu)
 {
 	Window wins[2];
@@ -158,6 +166,11 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader
 	};
 	context_add(win, &menu->obj);
 	menu->frame = createframe((XRectangle){0, 0, framew, frameh});
+	XGrabButton(
+		dpy, AnyButton, AnyModifier,
+		menu->frame, False, MOUSE_EVENTS,
+		GrabModeSync, GrabModeAsync, None, None
+	);
 	menu->titlebar = createdecoration(
 		menu->frame,
 		(XRectangle){0, 0, titlew, config.titlewidth},
@@ -210,34 +223,6 @@ unmanage(struct Object *obj)
 	free(menu);
 }
 
-/* check if given tab accepts given menu */
-int
-istabformenu(struct Tab *tab, struct Menu *menu)
-{
-	return (menu->leader == tab->obj.win || menu->leader == tab->leader);
-}
-
-/* map menus for current focused tab */
-void
-menuupdate(void)
-{
-	struct Object *obj;
-	struct Menu *menu;
-
-	TAILQ_FOREACH(obj, &managed_menus, entry) {
-		menu = ((struct Menu *)obj);
-		if (menu->leader == None)
-			continue;
-		if (!wm.showingdesk && wm.focused != NULL && istabformenu(wm.focused->selcol->selrow->seltab, menu)) {
-			XMapWindow(dpy, menu->frame);
-			icccmwmstate(obj->win, NormalState);
-		} else {
-			XUnmapWindow(dpy, ((struct Menu *)obj)->frame);
-			icccmwmstate(obj->win, IconicState);
-		}
-	}
-}
-
 static void
 drag_move(struct Menu *menu, int xroot, int yroot)
 {
@@ -256,7 +241,7 @@ drag_move(struct Menu *menu, int xroot, int yroot)
 			break;
 		if (event.type != MotionNotify)
 			continue;
-		if (!compress_motion(&event))
+		if (!compress_motion(dpy, &event))
 			continue;
 		x = event.xmotion.x_root - xroot;
 		y = event.xmotion.y_root - yroot;
@@ -374,7 +359,7 @@ drag_resize(struct Menu *menu, int border, int xroot, int yroot)
 		}
 		xroot = motion->x_root;
 		yroot = motion->y_root;
-		if (!compress_motion(&event))
+		if (!compress_motion(dpy, &event))
 			continue;
 		menumoveresize(menu);
 	}
@@ -515,6 +500,34 @@ handle_message(struct Object *self, Atom message, long int data[5])
 }
 
 static void
+handle_configure(struct Object *self, unsigned int valuemask, XWindowChanges *wc)
+{
+	struct Menu *menu = (struct Menu *)self;
+
+	if (menu == NULL)
+		return;
+	if (valuemask & CWX)
+		menu->x = wc->x - BORDER;
+	if (valuemask & CWY)
+		menu->y = wc->y - config.titlewidth;
+	if (valuemask & CWWidth)
+		menu->w = wc->width + 2 * BORDER;
+	if (valuemask & CWHeight)
+		menu->h = wc->height + BORDER + config.titlewidth;
+	menumoveresize(menu);
+	menudecorate(menu);
+}
+
+static void
+handle_enter(struct Object *self)
+{
+	struct Menu *menu = (struct Menu *)self;
+
+	if (config.sloppyfocus)
+		menufocusraise(menu);
+}
+
+static void
 restack(void)
 {
 	Window wins[2];
@@ -532,6 +545,26 @@ restack(void)
 	}
 }
 
+void
+menuupdate(void)
+{
+	struct Object *obj;
+	struct Menu *menu;
+
+	TAILQ_FOREACH(obj, &managed_menus, entry) {
+		menu = ((struct Menu *)obj);
+		if (menu->leader == None)
+			continue;
+		if (!wm.showingdesk && wm.focused != NULL && istabformenu(wm.focused->selcol->selrow->seltab, menu)) {
+			XMapWindow(dpy, menu->frame);
+			icccmwmstate(obj->win, NormalState);
+		} else {
+			XUnmapWindow(dpy, ((struct Menu *)obj)->frame);
+			icccmwmstate(obj->win, IconicState);
+		}
+	}
+}
+
 struct Class menu_class = {
 	.setstate       = NULL,
 	.manage         = manage,
@@ -543,5 +576,8 @@ struct Class menu_class = {
 	.monitor_reset  = monitor_reset,
 	.redecorate_all = redecorate_all,
 	.handle_property = handle_property,
+	.handle_configure = handle_configure,
+	.handle_enter   = handle_enter,
+	.handle_message = handle_message,
 	.restack        = restack,
 };

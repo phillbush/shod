@@ -10,6 +10,7 @@ XrmDatabase xdb = NULL;
 
 #define MIN_SHADOW_THICKNESS 1
 #define MAX_SHADOW_THICKNESS 2
+#define MOUSE_EVENTS (ButtonReleaseMask|ButtonPressMask|PointerMotionMask)
 
 static GC gc;
 static struct Theme {
@@ -36,20 +37,6 @@ openfont(const char *s)
 		if ((font = XftFontOpenName(dpy, screen, s)) == NULL)
 			warnx("could not open font: %s", s);
 	return font;
-}
-
-static Window
-createwindow(Window parent, XRectangle geom, long mask, XSetWindowAttributes *attrs)
-{
-	mask |= CWColormap | CWBackPixel | CWBorderPixel;
-	attrs->colormap = colormap;
-	attrs->border_pixel = BlackPixel(dpy, screen);
-	attrs->background_pixel = BlackPixel(dpy, screen);
-	return XCreateWindow(
-		dpy, parent,
-		geom.x, geom.y, geom.width, geom.height, 0,
-		depth, InputOutput, visual, mask, attrs
-	);
 }
 
 static void
@@ -477,36 +464,44 @@ set_theme(void)
 	return 1;
 }
 
+static Window
+createwindow(Window parent, XRectangle geom, long mask, XSetWindowAttributes *attrs)
+{
+	XSetWindowAttributes new_attrs = {0};
+
+	if (attrs == NULL)
+		attrs = &new_attrs;
+	mask |= CWEventMask|CWColormap|CWBackPixel|CWBorderPixel;
+	attrs->event_mask |= MOUSE_EVENTS;
+	attrs->colormap = colormap;
+	attrs->border_pixel = BlackPixel(dpy, screen);
+	attrs->background_pixel = BlackPixel(dpy, screen);
+	return XCreateWindow(
+		dpy, parent,
+		geom.x, geom.y, geom.width, geom.height, 0,
+		depth, InputOutput, visual, mask, attrs
+	);
+}
+
 Window
 createframe(XRectangle geom)
 {
-#define MOUSE_EVENTS (ButtonReleaseMask|ButtonPressMask|PointerMotionMask)
 	XSetWindowAttributes attrs = {
-		.event_mask = MOUSE_EVENTS | FocusChangeMask |
-		StructureNotifyMask | SubstructureRedirectMask,
+		.event_mask = EnterWindowMask | FocusChangeMask |
+		StructureNotifyMask|SubstructureRedirectMask,
 	};
-	Window frame;
 
-	if (config.sloppyfocus || config.sloppytiles)
-		attrs.event_mask |= EnterWindowMask;
-	frame = createwindow(root, geom, CWEventMask, &attrs);
-	XGrabButton(
-		dpy, AnyButton, AnyModifier,
-		frame, True, MOUSE_EVENTS,
-		GrabModeSync, GrabModeAsync, None, None
-	);
-	return frame;
+	return createwindow(root, geom, CWEventMask, &attrs);
 }
 
 Window
 createdecoration(Window frame, XRectangle geom, Cursor cursor, int gravity)
 {
 	return createwindow(
-		frame, geom, CWEventMask|CWCursor|CWWinGravity,
+		frame, geom, CWCursor|CWWinGravity,
 		&(XSetWindowAttributes){
 			.cursor = cursor,
 			.win_gravity = gravity,
-			.event_mask = MOUSE_EVENTS,
 		}
 	);
 }
