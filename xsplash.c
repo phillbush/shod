@@ -35,7 +35,7 @@ splashrise(struct Splash *splash)
 	Window wins[2];
 
 	wins[1] = splash->obj.win;
-	wins[0] = wm.layers[LAYER_NORMAL].obj.win;
+	wins[0] = wm.layertop[LAYER_NORMAL];
 	XRestackWindows(dpy, wins, 2);
 }
 
@@ -51,6 +51,7 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win,
 	splash = emalloc(sizeof(*splash));
 	*splash = (struct Splash){
 		.obj.win = win,
+		.obj.self = splash,
 		.obj.class = &splash_class,
 		.w = rect.width,
 		.h = rect.height,
@@ -68,7 +69,7 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win,
 static void
 unmanage(struct Object *obj)
 {
-	struct Splash *splash = (struct Splash *)obj;
+	struct Splash *splash = obj->self;
 
 	context_del(obj->win);
 	TAILQ_REMOVE(&managed_splashs, (struct Object *)splash, entry);
@@ -92,12 +93,22 @@ clean(void)
 }
 
 static void
+btnpress(struct Object *obj, XButtonPressedEvent *press)
+{
+	struct Splash *splash = obj->self;
+
+	if (press->button != Button1)
+		return;
+	splashrise(splash);
+}
+
+static void
 monitor_delete(struct Monitor *mon)
 {
 	struct Object *obj;
 
 	TAILQ_FOREACH(obj, &managed_splashs, entry) {
-		struct Splash *splash = (struct Splash *)obj;
+		struct Splash *splash = obj->self;
 		if (splash->mon == mon)
 			splash->mon = NULL;
 	}
@@ -109,7 +120,7 @@ monitor_reset(void)
 	struct Object *obj;
 
 	TAILQ_FOREACH(obj, &managed_splashs, entry) {
-		struct Splash *splash = (struct Splash *)obj;
+		struct Splash *splash = obj->self;
 		if (splash->mon == NULL)
 			splashplace(wm.selmon, splash);
 	}
@@ -121,7 +132,7 @@ show_desktop(void)
 	struct Object *obj;
 
 	TAILQ_FOREACH(obj, &managed_splashs, entry)
-		splashhide((struct Splash *)obj, True);
+		splashhide(obj->self, True);
 }
 
 static void
@@ -130,7 +141,7 @@ hide_desktop(void)
 	struct Object *obj;
 
 	TAILQ_FOREACH(obj, &managed_splashs, entry)
-		splashhide((struct Splash *)obj, True);
+		splashhide(obj->self, True);
 }
 
 static void
@@ -139,7 +150,7 @@ change_desktop(struct Monitor *mon, int desk_old, int desk_new)
 	struct Object *obj;
 
 	TAILQ_FOREACH(obj, &managed_splashs, entry) {
-		struct Splash *splash = (struct Splash *)obj;
+		struct Splash *splash = obj->self;
 
 		if (splash->mon != mon)
 			continue;
@@ -157,6 +168,7 @@ struct Class splash_class = {
 	.unmanage       = unmanage,
 	.init           = init,
 	.clean          = clean,
+	.btnpress       = btnpress,
 	.monitor_delete = monitor_delete,
 	.monitor_reset  = monitor_reset,
 	.show_desktop   = show_desktop,

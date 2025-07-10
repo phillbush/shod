@@ -36,50 +36,50 @@ monitor_reset(void)
 
 	h = 0;
 	TAILQ_FOREACH(n, &managed_notifications, entry) {
-		notif = (struct Notification *)n;
-		x = TAILQ_FIRST(&wm.monq)->wx;
-		y = TAILQ_FIRST(&wm.monq)->wy;
+		notif = n->self;
+		x = wm.monitors[0]->wx;
+		y = wm.monitors[0]->wy;
 		switch (config.notifgravity[0]) {
 		case 'N':
 			switch (config.notifgravity[1]) {
 			case 'W':
 				break;
 			case 'E':
-				x += TAILQ_FIRST(&wm.monq)->ww - notif->w;
+				x += wm.monitors[0]->ww - notif->w;
 				break;
 			default:
-				x += (TAILQ_FIRST(&wm.monq)->ww - notif->w) / 2;
+				x += (wm.monitors[0]->ww - notif->w) / 2;
 				break;
 			}
 			break;
 		case 'S':
 			switch(config.notifgravity[1]) {
 			case 'W':
-				y += TAILQ_FIRST(&wm.monq)->wh - notif->h;
+				y += wm.monitors[0]->wh - notif->h;
 				break;
 			case 'E':
-				x += TAILQ_FIRST(&wm.monq)->ww - notif->w;
-				y += TAILQ_FIRST(&wm.monq)->wh - notif->h;
+				x += wm.monitors[0]->ww - notif->w;
+				y += wm.monitors[0]->wh - notif->h;
 				break;
 			default:
-				x += (TAILQ_FIRST(&wm.monq)->ww - notif->w) / 2;
-				y += TAILQ_FIRST(&wm.monq)->wh - notif->h;
+				x += (wm.monitors[0]->ww - notif->w) / 2;
+				y += wm.monitors[0]->wh - notif->h;
 				break;
 			}
 			break;
 		case 'W':
-			y += (TAILQ_FIRST(&wm.monq)->wh - notif->h) / 2;
+			y += (wm.monitors[0]->wh - notif->h) / 2;
 			break;
 		case 'C':
-			x += (TAILQ_FIRST(&wm.monq)->ww - notif->w) / 2;
-			y += (TAILQ_FIRST(&wm.monq)->wh - notif->h) / 2;
+			x += (wm.monitors[0]->ww - notif->w) / 2;
+			y += (wm.monitors[0]->wh - notif->h) / 2;
 			break;
 		case 'E':
-			x += TAILQ_FIRST(&wm.monq)->ww - notif->w;
-			y += (TAILQ_FIRST(&wm.monq)->wh - notif->h) / 2;
+			x += wm.monitors[0]->ww - notif->w;
+			y += (wm.monitors[0]->wh - notif->h) / 2;
 			break;
 		default:
-			x += TAILQ_FIRST(&wm.monq)->ww - notif->w;
+			x += wm.monitors[0]->ww - notif->w;
 			break;
 		}
 
@@ -114,8 +114,9 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader
 		.w = rect.width + 2 * config.borderwidth,
 		.h = rect.height + 2 * config.borderwidth,
 		.pix = None,
-		.obj.class = &notif_class,
 		.obj.win = win,
+		.obj.self = notif,
+		.obj.class = &notif_class,
 	};
 	context_add(win, &notif->obj);
 	TAILQ_INSERT_TAIL(&managed_notifications, (struct Object *)notif, entry);
@@ -128,7 +129,7 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader
 static void
 unmanage(struct Object *obj)
 {
-	struct Notification *notif = (struct Notification *)obj;
+	struct Notification *notif = obj->self;
 
 	context_del(obj->win);
 	TAILQ_REMOVE(&managed_notifications, (struct Object *)notif, entry);
@@ -161,7 +162,7 @@ redecorate_all(void)
 	struct Object *obj;
 
 	TAILQ_FOREACH(obj, &managed_notifications, entry)
-		notifdecorate((struct Notification *)obj);
+		notifdecorate(obj->self);
 }
 
 struct Class notif_class = {

@@ -2,6 +2,16 @@
 
 #define DOCKBORDER 1
 
+struct Dock {
+	struct Object obj;
+
+	struct Queue dappq;
+	Pixmap pix;                     /* dock pixmap */
+	int x, y, w, h;                 /* dock geometry */
+	int pw, ph;                     /* dock pixmap size */
+	enum State state;
+};
+
 struct Dockapp {
 	struct Object obj;
 	int x, y, w, h;                 /* dockapp position and size */
@@ -11,18 +21,19 @@ struct Dockapp {
 	int slotsize;                   /* size of the slot the dockapp is in */
 };
 
+static struct Dock dock;
+
 static void
 restack(void)
 {
 	Window wins[2];
 
-	if (wm.focused != NULL && wm.focused->state & FULLSCREEN &&
-	    wm.focused->mon == TAILQ_FIRST(&wm.monq))
-		wins[0] = wm.focused->obj.win;
+	if (focused_is_fullscreen())
+		wins[0] = wm.focused->win;
 	else if (dock.state & BELOW)
-		wins[0] = wm.layers[LAYER_DESK].obj.win;
+		wins[0] = wm.layertop[LAYER_DESK];
 	else
-		wins[0] = wm.layers[LAYER_DOCK].obj.win;
+		wins[0] = wm.layertop[LAYER_DOCK];
 	wins[1] = dock.obj.win;
 	XRestackWindows(dpy, wins, 2);
 }
@@ -83,7 +94,7 @@ dockdecorate(void)
 static void
 handle_configure(struct Object *self, unsigned int valuemask, XWindowChanges *wc)
 {
-	struct Dockapp *dapp = (struct Dockapp *)self;
+	struct Dockapp *dapp = self->self;
 
 	if (valuemask & CWWidth)
 		dapp->w = wc->width;
@@ -148,15 +159,14 @@ dockapppos(int pos)
 static void
 dockupdateresizeable(void)
 {
-	struct Monitor *mon;
+	struct Monitor *mon = wm.monitors[0];
 	struct Object *p;
 	struct Dockapp *dapp;
 	int size;
 
-	mon = TAILQ_FIRST(&wm.monq);
 	size = 0;
 	TAILQ_FOREACH(p, &dock.dappq, entry) {
-		dapp = (struct Dockapp *)p;
+		dapp = p->self;
 		switch (config.dockgravity[0]) {
 		case 'N':
 			if (dapp->state & RESIZED)
@@ -255,7 +265,7 @@ dockupdateresizeable(void)
 		}
 	}
 	TAILQ_FOREACH(p, &dock.dappq, entry) {
-		dapp = (struct Dockapp *)p;
+		dapp = p->self;
 		XMoveResizeWindow(dpy, dapp->obj.win, dapp->x, dapp->y, dapp->w, dapp->h);
 		winnotify(dapp->obj.win, dock.x + dapp->x, dock.y + dapp->y, dapp->w, dapp->h);
 	}
@@ -266,12 +276,11 @@ static void
 dockupdatefull(void)
 {
 	struct Object *p;
-	struct Monitor *mon;
+	struct Monitor *mon = wm.monitors[0];
 	struct Dockapp *dapp;
 	int part, nextend, size;
 	int i, n;
 
-	mon = TAILQ_FIRST(&wm.monq);
 	switch (config.dockgravity[0]) {
 	case 'N':
 		dock.x = mon->mx;
@@ -306,7 +315,7 @@ dockupdatefull(void)
 	nextend = 0;
 	size = 0;
 	TAILQ_FOREACH(p, &dock.dappq, entry) {
-		dapp = (struct Dockapp *)p;
+		dapp = p->self;
 		if (dapp->state & EXTEND) {
 			nextend++;
 		} else {
@@ -319,7 +328,7 @@ dockupdatefull(void)
 	i = 0;
 	size = 0;
 	TAILQ_FOREACH(p, &dock.dappq, entry) {
-		dapp = (struct Dockapp *)p;
+		dapp = p->self;
 		switch (config.dockgravity[0]) {
 		case 'N':
 			if (dapp->state & RESIZED)
@@ -419,8 +428,9 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader
 	(void)leader;
 	dapp = emalloc(sizeof(*dapp));
 	*dapp = (struct Dockapp){
-		.obj.class = &dockapp_class,
 		.obj.win = win,
+		.obj.self = dapp,
+		.obj.class = &dockapp_class,
 		.x = 0,
 		.y = 0,
 		.w = rect.width,
@@ -438,48 +448,13 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader
 static void
 unmanage(struct Object *obj)
 {
-	struct Dockapp *dapp = (struct Dockapp *)obj;
+	struct Dockapp *dapp = obj->self;
 
 	TAILQ_REMOVE(&dock.dappq, (struct Object *)dapp, entry);
 	XReparentWindow(dpy, dapp->obj.win, root, 0, 0);
 	free(dapp);
 	dockupdate();
 	update_window_area();
-}
-
-void
-dockreset(void)
-{
-	struct Queue dappq;
-	struct Object *obj;
-	struct Dockapp *dapp;
-	Window win, dummyw;
-	struct Tab *dummyt;
-	XRectangle rect;
-	enum State state;
-	int desk;
-
-	TAILQ_INIT(&dappq);
-	while ((obj = TAILQ_FIRST(&dock.dappq)) != NULL) {
-		TAILQ_REMOVE(&dock.dappq, obj, entry);
-		TAILQ_INSERT_TAIL(&dappq, obj, entry);
-	}
-	while ((obj = TAILQ_FIRST(&dappq)) != NULL) {
-		TAILQ_REMOVE(&dappq, obj, entry);
-		win = obj->win;
-		dapp = (struct Dockapp *)obj;
-#warning TODO remove getwinclass call here; check property directly instead
-		if (getwinclass(win, &dummyw, &dummyt, &state, &rect, &desk) == &dockapp_class) {
-			if (rect.x > 0) {
-				dapp->dockpos = rect.x;
-			}
-			if (state != 0) {
-				dapp->state = state;
-			}
-		}
-		dockappinsert(dapp);
-	}
-	dockupdate();
 }
 
 static void
@@ -566,6 +541,37 @@ clean(void)
 	XDestroyWindow(dpy, dock.obj.win);
 }
 
+static void
+monitor_reset(void)
+{
+	struct Monitor *mon = wm.monitors[0];
+	int left, right, top, bottom;
+
+	left = right = top = bottom = 0;
+	if (!TAILQ_EMPTY(&dock.dappq) &&
+	    (dock.state & MAXIMIZED) && !(dock.state & MINIMIZED)) {
+		switch (config.dockgravity[0]) {
+		case 'N':
+			top = config.dockwidth;
+			break;
+		case 'S':
+			bottom = config.dockwidth;
+			break;
+		case 'W':
+			left = config.dockwidth;
+			break;
+		case 'E':
+		default:
+			right = config.dockwidth;
+			break;
+		}
+	}
+	mon->wx = max(mon->wx, mon->mx + left);
+	mon->wy = max(mon->wy, mon->my + top);
+	mon->ww = max(1, min(mon->ww, mon->mw - left - right));
+	mon->wh = max(1, min(mon->wh, mon->mh - top - bottom));
+}
+
 struct Class dock_class = {
 	.setstate       = changestate,
 	.manage         = NULL,
@@ -581,4 +587,5 @@ struct Class dockapp_class = {
 	.init           = init,
 	.clean          = clean,
 	.handle_configure = handle_configure,
+	.monitor_reset  = monitor_reset,
 };

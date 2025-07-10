@@ -3,53 +3,6 @@
 #include "xutil.h"
 
 #define MOUSE_EVENTS (ButtonReleaseMask|ButtonPressMask|PointerMotionMask)
-#define TAB_FOREACH_BEGIN(c, tab) {                             \
-	struct Object *col, *row;                                     \
-	TAILQ_FOREACH_REVERSE(col, &(c)->colq, Queue, entry) {           \
-		TAILQ_FOREACH_REVERSE(row, &((struct Column *)col)->rowq, Queue, entry) {      \
-			TAILQ_FOREACH_REVERSE(tab, &((struct Row *)row)->tabq, Queue, entry)
-#define TAB_FOREACH_END }                                       \
-		}                                               \
-	}
-
-#define RESOURCES                                                                        \
-	/*                      CLASS                        NAME                      */\
-	X(RES_TYPE,            "Type",                      "type"                      )\
-	X(RES_STATE,           "State",                     "state"                     )\
-	X(RES_DESKTOP,         "Desktop",                   "desktop"                   )\
-	X(RES_DOCK_POS,        "Dockpos",                   "dockpos"                   )\
-	X(RES_FACE_NAME,       "FaceName",                  "faceName"                  )\
-	X(RES_FOREGROUND,      "Foreground",                "foreground"                )\
-	X(RES_DOCK_BACKGROUND, "DockBackground",            "dockBackground"            )\
-	X(RES_DOCK_BORDER,     "DockBorder",                "dockBorder"                )\
-	X(RES_ACTIVE_BG,       "ActiveBackground",          "activeBackground"          )\
-	X(RES_ACTIVE_TOP,      "ActiveTopShadowColor",      "activeTopShadowColor"      )\
-	X(RES_ACTIVE_BOT,      "ActiveBottomShadowColor",   "activeBottomShadowColor"   )\
-	X(RES_INACTIVE_BG,     "InactiveBackground",        "inactiveBackground"        )\
-	X(RES_INACTIVE_TOP,    "InactiveTopShadowColor",    "inactiveTopShadowColor"    )\
-	X(RES_INACTIVE_BOT,    "InactiveBottomShadowColor", "inactiveBottomShadowColor" )\
-	X(RES_URGENT_BG,       "UrgentBackground",          "urgentBackground"          )\
-	X(RES_URGENT_TOP,      "UrgentTopShadowColor",      "urgentTopShadowColor"      )\
-	X(RES_URGENT_BOT,      "UrgentBottomShadowColor",   "urgentBottomShadowColor"   )\
-	X(RES_BORDER_WIDTH,    "BorderWidth",               "borderWidth"               )\
-	X(RES_SHADOW_WIDTH,    "ShadowThickness",           "shadowThickness"           )\
-	X(RES_TITLE_WIDTH,     "TitleWidth",                "titleWidth"                )\
-	X(RES_DOCK_WIDTH,      "DockWidth",                 "dockWidth"                 )\
-	X(RES_DOCK_SPACE,      "DockSpace",                 "dockSpace"                 )\
-	X(RES_DOCK_GRAVITY,    "DockGravity",               "dockGravity"               )\
-	X(RES_NOTIFY_GAP,      "NotifGap",                  "notifGap"                  )\
-	X(RES_NOTIFY_GRAVITY,  "NotifGravity",              "notifGravity"              )\
-	X(RES_NDESKTOPS,       "NumOfDesktops",             "numOfDesktops"             )\
-	X(RES_SNAP_PROXIMITY,  "SnapProximity",             "snapProximity"             )\
-	X(RES_MOVE_TIME,       "MoveTime",                  "moveTime"                  )\
-	X(RES_RESIZE_TIME,     "ResizeTime",                "resizeTime"                )
-
-enum Resource {
-#define X(res, class, name) res,
-	RESOURCES
-	NRESOURCES
-#undef  X
-};
 
 enum border {
 	/* border array indices */
@@ -108,7 +61,6 @@ enum {
 };
 
 enum {
-	/* window layer array indices */
 	LAYER_DESK,
 	LAYER_BELOW,
 	LAYER_NORMAL,
@@ -116,23 +68,6 @@ enum {
 	LAYER_MENU,
 	LAYER_DOCK,
 	LAYER_LAST
-};
-
-enum {
-	/* strut elements array indices */
-	STRUT_LEFT              = 0,
-	STRUT_RIGHT             = 1,
-	STRUT_TOP               = 2,
-	STRUT_BOTTOM            = 3,
-	STRUT_LEFT_START_Y      = 4,
-	STRUT_LEFT_END_Y        = 5,
-	STRUT_RIGHT_START_Y     = 6,
-	STRUT_RIGHT_END_Y       = 7,
-	STRUT_TOP_START_X       = 8,
-	STRUT_TOP_END_X         = 9,
-	STRUT_BOTTOM_START_X    = 10,
-	STRUT_BOTTOM_END_X      = 11,
-	STRUT_LAST              = 12,
 };
 
 enum State {
@@ -179,173 +114,35 @@ enum {
 TAILQ_HEAD(Queue, Object);
 struct Object {
 	TAILQ_ENTRY(Object) entry;
+	TAILQ_ENTRY(Object) z_entry;
 	Window win;
 	struct Class *class;
+	void *self;
 };
 
-struct Row {
-	struct Object obj;
-
-	struct Queue tabq;                      /* list of tabs */
-
-	/*
-	 * Each columnt is split vertically into rows; and each row
-	 * contains tabs.  We maintain in a row its list of tabs, and
-	 * a pointer to its parent column.
-	 */
-	struct Column *col;                     /* pointer to parent column */
-	struct Tab *seltab;                     /* pointer to selected tab */
-	int ntabs;                              /* number of tabs */
-
-	/* At the bottom of each column, except the bottomost one, ther
-	 * is a divisor handle which can be dragged to resize the row.
-	 * There are also other windows forming a row:
-	 * - The divisor.
-	 * - The frame below the tab windows.
-	 * - The title bar where the tabs are drawn.
-	 * - The left (row maximize) button.
-	 * - The right (close) button.
-	 */
-	Window frame;                           /* where tab frames are */
-	Window bar;                             /* title bar frame */
-	Window bl;                              /* left button */
-	Window br;                              /* right button */
-
-	/*
-	 * We only keep the vertical geometry of a row (ie', its y
-	 * position and its height), because, since a row horizontally
-	 * spans its parent column width, its horizontal geometry is
-	 * equal to the geometry of its parent column.
-	 */
-	double fact;                            /* factor of height relative to container */
-	int y, h;                               /* row geometry */
-
-	/*
-	 * Whether the frame is unmapped
-	 */
-	int isunmapped;
-};
-
-struct Column {
-	struct Object obj;
-
-	struct Queue rowq;                      /* list of rows */
-
-	/*
-	 * Each container is split horizontally into columns; and each
-	 * column is split vertically into rows.  We maintain in a
-	 * column its list of rows, and a pointer to its parent
-	 * container.
-	 */
-	struct Container *c;                    /* pointer to parent container */
-	struct Row *selrow;                     /* pointer to selected row */
-
-	/*
-	 * We only keep the horizontal geometry of a column (ie', its x
-	 * position and its width), because, since a column vertically
-	 * spans its parent container height, its vertical geometry is
-	 * equal to the geometry of its parent container.
-	 */
-	double fact;                            /* factor of width relative to container */
-	int nrows;                              /* number of rows */
-	int x, w;                               /* column geometry */
-};
-
-TAILQ_HEAD(ContainerQueue, Container);
-struct Container {
-	struct Object obj;
-
-	/*
-	 * The container is the main entity the user interact with, and
-	 * the windows of most applications are mapped into a container.
-	 *
-	 * A container is an element of two queues:
-	 * - The focus queue is a list of containers in the focus order.
-	 *   There is only one focus queue.
-	 * - A raise queue is a list of containers in the Z-axis order.
-	 *   There are one raise queue for each layer of containers
-	 *   (fullscreen, above, middle and below).
-	 */
-	TAILQ_ENTRY(Container) raiseentry;      /* entry for a raise queue */
-
-	/*
-	 * A container contains a list of columns.
-	 * A column contains a list of rows.
-	 * A row contains a list of tabs.
-	 * A tab contains an application window and a list of menus and
-	 * a list of dialogs.
-	 *
-	 * A container with no column is a dummy container, used as
-	 * placeholders on the Z-axis list.
-	 */
-	struct Queue colq;                      /* list of columns in container */
-	struct Column *selcol;                  /* pointer to selected container */
-	int ncols;                              /* number of columns */
-
-	/*
-	 * A container appears on a certain desktop of a certain monitor.
-	 */
-	struct Monitor *mon;                    /* monitor container is on */
-	int desk;                               /* desktop container is on */
-
-	Window borders[BORDER_LAST];
-
-	/*
-	 * A container has three geometries (position and size): one for
-	 * when it is maximized, one for when it is fullscreen, and one
-	 * for when it is floating.  The maximized and fullscreen
-	 * geometry of a container is obvious (they can be inferred from
-	 * the monitor size).  We then save the non-maximized geometry.
-	 * We also save the current geometry (which can be one of those
-	 * three).
-	 */
-	int x, y, w, h, b;                      /* current geometry */
-	int nx, ny, nw, nh;                     /* non-maximized geometry */
-
-	/*
-	 * Container state bitmask.
-	 */
-	enum State state;
-	Bool ishidden;                          /* whether container is hidden */
-};
-
-TAILQ_HEAD(MonitorQueue, Monitor);
 struct Monitor {
 	/*
-	 * Each monitor has a focused desktop (a value between 0 and
-	 * config.ndesktops - 1).  A monitor also has two geometries:
-	 * its full actual geometry (a rectangle spanning the entire
-	 * monitor), and the window area (a rectangle spanning only
-	 * the area without any dock, bar, panel, etc (that is, the
-	 * area where containers can be maximized into).
+	 * Interned atom identifying the monitor.
 	 */
-	TAILQ_ENTRY(Monitor) entry;
+	Atom name;
+
+	/*
+	 * Focused desktop (a value between 0 and config.ndesktops-1).
+	 * Each monitor has a separate focused desktop.
+	 */
 	int seldesk;                            /* focused desktop on that monitor */
+
+	/*
+	 * Monitor area: a rectangle spanning the entire monitor.
+	 */
 	int mx, my, mw, mh;                     /* monitor size */
+
+	/*
+	 * Window area: a rectangle spanning only the region within the
+	 * monitor without any dock/bar/panel (that is, the region where
+	 * containers can be maximized into).
+	 */
 	int wx, wy, ww, wh;                     /* window area */
-};
-
-struct Class {
-	/* class methods */
-	void (*init)(void);
-	void (*clean)(void);
-	void (*manage)(struct Tab *, struct Monitor *, int, Window, Window, XRectangle, enum State);
-	void (*restack)(void);
-	void (*monitor_delete)(struct Monitor *);
-	void (*monitor_reset)(void);
-	void (*redecorate_all)(void);
-	void (*show_desktop)(void);
-	void (*hide_desktop)(void);
-	void (*change_desktop)(struct Monitor *, int, int);
-
-	/* instance methods */
-	void (*setstate)(struct Object *, enum State, int);
-	void (*unmanage)(struct Object *);
-	void (*btnpress)(struct Object *, XButtonPressedEvent *);
-	void (*handle_property)(struct Object *, Atom);
-	void (*handle_message)(struct Object *, Atom, long[5]);
-	void (*handle_configure)(struct Object *, unsigned int, XWindowChanges *);
-	void (*handle_enter)(struct Object *);
 };
 
 struct Tab {
@@ -401,52 +198,44 @@ struct Tab {
 	char *name;                             /* client name */
 };
 
+struct Class {
+	/* class methods */
+	void (*init)(void);
+	void (*clean)(void);
+	void (*manage)(struct Tab *, struct Monitor *, int, Window, Window, XRectangle, enum State);
+	void (*restack)(void);
+	void (*monitor_delete)(struct Monitor *);
+	void (*monitor_reset)(void);
+	void (*redecorate_all)(void);
+	void (*reload_theme)(void);
+	void (*show_desktop)(void);
+	void (*hide_desktop)(void);
+	void (*change_desktop)(struct Monitor *, int, int);
+	void (*list_clients)(void);
+
+	/* instance methods */
+	void (*focus)(struct Object *);
+	void (*setstate)(struct Object *, enum State, int);
+	void (*unmanage)(struct Object *);
+	void (*btnpress)(struct Object *, XButtonPressedEvent *);
+	void (*redecorate)(struct Object *);
+	void (*handle_property)(struct Object *, Atom);
+	void (*handle_message)(struct Object *, Atom, long[5]);
+	void (*handle_configure)(struct Object *, unsigned int, XWindowChanges *);
+	void (*handle_enter)(struct Object *);
+};
+
 struct WM {
-	Bool running;
+	int nmonitors;
+	struct Monitor **monitors;
+	struct Monitor *selmon;
 
-	struct MonitorQueue monq;               /* queue of monitors */
-	int nclients;                           /* total number of container windows */
+	Window layertop[LAYER_LAST];
+	struct Object *focused;                 /* pointer to focused container */
 
-	/*
-	 * Resources
-	 */
-	struct {
-		XrmClass class;
-		XrmName name;
-	} application, resources[NRESOURCES];
-	XrmQuark anyresource;
-
-	/*
-	 * Xrandr information.
-	 */
-	int xrandr;                             /* whether Xrandr is being used */
-	int xrandrev;                           /* event base for Xrandr */
-
-	/*
-	 * Containers are listed by the focusq queue; they are also
-	 * listed under the stackq list, ordered by its position on
-	 * the Z-axis.
-	 *
-	 * Since there are 4 layers on the Z-axis and we often need
-	 * to move a container to the top of its layer, we have four
-	 * "dummy" containers used as placeholder as the top of each
-	 * layer on the stackq list.
-	 *
-	 * There is also a dummy window to place the dock.
-	 */
-	struct ContainerQueue stackq;
-#warning TODO: remove the .layers member; use separate lists of containers instead
-	struct Container layers[LAYER_LAST];
-	Window docklayer;                       /* dummy window used to set dock layer */
-
-	/*
-	 * We maintain a pointer to the focused container and the
-	 * previously focused one.  And also a pointer to the focused
-	 * monitor which will receive new containers.
-	 */
-	struct Container *focused;              /* pointer to focused container */
-	struct Container *prevfocused;          /* pointer to previously focused container */
-	struct Monitor *selmon;                 /* pointer to selected monitor */
+	Cursor cursors[CURSOR_LAST];            /* cursors for the mouse pointer */
+	int showingdesk;                        /* whether the desktop is being shown */
+	int minsize;                            /* minimum size of a container */
 
 	/*
 	 * Dummy windows
@@ -456,39 +245,12 @@ struct WM {
 	Window dragwin;                         /* follows mouse while dragging */
 	Window restackwin;                      /* reordered in Z axis to save a position */
 
-	Cursor cursors[CURSOR_LAST];            /* cursors for the mouse pointer */
-	int showingdesk;                        /* whether the desktop is being shown */
-	int minsize;                            /* minimum size of a container */
-
 	/*
 	 * Whenever a function adds or removes a client, this value is
 	 * set.  At the end of each main loop iteration, it is checked
 	 * and the list of clients is changed accordingly.
 	 */
 	Bool setclientlist;
-
-	Window presswin;
-
-	struct {
-		Pixmap btn_left;
-		Pixmap btn_right;
-		Pixmap bar_vert;
-		Pixmap bar_horz;
-		Pixmap corner_nw;
-		Pixmap corner_ne;
-		Pixmap corner_sw;
-		Pixmap corner_se;
-	} decorations[STYLE_LAST];
-};
-
-struct Dock {
-	struct Object obj;
-
-	struct Queue dappq;
-	Pixmap pix;                     /* dock pixmap */
-	int x, y, w, h;                 /* dock geometry */
-	int pw, ph;                     /* dock pixmap size */
-	enum State state;
 };
 
 struct Config {
@@ -542,27 +304,23 @@ struct Config {
 	int divwidth;                           /* = .borderwidth */
 };
 
-struct Container *getnextfocused(struct Monitor *mon, int desk);
+struct Theme {
+	XftFont *font;
+	XftColor colors[STYLE_LAST][COLOR_LAST];
+};
+
+void focusnext(struct Monitor *mon, int desk);
 void alttab(KeyCode altkey, KeyCode tabkey, Bool shift);
-void tabfocus(struct Tab *tab, int gotodesk);
 struct Tab *gettabfrompid(unsigned long pid);
 struct Tab *getleaderof(Window leader);
-int containerisvisible(struct Container *c, struct Monitor *mon, int desk);
-void menuupdate(void);
-void dockreset(void);
+Bool focused_follows_leader(Window leader);
+Bool focused_is_fullscreen(void);
 
 /* wm hints and messages routines */
 void icccmdeletestate(Window win);
 void icccmwmstate(Window win, int state);
 void ewmhsetframeextents(Window win, int b, int t);
-void ewmhsetclients(void);
-void ewmhsetstate(struct Container *c);
-void ewmhsetactivewindow(Window w);
-void ewmhsetcurrentdesktop(unsigned long n);
-void ewmhsetshowingdesktop(int n);
 void shoddocks(void);
-void shodgrouptab(struct Container *c);
-void shodgroupcontainer(struct Container *c);
 void winupdatetitle(Window win, char **name);
 void winnotify(Window win, int x, int y, int w, int h);
 void winclose(Window win);
@@ -572,7 +330,6 @@ void mapwin(Window win);
 /* decoration routines */
 Window createframe(XRectangle geom);
 Window createdecoration(Window frame, XRectangle geom, Cursor curs, int gravity);
-char *getresource(XrmDatabase xdb, XrmClass *class, XrmName *name);
 void updatepixmap(Pixmap *pix, int *pixw, int *pixh, int w, int h);
 void drawcommit(Pixmap pix, Window win);
 void backgroundcommit(Window, int style);
@@ -582,16 +339,10 @@ void drawshadow(Pixmap pix, int x, int y, int w, int h, int style, int pressed, 
 void drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int pressed, int ismenu);
 void drawprompt(Pixmap pix, int w, int h);
 void redecorate(Window win, int border, int style, Bool pressed);
-void cleantheme(void);
-void setresources(char *xrm);
-void initdepth(void);
-void inittheme(void);
 
 void fitmonitor(struct Monitor *mon, int *x, int *y, int *w, int *h, float factor);
 struct Monitor *getmon(int x, int y);
-void deskupdate(struct Monitor *mon, int desk);
-struct Class *getwinclass(Window win, Window *leader, struct Tab **tab,
-                          enum State *state, XRectangle *rect, int *desk);
+void deskupdate(struct Monitor *mon, long desk);
 
 Bool isvalidstate(unsigned int state);
 
@@ -608,11 +359,12 @@ extern Atom atoms[NATOMS];
 extern int screen;
 extern struct Config config;
 extern struct WM wm;
-extern struct Dock dock;
 extern Visual *visual;
 extern Colormap colormap;
 extern unsigned int depth;
 extern XrmDatabase xdb;
+extern GC gc;
+extern struct Theme theme;
 
 /* object classes */
 extern struct Class bar_class;

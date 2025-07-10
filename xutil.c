@@ -124,7 +124,10 @@ getcardprop(Display *display, Window window, Atom property)
 long
 getatomsprop(Display *display, Window window, Atom property, Atom **data)
 {
-	return getprop(display, window, property, XA_ATOM, 32, 0, data);
+	return getprop(
+		display, window, property,
+		XA_ATOM, 32, 0, (void *)data
+	);
 }
 
 Atom

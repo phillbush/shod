@@ -1,5 +1,22 @@
 #include "shod.h"
 
+enum {
+	/* strut elements array indices */
+	STRUT_LEFT              = 0,
+	STRUT_RIGHT             = 1,
+	STRUT_TOP               = 2,
+	STRUT_BOTTOM            = 3,
+	STRUT_LEFT_START_Y      = 4,
+	STRUT_LEFT_END_Y        = 5,
+	STRUT_RIGHT_START_Y     = 6,
+	STRUT_RIGHT_END_Y       = 7,
+	STRUT_TOP_START_X       = 8,
+	STRUT_TOP_END_X         = 9,
+	STRUT_BOTTOM_START_X    = 10,
+	STRUT_BOTTOM_END_X      = 11,
+	STRUT_LAST              = 12,
+};
+
 struct Bar {
 	struct Object obj;
 	struct Monitor *mon;
@@ -14,22 +31,22 @@ static struct Queue managed_bars;
 static void
 barstrut(struct Bar *bar)
 {
-	unsigned long *arr;
-	unsigned long l, i;
+	long *arr;
+	long l, i;
 
 	for (i = 0; i < STRUT_LAST; i++)
 		bar->strut[i] = 0;
 	bar->ispartial = 1;
 	l = getcardsprop(dpy, bar->obj.win, atoms[_NET_WM_STRUT_PARTIAL], &arr);
-	if (arr == NULL) {
+	if (l != 12) {
 		bar->ispartial = 0;
 		l = getcardsprop(dpy, bar->obj.win, atoms[_NET_WM_STRUT], &arr);
-		if (arr == NULL) {
-			return;
-		}
+		if (l != 4)
+			goto error;
 	}
 	for (i = 0; i < STRUT_LAST && i < l; i++)
 		bar->strut[i] = arr[i];
+error:
 	XFree(arr);
 }
 
@@ -38,13 +55,12 @@ barstack(struct Bar *bar)
 {
 	Window wins[2];
 
-	if (wm.focused != NULL && wm.focused->mon == bar->mon &&
-	    wm.focused->state & FULLSCREEN)
-		wins[0] = wm.focused->obj.win;
+	if (focused_is_fullscreen())
+		wins[0] = wm.focused->win;
 	else if (bar->state & BELOW)
-		wins[0] = wm.layers[LAYER_DESK].obj.win;
+		wins[0] = wm.layertop[LAYER_DESK];
 	else
-		wins[0] = wm.layers[LAYER_DOCK].obj.win;
+		wins[0] = wm.layertop[LAYER_DOCK];
 	wins[1] = bar->obj.win;
 	XRestackWindows(dpy, wins, 2);
 }
@@ -55,7 +71,7 @@ restack(void)
 	struct Object *obj;
 
 	TAILQ_FOREACH(obj, &managed_bars, entry)
-		barstack((struct Bar *)obj);
+		barstack(obj->self);
 }
 
 void
@@ -65,13 +81,11 @@ shoddocks(void)
 	Window *wins;
 	int nwins, ndocks;
 
-	ndocks = 1;     /* +1 for the internal dock */
+	ndocks = 0;
 	TAILQ_FOREACH(obj, &managed_bars, entry)
 		ndocks++;
 	nwins = 0;
 	wins = ecalloc(ndocks, sizeof(*wins));
-	if (!TAILQ_EMPTY(&dock.dappq))
-		wins[nwins++] = dock.obj.win;
 	TAILQ_FOREACH(obj, &managed_bars, entry)
 		wins[nwins++] = obj->win;
 	XChangeProperty(
@@ -153,37 +167,16 @@ is_bar_at_mon(struct Monitor *mon, struct Bar *bar, int *l, int *r, int *t, int 
 static void
 monitor_reset(void)
 {
-	struct Monitor *mon;
-	struct Object *obj;
-	int l, r, t, b;
-	int left, right, top, bottom;
+	for (int i = 0; i < wm.nmonitors; i++) {
+		struct Monitor *mon = wm.monitors[i];
+		struct Object *obj;
+		int left, right, top, bottom;
 
-	TAILQ_FOREACH(mon, &wm.monq, entry) {
-		mon->wx = mon->mx;
-		mon->wy = mon->my;
-		mon->ww = mon->mw;
-		mon->wh = mon->mh;
 		left = right = top = bottom = 0;
-		if (mon == TAILQ_FIRST(&wm.monq) && !TAILQ_EMPTY(&dock.dappq) &&
-		    (dock.state & MAXIMIZED) && !(dock.state & MINIMIZED)) {
-			switch (config.dockgravity[0]) {
-			case 'N':
-				top = config.dockwidth;
-				break;
-			case 'S':
-				bottom = config.dockwidth;
-				break;
-			case 'W':
-				left = config.dockwidth;
-				break;
-			case 'E':
-			default:
-				right = config.dockwidth;
-				break;
-			}
-		}
 		TAILQ_FOREACH(obj, &managed_bars, entry) {
-			struct Bar *bar = (struct Bar *)obj;
+			struct Bar *bar = obj->self;
+			int l, r, t, b;
+
 			if (is_bar_at_mon(mon, bar, &l, &r, &t, &b))
 				bar->mon = mon;
 			left   = max(left, l);
@@ -191,10 +184,10 @@ monitor_reset(void)
 			top    = max(top, t);
 			bottom = max(bottom, b);
 		}
-		mon->wy += top;
-		mon->wh -= top + bottom;
-		mon->wx += left;
-		mon->ww -= left + right;
+		mon->wx = max(mon->wx, mon->mx + left);
+		mon->wy = max(mon->wy, mon->my + top);
+		mon->ww = max(1, min(mon->ww, mon->mw - left - right));
+		mon->wh = max(1, min(mon->wh, mon->mh - top - bottom));
 	}
 }
 
@@ -220,6 +213,7 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader
 	*bar = (struct Bar){
 		.obj.win = win,
 		.obj.class = &bar_class,
+		.obj.self = bar,
 		.state = state | MAXIMIZED,
 		.mon = NULL,
 	};
@@ -235,7 +229,7 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader
 static void
 unmanage(struct Object *obj)
 {
-	struct Bar *bar = (struct Bar *)obj;
+	struct Bar *bar = obj->self;
 
 	context_del(obj->win);
 	TAILQ_REMOVE(&managed_bars, (struct Object *)bar, entry);
@@ -247,23 +241,17 @@ unmanage(struct Object *obj)
 static void
 toggleabove(struct Bar *bar)
 {
-	Window wins[2] = {wm.layers[LAYER_DOCK].obj.win, bar->obj.win};
-
-	XRestackWindows(dpy, wins, 2);
 	bar->state &= ~BELOW;
 	bar->state ^= ABOVE;
+	barstack(bar);
 }
 
 static void
 togglebelow(struct Bar *bar)
 {
-	Window wins[2] = {wm.layers[LAYER_DESK].obj.win, bar->obj.win};
-
-	if (bar->state & BELOW)         /* bar is below; move it back to above */
-		wins[0] = wm.layers[LAYER_DOCK].obj.win;
-	XRestackWindows(dpy, wins, 2);
 	bar->state &= ~ABOVE;
 	bar->state ^= BELOW;
+	barstack(bar);
 }
 
 static void
@@ -301,7 +289,7 @@ changestate(struct Object *obj, enum State mask, int set)
 	struct Bar *bar;
 	size_t i;
 
-	bar = (struct Bar *)obj;
+	bar = obj->self;
 	for (i = 0; i < LEN(togglers); i++) {
 		state = togglers[i].state;
 		if (!(mask & state))
@@ -336,7 +324,7 @@ monitor_delete(struct Monitor *mon)
 	struct Object *obj;
 
 	TAILQ_FOREACH(obj, &managed_bars, entry) {
-		struct Bar *bar = (struct Bar *)obj;
+		struct Bar *bar = obj->self;
 		if (bar->mon == mon)
 			bar->mon = NULL;
 	}
@@ -345,7 +333,7 @@ monitor_delete(struct Monitor *mon)
 static void
 handle_property(struct Object *self, Atom property)
 {
-	struct Bar *bar = (struct Bar *)self;
+	struct Bar *bar = self->self;
 
 	if (property == _NET_WM_STRUT_PARTIAL || property == _NET_WM_STRUT) {
 		barstrut(bar);

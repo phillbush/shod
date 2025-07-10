@@ -103,11 +103,7 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win,
 done:
 	XReparentWindow(dpy, win, root, 0, 0);
 	XDestroyWindow(dpy, frame);
-	if (wm.focused) {
-		tabfocus(wm.focused->selcol->selrow->seltab, 0);
-	} else {
-		tabfocus(NULL, 0);
-	}
+	focusnext(wm.selmon, wm.selmon->seldesk);
 }
 
 struct Class prompt_class = {
