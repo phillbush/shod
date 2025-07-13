@@ -587,14 +587,6 @@ done:
 	return class;
 }
 
-/* select window input events, grab mouse button presses, and clear its border */
-static void
-preparewin(Window win)
-{
-	XSelectInput(dpy, win, StructureNotifyMask|PropertyChangeMask|FocusChangeMask);
-	XSetWindowBorderWidth(dpy, win, 0);
-}
-
 static void
 deskshow(long show)
 {
@@ -632,7 +624,8 @@ manage(Window win, XRectangle rect)
 
 	if (context_get(win) != NULL)
 		return;
-	preparewin(win);
+	XSelectInput(dpy, win, StructureNotifyMask|PropertyChangeMask|FocusChangeMask);
+	XSetWindowBorderWidth(dpy, win, 0);
 	class = getwinclass(win, &leader, &tab, &state, &rect, &desk);
 	(*class->manage)(tab, wm.selmon, desk, win, leader, rect, state);
 }
@@ -953,6 +946,17 @@ xeventclientmessage(XEvent *event)
 			handle_message, wm.focused,
 			message->message_type, message->data.l
 		);
+	} else if (message->message_type == atoms[_NET_REQUEST_FRAME_EXTENTS]) {
+		XChangeProperty(
+			dpy, message->window, atoms[_NET_FRAME_EXTENTS],
+			XA_CARDINAL, 32, PropModeReplace,
+			(void *)(long[]){
+				config.borderwidth,
+				config.borderwidth,
+				config.borderwidth + config.titlewidth,
+				config.borderwidth,
+			}, 4
+		);
 	} else if (message->message_type == atoms[_NET_CURRENT_DESKTOP]) {
 		deskfocus(wm.selmon, message->data.l[0]);
 	} else if (message->message_type == atoms[_SHOD_CYCLE]) {
@@ -1039,6 +1043,7 @@ xeventdestroynotify(XEvent *e)
 		return;
 	}
 	CALL_METHOD(unmanage, obj);
+	XDeleteProperty(dpy, obj->win, atoms[WM_STATE]);
 }
 
 static void
@@ -1960,6 +1965,24 @@ window_close(Display *display, Window window)
 	XSendEvent(display, window, False, NoEventMask, &ev);
 }
 
+void
+winupdatetitle(Window win, char **name)
+{
+	Atom properties[] = {atoms[_NET_WM_NAME], XA_WM_NAME};
+
+	free(*name);
+	for (size_t i = 0; i < LEN(properties); i++) {
+		if (getprop(
+			dpy, win, properties[i],
+			AnyPropertyType, 8, 0,
+			(void *)name
+		) > 0)
+			return;
+		XFree(*name);
+	}
+	*name = NULL;
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -1990,7 +2013,7 @@ main(int argc, char *argv[])
 			[UnmapNotify]      = xeventunmapnotify,
 		};
 
-		(void)XNextEvent(dpy, &event);
+		XNextEvent(dpy, &event);
 		if (event.type < LASTEvent && event_handlers[event.type] != NULL) {
 			(*event_handlers[event.type])(&event);
 		} else if (has_xrandr && event.type == screen_change_event) {

@@ -315,17 +315,9 @@ struct Tab *gettabfrompid(unsigned long pid);
 struct Tab *getleaderof(Window leader);
 Bool focused_follows_leader(Window leader);
 Bool focused_is_fullscreen(void);
-
-/* wm hints and messages routines */
-void icccmdeletestate(Window win);
-void icccmwmstate(Window win, int state);
-void ewmhsetframeextents(Window win, int b, int t);
 void shoddocks(void);
 void winupdatetitle(Window win, char **name);
-void winnotify(Window win, int x, int y, int w, int h);
-void winclose(Window win);
-void unmapwin(Window win);
-void mapwin(Window win);
+void window_configure_notify(Display *display, Window window, int x, int y, int w, int h);
 
 /* decoration routines */
 Window createframe(XRectangle geom);
@@ -377,3 +369,44 @@ extern struct Class prompt_class;
 extern struct Class splash_class;
 extern struct Class tab_class;
 extern struct Class container_class;
+
+/* overridden XLib routines */
+
+#define XNextEvent(dpy, evp) do { \
+	XNextEvent((dpy), (evp)); \
+	if ((evp)->type != MotionNotify || compress_motion((dpy), (evp))) \
+		break; \
+	} while(1)
+
+#define XMaskEvent(dpy, mask, evp) do { \
+	XMaskEvent((dpy), (mask), (evp)); \
+	if ((evp)->type != MotionNotify || compress_motion((dpy), (evp))) \
+		break; \
+	} while(1)
+
+#define XMapWindow(dpy, win) do { \
+	XMapWindow((dpy), (win)); \
+	XChangeProperty( \
+		dpy, win, atoms[WM_STATE], atoms[WM_STATE], \
+		32, PropModeReplace, (void *)&(long[]){ \
+			[0] = NormalState, \
+			[1] = None, \
+		}, 2 \
+	); \
+} while(0)
+
+#define XUnmapWindow(dpy, win) do { \
+	XWindowAttributes _attrs = {0}; \
+	if (!XGetWindowAttributes((dpy), (win), &_attrs)) \
+		_attrs.your_event_mask = 0; \
+	XSelectInput((dpy), (win), _attrs.your_event_mask & ~StructureNotifyMask); \
+	XUnmapWindow((dpy), (win)); \
+	XSelectInput((dpy), (win), _attrs.your_event_mask); \
+	XChangeProperty( \
+		dpy, win, atoms[WM_STATE], atoms[WM_STATE], \
+		32, PropModeReplace, (void *)&(long[]){ \
+			[0] = IconicState, \
+			[1] = None, \
+		}, 2 \
+	); \
+} while(0)

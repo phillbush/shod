@@ -17,7 +17,6 @@ struct Config config = {
 	.sloppytiles    = 0,            /* set to 1 to use sloppy window focus */
 	.honorconfig    = 0,            /* set to 1 to honor configure requests */
 	.disablealttab  = 0,            /* set to 1 to disable alt-tab */
-	.disablehidden  = 0,            /* set to 1 to disable notification of hidden window as minimized */
 
 	/* general configuration */
 	.altkeysym      = XK_Alt_L,     /* XK_Alt_L for Alt, XK_Super_L for Super (aka WinKey) */

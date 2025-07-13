@@ -166,3 +166,25 @@ compress_motion(Display *display, XEvent *event)
 	last_motion = event->xmotion.time;
 	return True;
 }
+
+void
+window_configure_notify(Display *display, Window window, int x, int y, int w, int h)
+{
+	XSendEvent(
+		display, window, False,
+		StructureNotifyMask,
+		(XEvent *)&(XConfigureEvent){
+			.type = ConfigureNotify,
+			.display = display,
+			.x = x,
+			.y = y,
+			.width = w,
+			.height = h,
+			.border_width = 0,
+			.above = None,
+			.override_redirect = False,
+			.event = window,
+			.window = window,
+		}
+	);
+}

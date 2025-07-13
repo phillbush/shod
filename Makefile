@@ -1,4 +1,4 @@
-SHOD_OBJS   = shod.o config.o xhints.o xdraw.o \
+SHOD_OBJS   = shod.o config.o xdraw.o \
               xcontainer.o xmenu.o xbar.o xdock.o xsplash.o xnotif.o xprompt.o
 SHODC_OBJS  = shodc.o
 SHARED_OBJS = xutil.o

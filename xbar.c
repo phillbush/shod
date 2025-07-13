@@ -267,9 +267,9 @@ toggleminimized(struct Bar *bar)
 
 	win = bar->obj.win;
 	if (bar->state & MINIMIZED)
-		mapwin(win);
+		XMapWindow(dpy, win);
 	else
-		unmapwin(win);
+		XUnmapWindow(dpy, win);
 	bar->state ^= MINIMIZED;
 }
 

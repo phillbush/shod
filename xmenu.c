@@ -48,18 +48,6 @@ menudecorate(struct Menu *menu)
 	drawcommit(menu->pixtitlebar, menu->titlebar);
 }
 
-static void
-menunotify(struct Menu *menu)
-{
-	winnotify(
-		menu->obj.win,
-		menu->x + BORDER,
-		menu->y + config.titlewidth,
-		menu->w - 2 * BORDER,
-		menu->h - BORDER - config.titlewidth
-	);
-}
-
 /* commit menu geometry */
 static void
 menumoveresize(struct Menu *menu)
@@ -72,17 +60,13 @@ menumoveresize(struct Menu *menu)
 		max(1, menu->h - BORDER - config.titlewidth)
 	);
 	menu->mon = getmon(menu->x, menu->y);
-	menudecorate(menu);
-	menunotify(menu);
-}
-
-static void
-menuincrmove(struct Menu *menu, int x, int y)
-{
-	menu->x += x;
-	menu->y += y;
-	XMoveWindow(dpy, menu->frame, menu->x, menu->y);
-	menunotify(menu);
+	window_configure_notify(
+		dpy, menu->obj.win,
+		menu->x + BORDER,
+		menu->y + config.titlewidth,
+		menu->w - 2 * BORDER,
+		menu->h - BORDER - config.titlewidth
+	);
 }
 
 static void
@@ -165,13 +149,22 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader
 		menu->obj.win, menu->frame,
 		BORDER, config.titlewidth
 	);
+	XChangeProperty(
+		dpy, win, atoms[_NET_FRAME_EXTENTS],
+		XA_CARDINAL, 32, PropModeReplace,
+		(void *)(long[]){
+			config.borderwidth,
+			config.borderwidth,
+			config.borderwidth + config.titlewidth,
+			config.borderwidth,
+		}, 4
+	);
 	XMapWindow(dpy, menu->obj.win);
 	XMapWindow(dpy, menu->titlebar);
 
 	menu->leader = leader;
 	winupdatetitle(menu->obj.win, &menu->name);
 	TAILQ_INSERT_HEAD(&managed_menus, (struct Object *)menu, entry);
-	icccmwmstate(menu->obj.win, NormalState);
 	menuplace(mon, menu);           /* this will set menu->mon for us */
 	menudecorate(menu);
 	menuraise(menu);
@@ -191,7 +184,6 @@ unmanage(struct Object *obj)
 	menudelraise(menu);
 	if (menu->pixtitlebar != None)
 		XFreePixmap(dpy, menu->pixtitlebar);
-	icccmdeletestate(menu->obj.win);
 	XReparentWindow(dpy, menu->obj.win, root, 0, 0);
 	XDestroyWindow(dpy, menu->frame);
 	XDestroyWindow(dpy, menu->titlebar);
@@ -212,7 +204,8 @@ drag_move(struct Menu *menu, int xroot, int yroot)
 		None, wm.cursors[CURSOR_MOVE], CurrentTime
 	) != GrabSuccess)
 		return;
-	while (!XMaskEvent(dpy, ButtonReleaseMask|PointerMotionMask, &event)) {
+	for (;;) {
+		XMaskEvent(dpy, ButtonReleaseMask|PointerMotionMask, &event);
 		if (event.type == ButtonRelease)
 			break;
 		if (event.type != MotionNotify)
@@ -221,7 +214,9 @@ drag_move(struct Menu *menu, int xroot, int yroot)
 			continue;
 		x = event.xmotion.x_root - xroot;
 		y = event.xmotion.y_root - yroot;
-		menuincrmove(menu, x, y);
+		menu->x += x;
+		menu->y += y;
+		menumoveresize(menu);
 		xroot = event.xmotion.x_root;
 		yroot = event.xmotion.y_root;
 	}
@@ -296,9 +291,10 @@ drag_resize(struct Menu *menu, int border, int xroot, int yroot)
 		None, cursor, CurrentTime
 	) != GrabSuccess)
 		return;
-	while (!XMaskEvent(dpy, ButtonReleaseMask|PointerMotionMask, &event)) {
+	for (;;) {
 		int dx, dy;
 
+		XMaskEvent(dpy, ButtonReleaseMask|PointerMotionMask, &event);
 		if (event.type == ButtonRelease)
 			break;
 		if (event.type != MotionNotify)
@@ -515,7 +511,13 @@ hide_desktop(void)
 			continue;
 		if (focused_follows_leader(menu->leader)) {
 			XMapWindow(dpy, menu->frame);
-			icccmwmstate(obj->win, NormalState);
+			XChangeProperty(
+				dpy, menu->obj.win, atoms[WM_STATE], atoms[WM_STATE],
+				32, PropModeReplace, (void *)&(long[]){
+					[0] = NormalState,
+					[1] = None,
+				}, 2
+			);
 		}
 	}
 }
@@ -531,7 +533,13 @@ show_desktop(void)
 		if (menu->leader == None)
 			continue;
 		XUnmapWindow(dpy, ((struct Menu *)obj)->frame);
-		icccmwmstate(obj->win, IconicState);
+			XChangeProperty(
+				dpy, menu->obj.win, atoms[WM_STATE], atoms[WM_STATE],
+				32, PropModeReplace, (void *)&(long[]){
+					[0] = IconicState,
+					[1] = None,
+				}, 2
+			);
 	}
 }
 

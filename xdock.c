@@ -155,6 +155,21 @@ dockapppos(int pos)
 	return max(0, config.dockwidth / 2 - pos / 2);
 }
 
+static void
+dappmoveresize(struct Dockapp *dapp)
+{
+	XMoveResizeWindow(
+		dpy, dapp->obj.win,
+		dapp->x, dapp->y,
+		dapp->w, dapp->h
+	);
+	window_configure_notify(
+		dpy, dapp->obj.win,
+		dock.x + dapp->x, dock.y + dapp->y,
+		dapp->w, dapp->h
+	);
+}
+
 /* update dock position; create it, if necessary */
 static void
 dockupdateresizeable(void)
@@ -266,8 +281,7 @@ dockupdateresizeable(void)
 	}
 	TAILQ_FOREACH(p, &dock.dappq, entry) {
 		dapp = p->self;
-		XMoveResizeWindow(dpy, dapp->obj.win, dapp->x, dapp->y, dapp->w, dapp->h);
-		winnotify(dapp->obj.win, dock.x + dapp->x, dock.y + dapp->y, dapp->w, dapp->h);
+		dappmoveresize(dapp);
 	}
 }
 
@@ -380,8 +394,7 @@ dockupdatefull(void)
 			dapp->y = size + max(0, (n - dapp->h) / 2);
 			break;
 		}
-		XMoveResizeWindow(dpy, dapp->obj.win, dapp->x, dapp->y, dapp->w, dapp->h);
-		winnotify(dapp->obj.win, dock.x + dapp->x, dock.y + dapp->y, dapp->w, dapp->h);
+		dappmoveresize(dapp);
 		size += n;
 	}
 }

@@ -37,8 +37,7 @@ Window
 createframe(XRectangle geom)
 {
 	XSetWindowAttributes attrs = {
-		.event_mask = EnterWindowMask | FocusChangeMask |
-		StructureNotifyMask|SubstructureRedirectMask,
+		.event_mask = EnterWindowMask | FocusChangeMask,
 	};
 
 	return createwindow(root, geom, CWEventMask, &attrs);

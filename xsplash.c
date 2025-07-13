@@ -24,9 +24,9 @@ static void
 splashhide(struct Splash *splash, int hide)
 {
 	if (hide)
-		unmapwin(splash->obj.win);
+		XUnmapWindow(dpy, splash->obj.win);
 	else
-		mapwin(splash->obj.win);
+		XMapWindow(dpy, splash->obj.win);
 }
 
 static void
@@ -73,7 +73,6 @@ unmanage(struct Object *obj)
 
 	context_del(obj->win);
 	TAILQ_REMOVE(&managed_splashs, (struct Object *)splash, entry);
-	icccmdeletestate(splash->obj.win);
 	free(splash);
 }
 

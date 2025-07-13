@@ -95,7 +95,13 @@ monitor_reset(void)
 		if (notif->pw != notif->w || notif->ph != notif->h) {
 			notifdecorate(notif);
 		}
-		winnotify(notif->obj.win, x + config.borderwidth, y + config.borderwidth, notif->w - 2 * config.borderwidth, notif->h - 2 * config.borderwidth);
+		window_configure_notify(
+			dpy, notif->obj.win,
+			x + config.borderwidth,
+			y + config.borderwidth,
+			notif->w - 2 * config.borderwidth,
+			notif->h - 2 * config.borderwidth
+		);
 	}
 }
 
