@@ -61,9 +61,8 @@ updatepixmap(Pixmap *pix, int *pixw, int *pixh, int w, int h)
 #define PIXMAP_INCREMENT        64
 
 	if (*pix != None) {
-		if (pixw != NULL && w <= *pixw)
+		if (pixw != NULL && pixh != NULL && w <= *pixw && h <= *pixh)
 			return;
-		if (pixh != NULL && h <= *pixh)
 		XFreePixmap(dpy, *pix);
 	}
 	if (pixw != NULL && w > *pixw)
