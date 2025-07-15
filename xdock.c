@@ -431,11 +431,11 @@ update_window_area(void)
 }
 
 static void
-manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
+manage(struct Object *p, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
 {
 	struct Dockapp *dapp;
 
-	(void)tab;
+	(void)p;
 	(void)mon;
 	(void)desk;
 	(void)leader;

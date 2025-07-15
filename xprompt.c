@@ -52,7 +52,7 @@ promptdecorate(Window frame, Pixmap *pix, int w, int h)
 }
 
 static void
-manage(struct Tab *tab, struct Monitor *mon, int desk, Window win,
+manage(struct Object *tab, struct Monitor *mon, int desk, Window win,
        Window leader, XRectangle rect, enum State state)
 {
 	Window frame;                           /* prompt frame */

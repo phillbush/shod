@@ -5,6 +5,59 @@
 	for (struct Object *_row = TAILQ_FIRST(&((struct Column *)_col)->rowq); _row != NULL; _row = TAILQ_NEXT(_row, entry)) \
 	for (tab = TAILQ_FIRST(&((struct Row *)_row)->tabq); tab != NULL; tab = TAILQ_NEXT(tab, entry))
 
+struct Tab {
+	struct Object obj;
+
+	/*
+	 * Additionally to the application window (in .obj), a tab
+	 * contains a list of swallowed dialogs (unless -d is given) and
+	 * a list of detached menus.  A tab also contains a pointer to
+	 * its parent row.
+	 */
+	struct Queue dialq;                     /* queue of dialogs */
+	struct Row *row;                        /* pointer to parent row */
+
+	/*
+	 * The application whose windows the tab maintains can be
+	 * grouped under a leader window (which is not necessarily
+	 * mapped on the screen).
+	 */
+	Window leader;                          /* the group leader of the window */
+
+	/*
+	 * Visually, a tab is composed of a title bar (aka tab); and a
+	 * frame window which the application window and swallowed
+	 * dialog windows are child of.
+	 */
+	Window title;                           /* title bar (tab) */
+	Window frame;                           /* window to reparent the client window */
+
+	/*
+	 * First we draw into pixmaps, and then copy their contents
+	 * into the frame and title windows themselves whenever they
+	 * are damaged.  It is necessary to redraw on the pixmaps only
+	 * when the titlebar or frame resizes; so we save the geometry
+	 * of hte pixmaps to compare with the size of their windows.
+	 */
+	Pixmap pix;                             /* pixmap to draw the background of the frame */
+	Pixmap pixtitle;                        /* pixmap to draw the background of the title window */
+	int ptw;                                /* pixmap width for the title window */
+	int pw, ph;                             /* pixmap size of the frame */
+
+	/*
+	 * Geometry of the title bar (aka tab).
+	 */
+	int x, w;                               /* title bar geometry */
+	unsigned int pid;
+
+	/*
+	 * Name of the tab's application window, its size and urgency.
+	 */
+	int winw, winh;                         /* window geometry */
+	Bool isurgent;                          /* whether tab is urgent */
+	char *name;                             /* client name */
+};
+
 struct Dialog {
 	struct Object obj;
 	struct Tab *tab;                        /* pointer to parent tab */
@@ -544,7 +597,7 @@ tabmoveresize(struct Tab *tab)
 		tabdecorate(tab, False);
 	window_configure_notify(
 		dpy, tab->obj.win,
-		container->x + container,
+		container->x + tab->row->col->x,
 		container->y + tab->row->y + config.titlewidth,
 		tab->winw, tab->winh
 	);
@@ -803,7 +856,7 @@ tabfocus(struct Tab *tab, int gotodesk)
 	if (prevfocused != NULL && prevfocused != wm.focused) {
 		prevfocused->class->redecorate(prevfocused);
 		if (prevfocused->class == &container_class)
-			setstate_recursive(c);
+			setstate_recursive(prevfocused->self);
 	}
 	if (wm.showingdesk)
 		menu_class.show_desktop();
@@ -826,8 +879,9 @@ dialog_configure(struct Object *self, unsigned int valuemask, XWindowChanges *wc
 }
 
 static void
-managedialog(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
+managedialog(struct Object *app, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
 {
+	struct Tab *tab = app->self;
 	struct Dialog *dial;
 
 	(void)mon;
@@ -1953,14 +2007,33 @@ containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle r
 	wm.setclientlist = True;
 }
 
-/* create container for tab */
-static void
-managecontainer(struct Tab *prev, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
+static struct Tab *
+getleaderof(Window leader)
 {
-	struct Tab *tab;
+	struct Object *c, *tab;
+
+	if (leader == None)
+		return NULL;
+	if ((tab = context_get(leader)) != NULL && tab->class == &tab_class)
+		return tab->self;
+	TAILQ_FOREACH(c, &focus_history, entry) {
+		TAB_FOREACH((struct Container *)c, tab) {
+			if (((struct Tab *)tab)->leader == leader)
+				return tab->self;
+		}
+	}
+	return NULL;
+}
+
+static void
+managecontainer(struct Object *app, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
+{
+	struct Tab *tab, *prev;
 	struct Container *c;
 	struct Row *row;
 
+	(void)app;
+	prev = getleaderof(leader);
 	tab = tabnew(win, leader);
 	winupdatetitle(tab->obj.win, &tab->name);
 	if (prev == NULL) {
@@ -2035,15 +2108,13 @@ drag_move(struct Container *container, int xroot, int yroot)
 			break;
 		if (event.type != MotionNotify)
 			continue;
-		if (!compress_motion(dpy, &event))
-			continue;
 		x = event.xmotion.x_root - xroot;
 		y = event.xmotion.y_root - yroot;
 		if (!(container->state & MAXIMIZED) && event.xmotion.y_root <= 0) {
 			containersetstate(&container->obj, MAXIMIZED, ADD);
 		} else if (!(container->state & MAXIMIZED)) {
-			container->nx += x;
-			container->ny += y;
+			container->x = container->nx += x;
+			container->y = container->ny += y;
 			snaptoedge(
 				&container->nx, &container->ny,
 				container->nw, container->nh
@@ -2051,8 +2122,8 @@ drag_move(struct Container *container, int xroot, int yroot)
 			containermoveresize(container);
 		} else if (event.xmotion.y_root > 0 && event.xmotion.y_root < config.titlewidth) {
 			containersetstate(&container->obj, MAXIMIZED, REMOVE);
-			container->nx = event.xmotion.x_root - container->nw / 2;
-			container->ny = 0;
+			container->x = container->nx = event.xmotion.x_root - container->nw / 2;
+			container->y = container->ny = 0;
 			containermoveresize(container);
 		}
 		xroot = event.xmotion.x_root;
@@ -2177,8 +2248,6 @@ drag_resize(struct Container *container, int border, int xroot, int yroot)
 		}
 		xroot = motion->x_root;
 		yroot = motion->y_root;
-		if (!compress_motion(dpy, &event))
-			continue;
 		containercalccols(container);
 		containermoveresize(container);
 	}
@@ -2223,8 +2292,6 @@ drag_tab(struct Tab *tab, int xroot, int yroot, int x, int y)
 		if (event.type == ButtonRelease)
 			break;
 		if (event.type != MotionNotify)
-			continue;
-		if (!compress_motion(dpy, &event))
 			continue;
 		XMoveWindow(
 			dpy, wm.dragwin,
@@ -2334,8 +2401,6 @@ coldiv_btnpress(struct Object *self, XButtonPressedEvent *press)
 			break;
 		if (event.type != MotionNotify)
 			continue;
-		if (!compress_motion(dpy, &event))
-			continue;
 		width = containercontentwidth(container);
 		fact = (double)(event.xmotion.x - x_prev) / (double)width;
 		if ((thiscol->fact + fact) * width >= wm.minsize &&
@@ -2378,8 +2443,6 @@ rowdiv_btnpress(struct Object *self, XButtonPressedEvent *press)
 		if (event.type == ButtonRelease)
 			break;
 		if (event.type != MotionNotify)
-			continue;
-		if (!compress_motion(dpy, &event))
 			continue;
 		dy = event.xmotion.y - y_prev;
 		height = columncontentheight(thisrow->col);
@@ -3158,24 +3221,6 @@ gettabfrompid(unsigned long pid)
 	TAILQ_FOREACH(c, &focus_history, entry) {
 		TAB_FOREACH((struct Container *)c, tab) {
 			if (pid == ((struct Tab *)tab)->pid)
-				return tab->self;
-		}
-	}
-	return NULL;
-}
-
-struct Tab *
-getleaderof(Window leader)
-{
-	struct Object *c, *tab;
-
-	if (leader == None)
-		return NULL;
-	if ((tab = context_get(leader)) != NULL)
-		return tab->self;
-	TAILQ_FOREACH(c, &focus_history, entry) {
-		TAB_FOREACH((struct Container *)c, tab) {
-			if (((struct Tab *)tab)->leader == leader)
 				return tab->self;
 		}
 	}

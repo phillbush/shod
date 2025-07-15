@@ -145,64 +145,11 @@ struct Monitor {
 	int wx, wy, ww, wh;                     /* window area */
 };
 
-struct Tab {
-	struct Object obj;
-
-	/*
-	 * Additionally to the application window (in .obj), a tab
-	 * contains a list of swallowed dialogs (unless -d is given) and
-	 * a list of detached menus.  A tab also contains a pointer to
-	 * its parent row.
-	 */
-	struct Queue dialq;                     /* queue of dialogs */
-	struct Row *row;                        /* pointer to parent row */
-
-	/*
-	 * The application whose windows the tab maintains can be
-	 * grouped under a leader window (which is not necessarily
-	 * mapped on the screen).
-	 */
-	Window leader;                          /* the group leader of the window */
-
-	/*
-	 * Visually, a tab is composed of a title bar (aka tab); and a
-	 * frame window which the application window and swallowed
-	 * dialog windows are child of.
-	 */
-	Window title;                           /* title bar (tab) */
-	Window frame;                           /* window to reparent the client window */
-
-	/*
-	 * First we draw into pixmaps, and then copy their contents
-	 * into the frame and title windows themselves whenever they
-	 * are damaged.  It is necessary to redraw on the pixmaps only
-	 * when the titlebar or frame resizes; so we save the geometry
-	 * of hte pixmaps to compare with the size of their windows.
-	 */
-	Pixmap pix;                             /* pixmap to draw the background of the frame */
-	Pixmap pixtitle;                        /* pixmap to draw the background of the title window */
-	int ptw;                                /* pixmap width for the title window */
-	int pw, ph;                             /* pixmap size of the frame */
-
-	/*
-	 * Geometry of the title bar (aka tab).
-	 */
-	int x, w;                               /* title bar geometry */
-	unsigned int pid;
-
-	/*
-	 * Name of the tab's application window, its size and urgency.
-	 */
-	int winw, winh;                         /* window geometry */
-	Bool isurgent;                          /* whether tab is urgent */
-	char *name;                             /* client name */
-};
-
 struct Class {
 	/* class methods */
 	void (*init)(void);
 	void (*clean)(void);
-	void (*manage)(struct Tab *, struct Monitor *, int, Window, Window, XRectangle, enum State);
+	void (*manage)(struct Object *, struct Monitor *, int, Window, Window, XRectangle, enum State);
 	void (*restack)(void);
 	void (*monitor_delete)(struct Monitor *);
 	void (*monitor_reset)(void);
@@ -285,19 +232,6 @@ struct Config {
 	const char *font;
 	const char *colors[STYLE_LAST][COLOR_LAST];
 
-	/* hardcoded rules */
-	struct Rule {
-		/* matching class, instance and role */
-		const char *class;
-		const char *instance;
-		const char *role;
-
-		/* type, state, etc to apply on matching windows */
-		struct Class *type;
-		int state;
-		int desktop;
-	} *rules;
-
 	/* the values below are computed from the values above */
 	unsigned int modifier;                  /* modifier of the altkeycode */
 	int corner;                             /* = .borderwidth + .titlewidth */
@@ -311,8 +245,6 @@ struct Theme {
 
 void focusnext(struct Monitor *mon, int desk);
 void alttab(KeyCode altkey, KeyCode tabkey, Bool shift);
-struct Tab *gettabfrompid(unsigned long pid);
-struct Tab *getleaderof(Window leader);
 Bool focused_follows_leader(Window leader);
 Bool focused_is_fullscreen(void);
 void shoddocks(void);

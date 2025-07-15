@@ -40,7 +40,7 @@ ${SHARED_OBJS}: xutil.h
 	${CC} -std=c99 -pedantic ${DEFS} ${INCS} ${CFLAGS} ${CPPFLAGS} -o $@ -c $<
 
 tags: ${SRCS}
-	ctags ${SRCS}
+	ctags -d ${SRCS}
 
 lint: ${SRCS}
 	-mandoc -T lint -W warning ${MAN}

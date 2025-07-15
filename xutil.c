@@ -72,6 +72,10 @@ getprop(Display *display, Window window, Atom property, Atom type,
 		goto error;
 	if (format != 0 && actual_format != format)
 		goto error;
+	if (actual_length == 0) {
+		XFree(*data);
+		*data = NULL;
+	}
 	return actual_length;
 error:
 	XFree(*data);

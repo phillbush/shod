@@ -104,12 +104,11 @@ menuraise(struct Menu *menu)
 }
 
 static void
-manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
+manage(struct Object *app, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
 {
 	struct Menu *menu;
 	int framex, framey, framew, frameh;
 
-	(void)tab;
 	(void)mon;
 	(void)desk;
 	(void)state;
@@ -120,6 +119,8 @@ manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader
 	framew = rect.width + 2 * BORDER;
 	frameh = rect.height + BORDER + config.titlewidth;
 
+	if (leader == None)
+		leader = app->win;
 	menu = emalloc(sizeof(*menu));
 	*menu = (struct Menu){
 		.titlebar = None,
@@ -209,8 +210,6 @@ drag_move(struct Menu *menu, int xroot, int yroot)
 		if (event.type == ButtonRelease)
 			break;
 		if (event.type != MotionNotify)
-			continue;
-		if (!compress_motion(dpy, &event))
 			continue;
 		x = event.xmotion.x_root - xroot;
 		y = event.xmotion.y_root - yroot;
@@ -331,8 +330,6 @@ drag_resize(struct Menu *menu, int border, int xroot, int yroot)
 		}
 		xroot = motion->x_root;
 		yroot = motion->y_root;
-		if (!compress_motion(dpy, &event))
-			continue;
 		menumoveresize(menu);
 	}
 	XUngrabPointer(dpy, CurrentTime);

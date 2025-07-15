@@ -106,7 +106,7 @@ monitor_reset(void)
 }
 
 static void
-manage(struct Tab *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
+manage(struct Object *tab, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
 {
 	struct Notification *notif;
 
