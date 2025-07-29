@@ -7,30 +7,12 @@
 
 struct Tab {
 	struct Object obj;
-
-	/*
-	 * Additionally to the application window (in .obj), a tab
-	 * contains a list of swallowed dialogs (unless -d is given) and
-	 * a list of detached menus.  A tab also contains a pointer to
-	 * its parent row.
-	 */
-	struct Queue dialq;                     /* queue of dialogs */
-	struct Row *row;                        /* pointer to parent row */
-
-	/*
-	 * The application whose windows the tab maintains can be
-	 * grouped under a leader window (which is not necessarily
-	 * mapped on the screen).
-	 */
-	Window leader;                          /* the group leader of the window */
-
-	/*
-	 * Visually, a tab is composed of a title bar (aka tab); and a
-	 * frame window which the application window and swallowed
-	 * dialog windows are child of.
-	 */
-	Window title;                           /* title bar (tab) */
-	Window frame;                           /* window to reparent the client window */
+	struct Queue dialq;
+	struct Row *row;
+	Window leader;
+	Window title;
+	Window frame;
+	Window close_btn;
 
 	/*
 	 * First we draw into pixmaps, and then copy their contents
@@ -193,12 +175,12 @@ struct Container {
 
 static int nclients = 0;
 static struct Queue focus_history;
+
 static struct {
 	struct Queue above;
 	struct Queue middle;
 	struct Queue below;
 } stack_order;
-
 
 static struct {
 	Pixmap bar_vert;
@@ -458,7 +440,7 @@ tabdecorate(struct Tab *t, int pressed)
 	updatepixmap(&t->pixtitle, &t->ptw, NULL, t->w, config.titlewidth);
 	updatepixmap(&t->pix, &t->pw, &t->ph, t->winw, t->winh);
 	drawbackground(t->pixtitle, 0, 0, t->w, config.titlewidth, style);
-	drawshadow(t->pixtitle, 0, 0, t->w, config.titlewidth, style, pressed, config.shadowthickness);
+	drawshadow(t->pixtitle, 0, 0, t->w, config.titlewidth, style);
 
 	/* write tab title */
 	if (t->name != NULL)
@@ -469,6 +451,10 @@ tabdecorate(struct Tab *t, int pressed)
 
 	drawcommit(t->pixtitle, t->title);
 	drawcommit(t->pix, t->frame);
+	drawcommit(
+		wm.close_btn[style][t == t->row->col->c->selcol->selrow->seltab],
+		t->close_btn
+	);
 }
 
 static void
@@ -931,7 +917,7 @@ unmanagedialog(struct Object *obj)
 		XFreePixmap(dpy, dial->pix);
 	XReparentWindow(dpy, dial->obj.win, root, 0, 0);
 	context_del(dial->obj.win);
-	window_del(dial->frame);
+	XDestroyWindow(dpy, dial->frame);
 	free(dial);
 	wm.setclientlist = True;
 }
@@ -957,9 +943,18 @@ tabnew(Window win, Window leader)
 		root, (XRectangle){0, 0, 1, 1},
 		None, NorthWestGravity
 	);
+	tab->close_btn = createdecoration(
+		tab->title, (XRectangle){
+			1 - config.button_size - config.shadowthickness,
+			1 - config.button_size - config.shadowthickness,
+			config.button_size, config.button_size
+		},
+		wm.cursors[CURSOR_PIRATE], SouthEastGravity
+	);
 	context_add(tab->obj.win, &tab->obj);
 	context_add(tab->frame, &tab->obj);
 	context_add(tab->title, &tab->obj);
+	context_add(tab->close_btn, &tab->obj);
 	tab->pid = getcardprop(dpy, tab->obj.win, atoms[_NET_WM_PID]);
 	XReparentWindow(dpy, tab->obj.win, tab->frame, 0, 0);
 	XChangeProperty(
@@ -973,6 +968,7 @@ tabnew(Window win, Window leader)
 		}, 4
 	);
 	XMapWindow(dpy, tab->obj.win);
+	XMapWindow(dpy, tab->close_btn);
 	clientsincr();
 	return tab;
 }
@@ -998,7 +994,7 @@ tabdel(struct Tab *tab)
 	struct Object *dial;
 
 	while ((dial = TAILQ_FIRST(&tab->dialq)) != NULL) {
-		window_del(dial->win);
+		XDestroyWindow(dpy, dial->win);
 		unmanagedialog((struct Object *)dial);
 	}
 	tabremove(tab->row, tab);
@@ -1008,8 +1004,9 @@ tabdel(struct Tab *tab)
 		XFreePixmap(dpy, tab->pix);
 	XReparentWindow(dpy, tab->obj.win, root, 0, 0);
 	context_del(tab->obj.win);
-	window_del(tab->title);
-	window_del(tab->frame);
+	XDestroyWindow(dpy, tab->title);
+	XDestroyWindow(dpy, tab->close_btn);
+	XDestroyWindow(dpy, tab->frame);
 	clientsdecr();
 	free(tab->name);
 	free(tab);
@@ -1072,9 +1069,9 @@ rowdel(struct Row *row)
 	while ((tab = TAILQ_FIRST(&row->tabq)) != NULL)
 		tabdel(tab->self);
 	rowdetach(row, 1);
-	window_del(row->frame);
-	window_del(row->bar);
-	window_del(row->obj.win);
+	XDestroyWindow(dpy, row->frame);
+	XDestroyWindow(dpy, row->bar);
+	XDestroyWindow(dpy, row->obj.win);
 	free(row);
 }
 
@@ -1327,7 +1324,7 @@ coldel(struct Column *col)
 	while ((row = TAILQ_FIRST(&col->rowq)) != NULL)
 		rowdel(row->self);
 	coldetach(col);
-	window_del(col->obj.win);
+	XDestroyWindow(dpy, col->obj.win);
 	free(col);
 }
 
@@ -1387,8 +1384,10 @@ rowaddtab(struct Row *row, struct Tab *tab, struct Tab *prev)
 static void
 containerdelraise(struct Container *container)
 {
-	if (container->layer != NULL)
-		TAILQ_REMOVE(container->layer, &container->obj, z_entry);
+	if (container->layer == NULL)
+		return;
+	TAILQ_REMOVE(container->layer, &container->obj, z_entry);
+	container->layer = NULL;
 }
 
 static void
@@ -1567,9 +1566,9 @@ containerdel(struct Object *self)
 	TAILQ_REMOVE(&focus_history, &container->obj, entry);
 	while ((col = TAILQ_FIRST(&container->colq)) != NULL)
 		coldel(col->self);
-	window_del(container->obj.win);
+	XDestroyWindow(dpy, container->obj.win);
 	for (i = 0; i < BORDER_LAST; i++)
-		window_del(container->borders[i]);
+		XDestroyWindow(dpy, container->borders[i]);
 	free(container);
 }
 
@@ -1733,10 +1732,15 @@ containersetstate(struct Object *obj, enum State state, int set)
 	struct Container *container;
 	struct Tab *tab;
 
-	tab = obj->self;
-	if (tab == NULL)
+	if (obj->class == &tab_class) {
+		tab = obj->self;
+		container = tab->row->col->c;
+	} else if (obj->class == &container_class) {
+		container = obj->self;
+		tab = container->selcol->selrow->seltab;
+	} else {
 		return;
-	container = tab->row->col->c;
+	}
 	if (state & MAXIMIZED)
 		containermaximize(container, set);
 	if (state & FULLSCREEN)
@@ -2369,6 +2373,8 @@ tab_btnpress(struct Object *self, XButtonPressedEvent *press)
 		containersetstate(&container->obj, SHADED, ADD);
 	} else if (press->window == tab->title && press->button == Button5) {
 		containersetstate(&container->obj, SHADED, REMOVE);
+	} else if (press->window == tab->close_btn && press->button == Button1) {
+		window_close(dpy, tab->obj.win);
 	}
 }
 
@@ -2555,6 +2561,15 @@ clean(void)
 
 	while ((obj = TAILQ_FIRST(&focus_history)) != NULL)
 		containerdel(obj);
+	for (size_t style = 0; style < LEN(decorations); style++) {
+		XFreePixmap(dpy, decorations[style].bar_vert);
+		XFreePixmap(dpy, decorations[style].bar_horz);
+		XFreePixmap(dpy, decorations[style].corner_nw);
+		XFreePixmap(dpy, decorations[style].corner_ne);
+		XFreePixmap(dpy, decorations[style].corner_sw);
+		XFreePixmap(dpy, decorations[style].corner_se);
+	}
+
 }
 
 static void
@@ -2625,8 +2640,7 @@ reload_theme(void)
 		drawshadow(
 			decorations[style].bar_horz,
 			-config.shadowthickness, 0,
-			config.borderwidth, config.borderwidth,
-			style, False, config.shadowthickness
+			config.borderwidth, config.borderwidth, style
 		);
 
 		/* background pixmap of vertical (west and east) borders */
@@ -2637,8 +2651,7 @@ reload_theme(void)
 		drawshadow(
 			decorations[style].bar_vert,
 			0, -config.shadowthickness,
-			config.borderwidth, config.borderwidth,
-			style, False, config.shadowthickness
+			config.borderwidth, config.borderwidth, style
 		);
 
 		/*
@@ -2660,10 +2673,10 @@ reload_theme(void)
 			rects[i * 2 + 0] = (XRectangle){.x = x + i, .y = y + 0, .width = 1,                     .height = config.corner - 1 - i};
 			rects[i * 2 + 1] = (XRectangle){.x = x + 0, .y = y + i, .width = config.corner - 1 - i, .height = 1};
 		}
-		XChangeGC(dpy, gc, GCForeground, &(XGCValues){ .foreground = top });
+		XChangeGC(dpy, wm.gc, GCForeground, &(XGCValues){ .foreground = top });
 		XFillRectangles(
 			dpy, decorations[style].corner_nw,
-			gc, rects, config.shadowthickness * 2
+			wm.gc, rects, config.shadowthickness * 2
 		);
 		for (int i = 0; i < config.shadowthickness; i++) {
 			rects[i * 4 + 0] = (XRectangle){.x = x + config.borderwidth - 1 - i, .y = y + config.borderwidth - 1 - i, .width = 1,                         .height = config.titlewidth + 1 + i};
@@ -2671,10 +2684,10 @@ reload_theme(void)
 			rects[i * 4 + 2] = (XRectangle){.x = x + config.corner - 1 - i,      .y = y + i,                          .width = 1,                         .height = config.borderwidth - i};
 			rects[i * 4 + 3] = (XRectangle){.x = x + i,                          .y = y + config.corner - 1 - i,      .width = config.borderwidth - i,    .height = 1};
 		}
-		XChangeGC(dpy, gc, GCForeground, &(XGCValues){ .foreground = bot });
+		XChangeGC(dpy, wm.gc, GCForeground, &(XGCValues){ .foreground = bot });
 		XFillRectangles(
 			dpy, decorations[style].corner_nw,
-			gc, rects, config.shadowthickness * 4
+			wm.gc, rects, config.shadowthickness * 4
 		);
 		/*
 		 * In addition to the corner's shadows, the shadows of
@@ -2687,14 +2700,12 @@ reload_theme(void)
 		drawshadow(
 			decorations[style].corner_nw,
 			0, config.corner,
-			config.borderwidth, config.borderwidth,
-			style, 0, config.shadowthickness
+			config.borderwidth, config.borderwidth, style
 		);
 		drawshadow(
 			decorations[style].corner_nw,
 			config.corner, 0,
-			config.borderwidth, config.borderwidth,
-			style, 0, config.shadowthickness
+			config.borderwidth, config.borderwidth, style
 		);
 
 		/* bottom left corner */
@@ -2713,33 +2724,31 @@ reload_theme(void)
 			rects[i * 3 + 1] = (XRectangle){.x = x + 0,                          .y = y + i,                     .width = config.borderwidth - 1 - i, .height = 1};
 			rects[i * 3 + 2] = (XRectangle){.x = x + config.borderwidth - 1 - i, .y = y + config.titlewidth + i, .width = config.titlewidth,          .height = 1};
 		}
-		XChangeGC(dpy, gc, GCForeground, &(XGCValues){.foreground = top });
+		XChangeGC(dpy, wm.gc, GCForeground, &(XGCValues){.foreground = top });
 		XFillRectangles(
 			dpy, decorations[style].corner_sw,
-			gc, rects, config.shadowthickness * 3
+			wm.gc, rects, config.shadowthickness * 3
 		);
 		for (int i = 0; i < config.shadowthickness; i++) {
 			rects[i * 3 + 0] = (XRectangle){.x = x + config.borderwidth - 1 - i, .y = y + i,                     .width = 1,                 .height = config.titlewidth};
 			rects[i * 3 + 1] = (XRectangle){.x = x + i,                          .y = y + config.corner - 1 - i, .width = config.corner - i, .height = 1};
 			rects[i * 3 + 2] = (XRectangle){.x = x + config.corner - 1 - i,      .y = y + config.titlewidth + i, .width = 1,                 .height = config.borderwidth - i};
 		}
-		XChangeGC(dpy, gc, GCForeground, &(XGCValues){.foreground = bot});
+		XChangeGC(dpy, wm.gc, GCForeground, &(XGCValues){.foreground = bot});
 		XFillRectangles(
 			dpy, decorations[style].corner_sw,
-			gc, rects, config.shadowthickness * 3
+			wm.gc, rects, config.shadowthickness * 3
 		);
 		drawshadow(
 			decorations[style].corner_sw,
 			0, config.shadowthickness - config.borderwidth,
-			config.borderwidth, config.borderwidth,
-			style, 0, config.shadowthickness
+			config.borderwidth, config.borderwidth, style
 		);
 		drawshadow(
 			decorations[style].corner_sw,
 			wholesize - config.shadowthickness,
 			wholesize - config.borderwidth,
-			config.borderwidth, config.borderwidth,
-			style, 0, config.shadowthickness
+			config.borderwidth, config.borderwidth, style
 		);
 
 		/* top right corner */
@@ -2758,32 +2767,30 @@ reload_theme(void)
 			rects[i * 3 + 1] = (XRectangle){.x = x + 0,                     .y = y + i,                          .width = config.corner - 1 - i, .height = 1};
 			rects[i * 3 + 2] = (XRectangle){.x = x + config.titlewidth + i, .y = y + config.borderwidth - 1 - i, .width = 1,                     .height = config.titlewidth};
 		}
-		XChangeGC(dpy, gc, GCForeground, &(XGCValues){.foreground = top});
+		XChangeGC(dpy, wm.gc, GCForeground, &(XGCValues){.foreground = top});
 		XFillRectangles(
 			dpy, decorations[style].corner_ne,
-			gc, rects, config.shadowthickness * 3
+			wm.gc, rects, config.shadowthickness * 3
 		);
 		for (int i = 0; i < config.shadowthickness; i++) {
 			rects[i * 3 + 0] = (XRectangle){.x = x + config.corner - 1 - i, .y = y + i,                          .width = 1,                      .height = config.corner - i};
 			rects[i * 3 + 1] = (XRectangle){.x = x + i,                     .y = y + config.borderwidth - 1 - i, .width = config.titlewidth,      .height = 1};
 			rects[i * 3 + 2] = (XRectangle){.x = x + config.titlewidth + i, .y = y + config.corner - 1 - i,      .width = config.borderwidth - i, .height = 1};
 		}
-		XChangeGC(dpy, gc, GCForeground, &(XGCValues){.foreground = bot});
+		XChangeGC(dpy, wm.gc, GCForeground, &(XGCValues){.foreground = bot});
 		XFillRectangles(
 			dpy, decorations[style].corner_ne,
-			gc, rects, config.shadowthickness * 3
+			wm.gc, rects, config.shadowthickness * 3
 		);
 		drawshadow(
 			decorations[style].corner_ne,
 			wholesize - config.borderwidth, config.corner,
-			config.borderwidth, config.borderwidth,
-			style, 0, config.shadowthickness
+			config.borderwidth, config.borderwidth, style
 		);
 		drawshadow(
 			decorations[style].corner_ne,
 			config.shadowthickness - config.borderwidth, 0,
-			config.borderwidth, config.borderwidth,
-			style, 0, config.shadowthickness
+			config.borderwidth, config.borderwidth, style
 		);
 
 		/* bottom right corner */
@@ -2803,33 +2810,31 @@ reload_theme(void)
 			rects[i * 4 + 2] = (XRectangle){.x = x + config.titlewidth + i, .y = y + i,                      .width = 1,                              .height = config.titlewidth + 1};
 			rects[i * 4 + 3] = (XRectangle){.x = x + i,                     .y = y + config.titlewidth + i,  .width = config.titlewidth + 1,          .height = 1};
 		}
-		XChangeGC(dpy, gc, GCForeground, &(XGCValues){.foreground = top});
+		XChangeGC(dpy, wm.gc, GCForeground, &(XGCValues){.foreground = top});
 		XFillRectangles(
 			dpy, decorations[style].corner_se,
-			gc, rects, config.shadowthickness * 4
+			wm.gc, rects, config.shadowthickness * 4
 		);
 		for (int i = 0; i < config.shadowthickness; i++) {
 			rects[i * 2 + 0] = (XRectangle){.x = x + config.corner - 1 - i, .y = y + i,                     .width = 1,                      .height = config.corner - i};
 			rects[i * 2 + 1] = (XRectangle){.x = x + i,                     .y = y + config.corner - 1 - i, .width = config.corner - i,      .height = 1};
 		}
-		XChangeGC(dpy, gc, GCForeground, &(XGCValues){.foreground = bot});
+		XChangeGC(dpy, wm.gc, GCForeground, &(XGCValues){.foreground = bot});
 		XFillRectangles(
 			dpy, decorations[style].corner_se,
-			gc, rects, config.shadowthickness * 2
+			wm.gc, rects, config.shadowthickness * 2
 		);
 		drawshadow(
 			decorations[style].corner_se,
 			wholesize - config.borderwidth,
 			config.shadowthickness - config.borderwidth,
-			config.borderwidth, config.borderwidth,
-			style, 0, config.shadowthickness
+			config.borderwidth, config.borderwidth, style
 		);
 		drawshadow(
 			decorations[style].corner_se,
 			config.shadowthickness - config.borderwidth,
 			wholesize - config.borderwidth,
-			config.borderwidth, config.borderwidth,
-			style, 0, config.shadowthickness
+			config.borderwidth, config.borderwidth, style
 		);
 	}
 }
@@ -2907,7 +2912,7 @@ handle_enter(struct Object *self)
 }
 
 static enum State
-atoms2statemask(Atom atoms[], size_t natoms)
+atoms2statemask(Atom states[2])
 {
 	enum State state = 0;
 
@@ -2922,26 +2927,26 @@ atoms2statemask(Atom atoms[], size_t natoms)
 	 * Since shod does not do partial maximization, we normalize
 	 * either as an internal MAXIMIZED state.
 	 */
-	for (size_t i = 0; i < natoms; i++) {
-		if (atoms[i] == atoms[_NET_WM_STATE_MAXIMIZED_HORZ])
+	for (size_t i = 0; i < 2; i++) {
+		if (states[i] == atoms[_NET_WM_STATE_MAXIMIZED_HORZ])
 			state |= MAXIMIZED;
-		else if (atoms[i] == atoms[_NET_WM_STATE_MAXIMIZED_VERT])
+		else if (states[i] == atoms[_NET_WM_STATE_MAXIMIZED_VERT])
 			state |= MAXIMIZED;
-		else if (atoms[i] == atoms[_NET_WM_STATE_ABOVE])
+		else if (states[i] == atoms[_NET_WM_STATE_ABOVE])
 			state |= ABOVE;
-		else if (atoms[i] == atoms[_NET_WM_STATE_BELOW])
+		else if (states[i] == atoms[_NET_WM_STATE_BELOW])
 			state |= BELOW;
-		else if (atoms[i] == atoms[_NET_WM_STATE_FULLSCREEN])
+		else if (states[i] == atoms[_NET_WM_STATE_FULLSCREEN])
 			state |= FULLSCREEN;
-		else if (atoms[i] == atoms[_NET_WM_STATE_HIDDEN])
+		else if (states[i] == atoms[_NET_WM_STATE_HIDDEN])
 			state |= MINIMIZED;
-		else if (atoms[i] == atoms[_NET_WM_STATE_SHADED])
+		else if (states[i] == atoms[_NET_WM_STATE_SHADED])
 			state |= SHADED;
-		else if (atoms[i] == atoms[_NET_WM_STATE_STICKY])
+		else if (states[i] == atoms[_NET_WM_STATE_STICKY])
 			state |= STICKY;
-		else if (atoms[i] == atoms[_NET_WM_STATE_DEMANDS_ATTENTION])
+		else if (states[i] == atoms[_NET_WM_STATE_DEMANDS_ATTENTION])
 			state |= ATTENTION;
-		else if (atoms[i] == atoms[_SHOD_WM_STATE_STRETCHED])
+		else if (states[i] == atoms[_SHOD_WM_STATE_STRETCHED])
 			state |= STRETCHED;
 	}
 	return state;
@@ -2967,7 +2972,7 @@ handle_message(struct Object *self, Atom message, long int data[5])
 	if (message == atoms[_NET_WM_STATE]) {
 		containersetstate(
 			&container->obj,
-			atoms2statemask((Atom *)&data[1], 2),
+			atoms2statemask((Atom *)&data[1]),
 			data[0]
 		);
 	} else if (message == atoms[_NET_MOVERESIZE_WINDOW]) {
@@ -3168,9 +3173,12 @@ list_clients(void)
 	);
 
 	n = 0;
-	for (size_t i = 0; i < LEN(layers); i++)
-		TAILQ_FOREACH(c, layers[i], z_entry)
-			wins[n++] = c->win;
+	for (size_t i = 0; i < LEN(layers); i++) {
+		TAILQ_FOREACH(c, layers[i], z_entry) {
+			struct Container *container = c->self;
+			wins[n++] = container->selcol->selrow->seltab->obj.win;
+		}
+	}
 	XChangeProperty(
 		dpy, root, atoms[_SHOD_CONTAINER_LIST],
 		XA_WINDOW, 32, PropModeReplace,

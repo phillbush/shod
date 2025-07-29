@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 
 #include <X11/XKBlib.h>
@@ -154,7 +155,6 @@ Visual *visual;
 Colormap colormap;
 unsigned int depth;
 XrmDatabase xdb = NULL;
-GC gc;
 struct Theme theme;
 
 struct WM wm = { 0 };
@@ -635,7 +635,54 @@ openfont(const char *s)
 }
 
 static void
-reloadtheme(void)
+draw_close_btn(int style)
+{
+	int cross_size = max(1, config.button_size - config.shadowthickness * 2);
+
+	for (int style = 0; style < STYLE_LAST; style++)
+	for (int focus = 0; focus < 2; focus++) {
+		unsigned long fg;
+
+		if (focus)
+			fg = theme.colors[STYLE_OTHER][COLOR_FG].pixel;
+		else
+			fg = theme.colors[style][COLOR_FG].pixel;
+		updatepixmap(
+			&wm.close_btn[style][focus], NULL, NULL,
+			config.button_size, config.button_size
+		);
+		drawshadow(
+			wm.close_btn[style][focus], 0, 0,
+			config.button_size, config.button_size, style
+		);
+		XChangeGC(dpy, wm.gc, GCForeground|GCLineWidth|GCCapStyle,
+			&(XGCValues){
+				.foreground = fg,
+				.line_width = 2,
+				.cap_style = CapProjecting,
+			}
+		);
+		XDrawSegments(dpy, wm.close_btn[style][focus], wm.gc,
+			(XSegment[]){
+				[0] = {
+					.x1 = config.shadowthickness + 1,
+					.y1 = config.shadowthickness + 1,
+					.x2 = cross_size,
+					.y2 = cross_size,
+				},
+				[1] = {
+					.x1 = cross_size,
+					.y1 = config.shadowthickness + 1,
+					.x2 = config.shadowthickness + 1,
+					.y2 = cross_size,
+				},
+			}, 2
+		);
+	}
+}
+
+static void
+reload_theme(void)
 {
 	Pixmap pix;
 
@@ -646,8 +693,7 @@ reloadtheme(void)
 		config.shadowthickness = 2;     /* thick shadow */
 	else
 		config.shadowthickness = 1;     /* slim shadow */
-
-	FOREACH_CLASS(reload_theme);
+	config.button_size = max(1, config.titlewidth - config.shadowthickness * 2);
 
 	pix = XCreatePixmap(
 		dpy,
@@ -675,7 +721,7 @@ reloadtheme(void)
 		config.borderwidth,
 		config.titlewidth,
 		config.titlewidth,
-		FOCUSED, 0, config.shadowthickness
+		FOCUSED
 	);
 	XMoveResizeWindow(
 		dpy,
@@ -688,10 +734,15 @@ reloadtheme(void)
 	XSetWindowBackgroundPixmap(dpy, wm.dragwin, pix);
 	XClearWindow(dpy, wm.dragwin);
 	XFreePixmap(dpy, pix);
+
+	for (int style = 0; style < STYLE_LAST; style++)
+		draw_close_btn(style);
+
+	FOREACH_CLASS(reload_theme);
 }
 
 static void
-setresources(char *xrm)
+set_resources(char *xrm)
 {
 	enum Resource resource;
 
@@ -713,16 +764,17 @@ setresources(char *xrm)
 			}
 			break;
 		case RES_FOREGROUND:
-			setcolor(value, STYLE_OTHER, COLOR_FG);
+			for (int style = 0; style < STYLE_LAST; style++)
+				setcolor(value, style, COLOR_FG);
 			break;
 		case RES_DOCK_BACKGROUND:
-			setcolor(value, STYLE_OTHER, COLOR_BG);
+			setcolor(value, STYLE_OTHER, COLOR_BODY);
 			break;
 		case RES_DOCK_BORDER:
-			setcolor(value, STYLE_OTHER, COLOR_BORD);
+			setcolor(value, STYLE_OTHER, COLOR_DARK);
 			break;
 		case RES_ACTIVE_BG:
-			setcolor(value, FOCUSED, COLOR_MID);
+			setcolor(value, FOCUSED, COLOR_BODY);
 			break;
 		case RES_ACTIVE_TOP:
 			setcolor(value, FOCUSED, COLOR_LIGHT);
@@ -731,7 +783,7 @@ setresources(char *xrm)
 			setcolor(value, FOCUSED, COLOR_DARK);
 			break;
 		case RES_INACTIVE_BG:
-			setcolor(value, UNFOCUSED, COLOR_MID);
+			setcolor(value, UNFOCUSED, COLOR_BODY);
 			break;
 		case RES_INACTIVE_TOP:
 			setcolor(value, UNFOCUSED, COLOR_LIGHT);
@@ -740,7 +792,7 @@ setresources(char *xrm)
 			setcolor(value, UNFOCUSED, COLOR_DARK);
 			break;
 		case RES_URGENT_BG:
-			setcolor(value, URGENT, COLOR_MID);
+			setcolor(value, URGENT, COLOR_BODY);
 			break;
 		case RES_URGENT_TOP:
 			setcolor(value, URGENT, COLOR_LIGHT);
@@ -794,7 +846,7 @@ setresources(char *xrm)
 			break;
 		}
 	}
-	reloadtheme();
+	reload_theme();
 }
 
 static Bool
@@ -806,7 +858,7 @@ set_theme(void)
 				return False;
 	if ((theme.font = openfont(config.font)) == NULL)
 		return False;
-	reloadtheme();
+	reload_theme();
 	return True;
 }
 
@@ -838,7 +890,11 @@ xeventbuttonpress(XEvent *event)
 
 	if (obj != NULL) {
 		CALL_METHOD(btnpress, obj, press);
-	} else if (press->window == root && mon != NULL) {
+	} else if (press->window == root && mon != NULL && (
+		press->button == Button1 ||
+		press->button == Button2 ||
+		press->button == Button3
+	)) {
 		deskfocus(mon, mon->seldesk);
 	}
 
@@ -1043,7 +1099,7 @@ xeventpropertynotify(XEvent *e)
 		if (str == NULL)
 			return;
 		XrmDestroyDatabase(xdb);
-		setresources(str);
+		set_resources(str);
 		XFree(str);
 		FOREACH_CLASS(redecorate_all);
 	} else if (
@@ -1682,7 +1738,7 @@ setup(void)
 		0, depth, InputOutput, visual,
 		CWEventMask | CWColormap | CWBorderPixel | CWBackPixel,
 		&(XSetWindowAttributes){
-			.event_mask = MOUSE_EVENTS | KeyPressMask,
+			.event_mask = StructureNotifyMask | MOUSE_EVENTS | KeyPressMask,
 			.colormap = colormap,
 			.border_pixel = BlackPixel(dpy, screen),
 			.background_pixel = BlackPixel(dpy, screen),
@@ -1721,15 +1777,14 @@ setup(void)
 		resources[i].class = XrmPermStringToQuark(resourceids[i].class);
 		resources[i].name = XrmPermStringToQuark(resourceids[i].name);
 	}
-	gc = XCreateGC(
+	wm.gc = XCreateGC(
 		dpy, wm.dragwin,
 		GCFillStyle, &(XGCValues){.fill_style = FillSolid}
 	);
 
-	/* initialize theme */
 	if (!set_theme())
 		exit(EXIT_FAILURE);
-	setresources(XResourceManagerString(dpy));
+	set_resources(XResourceManagerString(dpy));
 
 	/* set modifier key and grab alt key */
 	setmod();
@@ -1744,18 +1799,27 @@ static void
 cleanup(void)
 {
 	XftFontClose(dpy, theme.font);
-	for (int i = 0; i < STYLE_LAST; i++)
-		for (int j = 0; j < COLOR_LAST; j++)
-			XftColorFree(dpy, visual, colormap, &theme.colors[i][j]);
-	XFreeGC(dpy, gc);
+	for (int style = 0; style < STYLE_LAST; style++) {
+		for (int focus = 0; focus < 2; focus++)
+			XFreePixmap(dpy, wm.close_btn[style][focus]);
+		for (int color = 0; color < COLOR_LAST; color++) {
+			XftColorFree(
+				dpy, visual, colormap,
+				&theme.colors[style][color]
+			);
+		}
+	}
+	XFreeGC(dpy, wm.gc);
 	XDestroyWindow(dpy, wm.checkwin);
-	for (size_t i = 0; i < LEN(wm.layertop); i++)
-		XDestroyWindow(dpy, wm.layertop[i]);
-	for (size_t i = 0; i < CURSOR_LAST; i++)
-		XFreeCursor(dpy, wm.cursors[i]);
+	for (size_t layer = 0; layer < LEN(wm.layertop); layer++)
+		XDestroyWindow(dpy, wm.layertop[layer]);
+	for (size_t cursor = 0; cursor < CURSOR_LAST; cursor++)
+		XFreeCursor(dpy, wm.cursors[cursor]);
 	FOREACH_CLASS(clean);
-	for (int i = 0; i < wm.nmonitors; i++)
-		free(wm.monitors[i]);
+	for (int mon = 0; mon < wm.nmonitors; mon++)
+		free(wm.monitors[mon]);
+	for (int mon = 0; mon < wm.nmonitors; mon++)
+		free(wm.monitors[mon]);
 	free(wm.monitors);
 	reset_hints();
 	XUngrabPointer(dpy, CurrentTime);
@@ -1845,30 +1909,29 @@ context_get(XID id)
 }
 
 void
-window_del(Window window)
-{
-	context_del(window);
-	XDestroyWindow(dpy, window);
-}
-
-void
 window_close(Display *display, Window window)
 {
-	XEvent ev;
-
-	ev.type = ClientMessage;
-	ev.xclient.window = window;
-	ev.xclient.message_type = atoms[WM_PROTOCOLS];
-	ev.xclient.format = 32;
-	ev.xclient.data.l[0] = atoms[WM_DELETE_WINDOW];
-	ev.xclient.data.l[1] = CurrentTime;
-
 	/*
 	 * communicate with the given Client, kindly telling it to
 	 * close itself and terminate any associated processes using
 	 * the WM_DELETE_WINDOW protocol
 	 */
-	XSendEvent(display, window, False, NoEventMask, &ev);
+	XSendEvent(
+		display, window, False,
+		NoEventMask, (XEvent *)&(XClientMessageEvent){
+			.type = ClientMessage,
+			.serial = 0,
+			.send_event = True,
+			.message_type = atoms[WM_PROTOCOLS],
+			.window = window,
+			.format = 32,
+			.data.l[0] = atoms[WM_DELETE_WINDOW],
+			.data.l[1] = CurrentTime,
+			.data.l[2] = 0,
+			.data.l[3] = 0,
+			.data.l[4] = 0,
+		}
+	);
 }
 
 void

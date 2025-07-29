@@ -37,15 +37,12 @@ enum {
 };
 
 enum {
-	/* color array indices */
-	COLOR_BG     = 0,
-	COLOR_BORD   = 1,
-	COLOR_FG     = 2,
+	COLOR_BODY,
+	COLOR_LIGHT,
+	COLOR_DARK,
+	COLOR_LAST,
 
-	COLOR_MID    = 0,
-	COLOR_LIGHT  = 1,
-	COLOR_DARK   = 2,
-	COLOR_LAST   = 3
+	COLOR_FG = COLOR_LIGHT,
 };
 
 enum {
@@ -198,6 +195,9 @@ struct WM {
 	 * and the list of clients is changed accordingly.
 	 */
 	Bool setclientlist;
+
+	Pixmap close_btn[STYLE_LAST][2];
+	GC gc;
 };
 
 struct Config {
@@ -219,6 +219,7 @@ struct Config {
 	int borderwidth;                        /* width of the border frame */
 	int titlewidth;                         /* height of the title bar */
 	int shadowthickness;                    /* thickness of the 3D shadows */
+	int button_size;
 	int movetime;                           /* time (ms) to redraw containers during moving */
 	int resizetime;                         /* time (ms) to redraw containers during resizing */
 
@@ -259,7 +260,7 @@ void drawcommit(Pixmap pix, Window win);
 void backgroundcommit(Window, int style);
 void drawborders(Pixmap pix, int w, int h, int style);
 void drawbackground(Pixmap pix, int x, int y, int w, int h, int style);
-void drawshadow(Pixmap pix, int x, int y, int w, int h, int style, int pressed, int thickness);
+void drawshadow(Pixmap pix, int x, int y, int w, int h, int style);
 void drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int pressed, int ismenu);
 void drawprompt(Pixmap pix, int w, int h);
 void redecorate(Window win, int border, int style, Bool pressed);
@@ -273,7 +274,6 @@ Bool isvalidstate(unsigned int state);
 void context_add(XID, struct Object *);
 void context_del(XID);
 struct Object *context_get(XID);
-void window_del(Window);
 void window_close(Display *, Window win);
 
 /* extern variables */
@@ -287,7 +287,6 @@ extern Visual *visual;
 extern Colormap colormap;
 extern unsigned int depth;
 extern XrmDatabase xdb;
-extern GC gc;
 extern struct Theme theme;
 
 /* object classes */
@@ -341,4 +340,9 @@ extern struct Class container_class;
 			[1] = None, \
 		}, 2 \
 	); \
+} while(0)
+
+#define XDestroyWindow(dpy, win) do { \
+	context_del((win)); \
+	XDestroyWindow((dpy), (win)); \
 } while(0)

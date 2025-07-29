@@ -24,7 +24,7 @@ struct Config config = {
 	.modifier       = Mod1Mask,     /* Mod1Mask for Alt, Mod4Mask for Super */
 	.snap           = 8,            /* proximity of container edges to perform snap attraction */
 	.font = "monospace:pixelsize=11", /* font for titles in titlebars */
-	.ndesktops      = 10,           /* number of desktops per monitor */
+	.ndesktops      = 5,            /* number of desktops per monitor */
 	.movetime       = 32,           /* time (ms) to redraw containers during moving */
 	.resizetime     = 64,           /* time (ms) to redraw containers during resizing */
 

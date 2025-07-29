@@ -47,44 +47,42 @@ dockdecorate(void)
 	isfullscreen = (config.dockgravity[0] != '\0' && config.dockgravity[1] == 'F');
 	switch (config.dockgravity[0]) {
 	case 'N':
-		drawshadow(
+		drawbackground(
 			dock.pix,
 			(isfullscreen ? -config.shadowthickness : 0),
 			-config.shadowthickness,
 			dock.w + (isfullscreen ? 2 * config.shadowthickness : 0),
-			dock.h + config.shadowthickness,
-			STYLE_OTHER, False, DOCKBORDER
+			dock.h + config.shadowthickness, STYLE_OTHER
 		);
 		break;
 	case 'S':
-		drawshadow(
+		drawbackground(
 			dock.pix,
 			(isfullscreen ? -config.shadowthickness : 0),
 			0,
 			dock.w + (isfullscreen ? 2 * config.shadowthickness : 0),
-			dock.h + config.shadowthickness,
-			STYLE_OTHER, False, DOCKBORDER
+			dock.h + config.shadowthickness, STYLE_OTHER
 		);
 		break;
 	case 'W':
-		drawshadow(
+		drawbackground(
 			dock.pix,
 			-config.shadowthickness,
 			(isfullscreen ? -config.shadowthickness : 0),
 			dock.w + config.shadowthickness,
 			dock.h + (isfullscreen ? 2 * config.shadowthickness : 0),
-			STYLE_OTHER, False, DOCKBORDER
+			STYLE_OTHER
 		);
 		break;
 	default:
 	case 'E':
-		drawshadow(
+		drawbackground(
 			dock.pix,
 			0,
 			(isfullscreen ? -config.shadowthickness : 0),
 			dock.w + config.shadowthickness,
 			dock.h + (isfullscreen ? 2 * config.shadowthickness : 0),
-			STYLE_OTHER, False, DOCKBORDER
+			STYLE_OTHER
 		);
 		break;
 	}
@@ -465,6 +463,7 @@ unmanage(struct Object *obj)
 
 	TAILQ_REMOVE(&dock.dappq, (struct Object *)dapp, entry);
 	XReparentWindow(dpy, dapp->obj.win, root, 0, 0);
+	context_del(dapp->obj.win);
 	free(dapp);
 	dockupdate();
 	update_window_area();

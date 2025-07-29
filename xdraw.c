@@ -7,11 +7,11 @@ static void
 drawrectangle(Pixmap pix, int x, int y, int w, int h, unsigned long color)
 {
 	XChangeGC(
-		dpy, gc,
+		dpy, wm.gc,
 		GCForeground,
 		&(XGCValues){ .foreground = color }
 	);
-	XFillRectangle(dpy, pix, gc, x, y, w, h);
+	XFillRectangle(dpy, pix, wm.gc, x, y, w, h);
 }
 
 static Window
@@ -85,7 +85,7 @@ void
 backgroundcommit(Window win, int style)
 {
 	XSetWindowBackgroundPixmap(dpy, win, None);
-	XSetWindowBackground(dpy, win, theme.colors[style][COLOR_MID].pixel);
+	XSetWindowBackground(dpy, win, theme.colors[style][COLOR_BODY].pixel);
 	XClearWindow(dpy, win);
 }
 
@@ -111,7 +111,7 @@ drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int p
 		bot = theme.colors[style][COLOR_DARK].pixel;
 	}
 	if (ismenu || drawlines)
-		color = &theme.colors[STYLE_OTHER][COLOR_FG];
+		color = &theme.colors[STYLE_OTHER][COLOR_LIGHT];
 	else
 		color = &theme.colors[style][COLOR_LIGHT];
 	draw = XftDrawCreate(dpy, pix, visual, colormap);
@@ -121,15 +121,15 @@ drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int p
 	y = (config.titlewidth - theme.font->ascent) / 2 + theme.font->ascent;
 	for (i = 3; drawlines && i < config.titlewidth - 3; i += 3) {
 		val.foreground = top;
-		XChangeGC(dpy, gc, GCForeground, &val);
-		XFillRectangle(dpy, pix, gc, 4, i, x - 8, 1);
-		XFillRectangle(dpy, pix, gc, w - x + 2, i, x - 6, 1);
+		XChangeGC(dpy, wm.gc, GCForeground, &val);
+		XFillRectangle(dpy, pix, wm.gc, 4, i, x - 8, 1);
+		XFillRectangle(dpy, pix, wm.gc, w - x + 2, i, x - 6, 1);
 	}
 	for (i = 4; drawlines && i < config.titlewidth - 2; i += 3) {
 		val.foreground = bot;
-		XChangeGC(dpy, gc, GCForeground, &val);
-		XFillRectangle(dpy, pix, gc, 4, i, x - 8, 1);
-		XFillRectangle(dpy, pix, gc, w - x + 2, i, x - 6, 1);
+		XChangeGC(dpy, wm.gc, GCForeground, &val);
+		XFillRectangle(dpy, pix, wm.gc, 4, i, x - 8, 1);
+		XFillRectangle(dpy, pix, wm.gc, w - x + 2, i, x - 6, 1);
 	}
 	XftDrawStringUtf8(draw, color, theme.font, x, y, (FcChar8 *)text, len);
 	XftDrawDestroy(draw);
@@ -153,9 +153,9 @@ drawborders(Pixmap pix, int w, int h, int style)
 	parth = h - 2 * config.borderwidth;
 
 	/* draw background */
-	val.foreground = decor[COLOR_MID].pixel;
-	XChangeGC(dpy, gc, GCForeground, &val);
-	XFillRectangle(dpy, pix, gc, 0, 0, w, h);
+	val.foreground = decor[COLOR_BODY].pixel;
+	XChangeGC(dpy, wm.gc, GCForeground, &val);
+	XFillRectangle(dpy, pix, wm.gc, 0, 0, w, h);
 
 	/* draw light shadow */
 	for (i = 0; i < config.shadowthickness; i++) {
@@ -165,8 +165,8 @@ drawborders(Pixmap pix, int w, int h, int style)
 		rects[i * 4 + 3] = (XRectangle){.x = config.borderwidth - 1 - i, .y = h - config.borderwidth + i, .width = partw + 2 * (i + 1), .height = 1};
 	}
 	val.foreground = decor[COLOR_LIGHT].pixel;
-	XChangeGC(dpy, gc, GCForeground, &val);
-	XFillRectangles(dpy, pix, gc, rects, config.shadowthickness * 4);
+	XChangeGC(dpy, wm.gc, GCForeground, &val);
+	XFillRectangles(dpy, pix, wm.gc, rects, config.shadowthickness * 4);
 
 	/* draw dark shadow */
 	for (i = 0; i < config.shadowthickness; i++) {
@@ -176,56 +176,46 @@ drawborders(Pixmap pix, int w, int h, int style)
 		rects[i * 4 + 3] = (XRectangle){.x = config.borderwidth - 1 - i, .y = config.borderwidth - 1 - i, .width = partw + 1 + i * 2, .height = 1};
 	}
 	val.foreground = decor[COLOR_DARK].pixel;
-	XChangeGC(dpy, gc, GCForeground, &val);
-	XFillRectangles(dpy, pix, gc, rects, config.shadowthickness * 4);
+	XChangeGC(dpy, wm.gc, GCForeground, &val);
+	XFillRectangles(dpy, pix, wm.gc, rects, config.shadowthickness * 4);
 }
 
-/* draw and fill rectangle */
 void
 drawbackground(Pixmap pix, int x, int y, int w, int h, int style)
 {
-	drawrectangle(pix, x, y, w, h, theme.colors[style][COLOR_MID].pixel);
+	drawrectangle(pix, x, y, w, h, theme.colors[style][COLOR_BODY].pixel);
 }
 
-/* draw rectangle shadows */
 void
-drawshadow(Pixmap pix, int x, int y, int w, int h, int style, int pressed, int thickness)
+drawshadow(Pixmap pix, int x, int y, int w, int h, int style)
 {
 	XGCValues val;
 	XRectangle rects[config.shadowthickness * 2];
-	unsigned long top, bot;
-	int i;
 
 	if (w <= 0 || h <= 0)
 		return;
 
-	if (pressed) {
-		top = theme.colors[style][COLOR_DARK].pixel;
-		bot = theme.colors[style][COLOR_LIGHT].pixel;
-	} else {
-		top = theme.colors[style][COLOR_LIGHT].pixel;
-		bot = theme.colors[style][COLOR_DARK].pixel;
-	}
-
 	drawbackground(pix, x, y, w, h, style);
 
 	/* draw light shadow */
-	for(i = 0; i < thickness; i++) {
+	for (int i = 0; i < config.shadowthickness; i++) {
 		rects[i * 2]     = (XRectangle){.x = x + i, .y = y + i, .width = 1, .height = h - (i * 2 + 1)};
 		rects[i * 2 + 1] = (XRectangle){.x = x + i, .y = y + i, .width = w - (i * 2 + 1), .height = 1};
 	}
-	val.foreground = top;
-	XChangeGC(dpy, gc, GCForeground, &val);
-	XFillRectangles(dpy, pix, gc, rects, thickness * 2);
+	XChangeGC(dpy, wm.gc, GCForeground, &(XGCValues){
+		.foreground = theme.colors[style][COLOR_LIGHT].pixel,
+	});
+	XFillRectangles(dpy, pix, wm.gc, rects, config.shadowthickness * 2);
 
 	/* draw dark shadow */
-	for(i = 0; i < thickness; i++) {
+	for (int i = 0; i < config.shadowthickness; i++) {
 		rects[i * 2]     = (XRectangle){.x = x + w - 1 - i, .y = y + i,         .width = 1,     .height = h - i * 2};
 		rects[i * 2 + 1] = (XRectangle){.x = x + i,         .y = y + h - 1 - i, .width = w - i * 2, .height = 1};
 	}
-	val.foreground = bot;
-	XChangeGC(dpy, gc, GCForeground, &val);
-	XFillRectangles(dpy, pix, gc, rects, thickness * 2);
+	XChangeGC(dpy, wm.gc, GCForeground, &(XGCValues){
+		.foreground = theme.colors[style][COLOR_DARK].pixel,
+	});
+	XFillRectangles(dpy, pix, wm.gc, rects, config.shadowthickness * 2);
 }
 
 void
@@ -245,8 +235,8 @@ drawprompt(Pixmap pix, int w, int h)
 		rects[i * 3 + 2] = (XRectangle){.x = config.borderwidth - 1 - i, .y = h - config.borderwidth + i, .width = partw + 2 + i * 2, .height = 1};
 	}
 	val.foreground = theme.colors[FOCUSED][COLOR_LIGHT].pixel;
-	XChangeGC(dpy, gc, GCForeground, &val);
-	XFillRectangles(dpy, pix, gc, rects, config.shadowthickness * 3);
+	XChangeGC(dpy, wm.gc, GCForeground, &val);
+	XFillRectangles(dpy, pix, wm.gc, rects, config.shadowthickness * 3);
 
 	/* draw dark shadow */
 	for (i = 0; i < config.shadowthickness; i++) {
@@ -255,6 +245,6 @@ drawprompt(Pixmap pix, int w, int h)
 		rects[i * 3 + 2] = (XRectangle){.x = config.borderwidth - 1 - i, .y = i,         .width = 1,         .height = parth + config.borderwidth};
 	}
 	val.foreground = theme.colors[FOCUSED][COLOR_DARK].pixel;
-	XChangeGC(dpy, gc, GCForeground, &val);
-	XFillRectangles(dpy, pix, gc, rects, config.shadowthickness * 3);
+	XChangeGC(dpy, wm.gc, GCForeground, &val);
+	XFillRectangles(dpy, pix, wm.gc, rects, config.shadowthickness * 3);
 }

@@ -2,64 +2,54 @@ SHOD_OBJS   = shod.o config.o xdraw.o \
               xcontainer.o xmenu.o xbar.o xdock.o xsplash.o xnotif.o xprompt.o
 SHODC_OBJS  = shodc.o
 SHARED_OBJS = xutil.o
-PROGS = shod shodc
-OBJS  = ${SHOD_OBJS} ${SHODC_OBJS} ${SHARED_OBJS}
-SRCS  = ${OBJS:.o=.c}
-MAN   = shod.1
+OBJS        = ${SHOD_OBJS} ${SHODC_OBJS} ${SHARED_OBJS}
 
-PREFIX ?= /usr/local
-MANPREFIX ?= ${PREFIX}/share/man
-LOCALINC ?= /usr/local/include
-LOCALLIB ?= /usr/local/lib
-X11INC ?= /usr/X11R6/include
-X11LIB ?= /usr/X11R6/lib
+SRCS        = ${OBJS:.o=.c}
 
-# includes and libs
-DEFS = -D_POSIX_C_SOURCE=200809L -DGNU_SOURCE -D_BSD_SOURCE
-INCS = -I${LOCALINC} -I${X11INC} -I/usr/include/freetype2 -I${X11INC}/freetype2
-LIBS  = -L${LOCALLIB} -L${X11LIB} -lfontconfig -lXft -lX11 -lXrandr -lXrender
+MANS        = shod.1
 
-bindir = ${DESTDIR}${PREFIX}/bin
-mandir = ${DESTDIR}${MANPREFIX}/man1
+PROGS       = shod shodc
+
+PROG_CPPFLAGS = \
+	-D_POSIX_C_SOURCE=200809L -D_BSD_SOURCE -D_GNU_SOURCE -D_DEFAULT_SOURCE \
+	-I/usr{,/local,/X11R6}/include{,/freetype2} \
+	${CPPFLAGS}
+
+PROG_CFLAGS = -std=c99 -pedantic ${PROG_CPPFLAGS} ${CFLAGS}
+
+PROG_LDFLAGS = -L/usr{,/local,/X11R6}/lib ${LDLIBS} ${LDFLAGS}
+
+DEBUG_FLAGS = -g -O0 -DDEBUG -Wall -Wextra -Wpedantic
 
 all: ${PROGS}
 
 shod: ${SHOD_OBJS} ${SHARED_OBJS}
-	${CC} -o $@ ${SHOD_OBJS} ${SHARED_OBJS} ${LIBS} ${LDFLAGS}
+	${CC} -o $@ ${SHOD_OBJS} ${SHARED_OBJS} \
+	${PROG_LDFLAGS} -lfontconfig -lXft -lXrandr -lXrender -lX11
 
 shodc: ${SHODC_OBJS} ${SHARED_OBJS}
-	${CC} -o $@ ${SHODC_OBJS} ${SHARED_OBJS} ${LIBS} ${LDFLAGS}
+	${CC} -o $@ ${SHODC_OBJS} ${SHARED_OBJS} ${PROG_LDFLAGS} -lX11
 
-${SHOD_OBJS}: shod.h xutil.h
-
-${SHODC_OBJS}: xutil.h
-
-${SHARED_OBJS}: xutil.h
+${SHOD_OBJS}: shod.h
+${OBJS}: xutil.h
 
 .c.o:
-	${CC} -std=c99 -pedantic ${DEFS} ${INCS} ${CFLAGS} ${CPPFLAGS} -o $@ -c $<
+	${CC} ${PROG_CFLAGS} -o $@ -c $<
+
+debug:
+	@${MAKE} ${MAKEFLAGS} CFLAGS+="${DEBUG_FLAGS}" all
 
 tags: ${SRCS}
 	ctags -d ${SRCS}
 
 lint: ${SRCS}
-	-mandoc -T lint -W warning ${MAN}
-	-clang-tidy ${SRCS} -- -std=c99 ${DEFS} ${INCS} ${CPPFLAGS}
+	-mandoc -T lint -W warning ${MANS}
+	scan-build @${MAKE} debug
 
-test: ${PROGS}
-	xinit ${XINITRC} -- `which Xephyr` :1 -screen 1024x768 +xinerama
-
-install: all
-	mkdir -p ${bindir}
-	mkdir -p ${mandir}
-	for file in ${PROGS} ; do install -m 755 "$$file" ${bindir}/"$$file" ; done
-	install -m 644 ${MAN} ${mandir}/${MAN}
-
-uninstall:
-	-for file in ${PROGS} ; do rm ${bindir}/"$$file" ; done
-	-rm ${mandir}/${MAN}
+test: debug
+	xinit ./xinitrc -- `which Xephyr` :1 -screen 800x600 +xinerama
 
 clean:
 	rm -f ${PROGS} ${PROGS:=.core} ${OBJS} tags
 
-.PHONY: all clean install uninstall lint
+.PHONY: all debug clean lint

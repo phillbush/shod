@@ -7,10 +7,8 @@ struct Menu {
 	struct Monitor *mon;
 	Window leader;
 
-	/*
-	 * Frames, pixmaps, saved pixmap geometry, etc
-	 */
 	Window titlebar;
+	Window close_btn;
 	Window frame;                           /* frame window */
 	Pixmap pixtitlebar;                     /* pixmap to draw the titlebar */
 	int pw, ph;                             /* pixmap size */
@@ -35,16 +33,12 @@ menudelraise(struct Menu *menu)
 static void
 menudecorate(struct Menu *menu)
 {
-	int tw;
-
-	tw = max(1, menu->w - config.titlewidth);
-	updatepixmap(&menu->pixtitlebar, &menu->tw, NULL, tw, config.titlewidth);
+	updatepixmap(&menu->pixtitlebar, &menu->tw, NULL, menu->w, config.titlewidth);
 	drawshadow(
 		menu->pixtitlebar,
-		0, 0, tw, config.titlewidth,
-		FOCUSED, False, config.shadowthickness
+		0, 0, menu->w, config.titlewidth, FOCUSED
 	);
-	drawtitle(menu->pixtitlebar, menu->name, tw, 0, FOCUSED, 0, 1);
+	drawtitle(menu->pixtitlebar, menu->name, menu->w, 0, FOCUSED, 0, 1);
 	drawcommit(menu->pixtitlebar, menu->titlebar);
 }
 
@@ -133,18 +127,30 @@ manage(struct Object *app, struct Monitor *mon, int desk, Window win, Window lea
 		.w = framew,
 		.h = frameh,
 	};
-	context_add(win, &menu->obj);
 	menu->frame = createframe((XRectangle){0, 0, framew, frameh});
-	XGrabButton(
-		dpy, AnyButton, AnyModifier,
-		menu->frame, False, MOUSE_EVENTS,
-		GrabModeSync, GrabModeAsync, None, None
-	);
 	menu->titlebar = createdecoration(
 		menu->frame,
 		(XRectangle){0, 0, framew, config.titlewidth},
 		None, NorthWestGravity
 	);
+	menu->close_btn = createdecoration(
+		menu->titlebar, (XRectangle){
+			framew - config.button_size - config.shadowthickness,
+			config.shadowthickness,
+			config.button_size, config.button_size
+		},
+		wm.cursors[CURSOR_PIRATE], NorthEastGravity
+	);
+	XGrabButton(
+		dpy, AnyButton, AnyModifier,
+		menu->frame, False, MOUSE_EVENTS,
+		GrabModeSync, GrabModeAsync, None, None
+	);
+	drawcommit(wm.close_btn[FOCUSED][1], menu->close_btn);
+	context_add(win, &menu->obj);
+	context_add(menu->frame, &menu->obj);
+	context_add(menu->titlebar, &menu->obj);
+	context_add(menu->close_btn, &menu->obj);
 	XReparentWindow(
 		dpy,
 		menu->obj.win, menu->frame,
@@ -162,6 +168,7 @@ manage(struct Object *app, struct Monitor *mon, int desk, Window win, Window lea
 	);
 	XMapWindow(dpy, menu->obj.win);
 	XMapWindow(dpy, menu->titlebar);
+	XMapWindow(dpy, menu->close_btn);
 
 	menu->leader = leader;
 	winupdatetitle(menu->obj.win, &menu->name);
@@ -188,6 +195,7 @@ unmanage(struct Object *obj)
 	XReparentWindow(dpy, menu->obj.win, root, 0, 0);
 	XDestroyWindow(dpy, menu->frame);
 	XDestroyWindow(dpy, menu->titlebar);
+	XDestroyWindow(dpy, menu->close_btn);
 	free(menu->name);
 	free(menu);
 }
@@ -361,6 +369,8 @@ btnpress(struct Object *self, XButtonPressedEvent *press)
 			menu, border,
 			press->x_root, press->y_root
 		);
+	} else if (press->window == menu->close_btn && press->button == Button1) {
+		window_close(dpy, menu->obj.win);
 	}
 }
 
