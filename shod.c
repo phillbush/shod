@@ -20,8 +20,9 @@
 /* call instance method, if it exists */
 #define ARG1(arg, ...) (arg)
 #define CALL_METHOD(method, ...) \
-	if (ARG1(__VA_ARGS__, 0)->class->method != NULL) \
-		ARG1(__VA_ARGS__, 0)->class->method(__VA_ARGS__)
+	if (ARG1(__VA_ARGS__, 0) != NULL) \
+		if (ARG1(__VA_ARGS__, 0)->class->method != NULL) \
+			ARG1(__VA_ARGS__, 0)->class->method(__VA_ARGS__)
 
 /* for each class, call class method, if it exists */
 #define FOREACH_CLASS(method, ...) \
