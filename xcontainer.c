@@ -1407,7 +1407,7 @@ containerraise(struct Container *container, enum State state)
 		container->layer = &stack_order.middle;
 		wins[0] = wm.layertop[LAYER_NORMAL];
 	}
-	TAILQ_INSERT_HEAD(container->layer, &container->obj, z_entry);
+	TAILQ_INSERT_TAIL(container->layer, &container->obj, z_entry);
 	XRestackWindows(dpy, wins, 2);
 	container->state &= ~(ABOVE|BELOW);
 	container->state |= state;
@@ -2552,6 +2552,9 @@ static void
 init(void)
 {
 	TAILQ_INIT(&focus_history);
+	TAILQ_INIT(&stack_order.above);
+	TAILQ_INIT(&stack_order.middle);
+	TAILQ_INIT(&stack_order.below);
 }
 
 static void
