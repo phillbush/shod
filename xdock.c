@@ -424,7 +424,33 @@ done:
 static void
 update_window_area(void)
 {
+	struct Monitor *mon = wm.monitors[0];
+	int left, right, top, bottom;
+
 	dockupdate();
+	left = right = top = bottom = 0;
+	if (!TAILQ_EMPTY(&dock.dappq) &&
+	    (dock.state & MAXIMIZED) && !(dock.state & MINIMIZED)) {
+		switch (config.dockgravity[0]) {
+		case 'N':
+			top = config.dockwidth;
+			break;
+		case 'S':
+			bottom = config.dockwidth;
+			break;
+		case 'W':
+			left = config.dockwidth;
+			break;
+		case 'E':
+		default:
+			right = config.dockwidth;
+			break;
+		}
+	}
+	mon->wx = max(mon->wx, mon->mx + left);
+	mon->wy = max(mon->wy, mon->my + top);
+	mon->ww = max(1, min(mon->ww, mon->mw - left - right));
+	mon->wh = max(1, min(mon->wh, mon->mh - top - bottom));
 	container_class.monitor_reset();
 }
 
@@ -553,37 +579,6 @@ clean(void)
 	XDestroyWindow(dpy, dock.obj.win);
 }
 
-static void
-monitor_reset(void)
-{
-	struct Monitor *mon = wm.monitors[0];
-	int left, right, top, bottom;
-
-	left = right = top = bottom = 0;
-	if (!TAILQ_EMPTY(&dock.dappq) &&
-	    (dock.state & MAXIMIZED) && !(dock.state & MINIMIZED)) {
-		switch (config.dockgravity[0]) {
-		case 'N':
-			top = config.dockwidth;
-			break;
-		case 'S':
-			bottom = config.dockwidth;
-			break;
-		case 'W':
-			left = config.dockwidth;
-			break;
-		case 'E':
-		default:
-			right = config.dockwidth;
-			break;
-		}
-	}
-	mon->wx = max(mon->wx, mon->mx + left);
-	mon->wy = max(mon->wy, mon->my + top);
-	mon->ww = max(1, min(mon->ww, mon->mw - left - right));
-	mon->wh = max(1, min(mon->wh, mon->mh - top - bottom));
-}
-
 struct Class dock_class = {
 	.setstate       = changestate,
 	.manage         = NULL,
@@ -599,5 +594,5 @@ struct Class dockapp_class = {
 	.init           = init,
 	.clean          = clean,
 	.handle_configure = handle_configure,
-	.monitor_reset  = monitor_reset,
+	.monitor_reset  = NULL,
 };
