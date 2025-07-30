@@ -66,7 +66,7 @@ menumoveresize(struct Menu *menu)
 static void
 menufocus(struct Menu *menu)
 {
-	XSetInputFocus(dpy, menu->obj.win, RevertToParent, CurrentTime);
+	XSetInputFocus(dpy, menu->obj.win, RevertToPointerRoot, CurrentTime);
 }
 
 /* put menu on beginning of menu list */

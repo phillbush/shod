@@ -389,7 +389,7 @@ manage(Window win, Window appwin, XRectangle rect)
 	/* prepare window to be managed */
 	XSelectInput(
 		dpy, win,
-		StructureNotifyMask|PropertyChangeMask|FocusChangeMask
+		StructureNotifyMask|PropertyChangeMask
 	);
 	XSetWindowBorderWidth(dpy, win, 0);
 
@@ -1029,10 +1029,10 @@ xevententernotify(XEvent *e)
 }
 
 static void
-xeventfocusin(XEvent *e)
+xeventfocusin(XEvent *event)
 {
-#warning TODO: handle focus stealing
-	(void)e;
+	if (event->xfocus.window == root)
+		CALL_METHOD(focus, wm.focused);
 }
 
 static void
@@ -1206,7 +1206,7 @@ scan(void)
 	 * windows for it to not get managed.
 	 */
 	XMapWindow(dpy, wm.focuswin);
-	XSetInputFocus(dpy, wm.focuswin, RevertToParent, CurrentTime);
+	XSetInputFocus(dpy, wm.focuswin, RevertToPointerRoot, CurrentTime);
 
 	XFree(toplvls);
 	XSync(dpy, True);
@@ -1664,7 +1664,8 @@ setup(void)
 		SubstructureRedirectMask |  /* so clients request us to map */
 		StructureNotifyMask |       /* get changes on rootwin configuration */
 		PropertyChangeMask |        /* get changes on rootwin properties */
-		ButtonPressMask             /* to change monitor on mouseclick */
+		ButtonPressMask |           /* to change monitor on mouseclick */
+		FocusChangeMask
 	);
 	(void)XSync(dpy, False);
 	(void)XSetErrorHandler(xerror);

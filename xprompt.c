@@ -77,7 +77,7 @@ manage(struct Object *tab, struct Monitor *mon, int desk, Window win,
 	XReparentWindow(dpy, win, frame, config.borderwidth, 0);
 	XMapWindow(dpy, win);
 	XMapWindow(dpy, frame);
-	XSetInputFocus(dpy, win, RevertToParent, CurrentTime);
+	XSetInputFocus(dpy, win, RevertToPointerRoot, CurrentTime);
 	promptdecorate(frame, &pix, fw, fh);
 	while (!XIfEvent(dpy, &ev, promptvalidevent, (XPointer)&win)) {
 		switch (ev.type) {

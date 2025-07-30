@@ -806,7 +806,7 @@ tabfocus(struct Tab *tab, int gotodesk)
 	prevfocused = wm.focused;
 	if (tab == NULL) {
 		wm.focused = NULL;
-		XSetInputFocus(dpy, wm.focuswin, RevertToParent, CurrentTime);
+		XSetInputFocus(dpy, wm.focuswin, RevertToPointerRoot, CurrentTime);
 		set_active_window(None);
 	} else {
 		c = tab->row->col->c;
@@ -821,13 +821,13 @@ tabfocus(struct Tab *tab, int gotodesk)
 		XRaiseWindow(dpy, tab->row->frame);
 		XRaiseWindow(dpy, tab->frame);
 		if (c->state & SHADED || tab->row->isunmapped) {
-			XSetInputFocus(dpy, tab->row->bar, RevertToParent, CurrentTime);
+			XSetInputFocus(dpy, tab->row->bar, RevertToPointerRoot, CurrentTime);
 		} else if (!TAILQ_EMPTY(&tab->dialq)) {
 			dial = TAILQ_FIRST(&tab->dialq)->self;
 			XRaiseWindow(dpy, dial->frame);
-			XSetInputFocus(dpy, dial->obj.win, RevertToParent, CurrentTime);
+			XSetInputFocus(dpy, dial->obj.win, RevertToPointerRoot, CurrentTime);
 		} else {
-			XSetInputFocus(dpy, tab->obj.win, RevertToParent, CurrentTime);
+			XSetInputFocus(dpy, tab->obj.win, RevertToPointerRoot, CurrentTime);
 		}
 		set_active_window(tab->obj.win);
 		tabclearurgency(tab);
