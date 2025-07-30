@@ -2124,7 +2124,7 @@ drag_move(struct Container *container, int xroot, int yroot)
 				container->nw, container->nh
 			);
 			containermoveresize(container);
-		} else if (event.xmotion.y_root > 0 && event.xmotion.y_root < config.titlewidth) {
+		} else if (event.xmotion.y_root > config.titlewidth) {
 			containersetstate(&container->obj, MAXIMIZED, REMOVE);
 			container->x = container->nx = event.xmotion.x_root - container->nw / 2;
 			container->y = container->ny = 0;
