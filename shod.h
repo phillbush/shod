@@ -253,6 +253,7 @@ void winupdatetitle(Window win, char **name);
 void window_configure_notify(Display *display, Window window, int x, int y, int w, int h);
 
 /* decoration routines */
+Window createwindow(Window parent, XRectangle geom, long mask, XSetWindowAttributes *attrs);
 Window createframe(XRectangle geom);
 Window createdecoration(Window frame, XRectangle geom, Cursor curs, int gravity);
 void updatepixmap(Pixmap *pix, int *pixw, int *pixh, int w, int h);

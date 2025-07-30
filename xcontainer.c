@@ -799,28 +799,37 @@ rowstretch(struct Column *col, struct Row *row)
 static void
 tabfocus(struct Tab *tab, int gotodesk)
 {
+	Window focused;
 	static struct Object *prevfocused;
-	struct Container *c;
+	struct Container *container;
 	struct Dialog *dial;
 
 	prevfocused = wm.focused;
+	(void)XGetInputFocus(dpy, &focused, &(int){0});
 	if (tab == NULL) {
 		wm.focused = NULL;
 		XSetInputFocus(dpy, wm.focuswin, RevertToPointerRoot, CurrentTime);
 		set_active_window(None);
+	} else if (tab->obj.win == focused) {
+		return;
 	} else {
-		c = tab->row->col->c;
-		wm.focused = &c->obj;
+		container = tab->row->col->c;
+		wm.focused = &container->obj;
 		tab->row->seltab = tab;
 		tab->row->col->selrow = tab->row;
 		tab->row->col->c->selcol = tab->row->col;
-		if (gotodesk)
-			deskupdate(c->mon, c->state & STICKY ? c->mon->seldesk : c->desk);
+		if (gotodesk) {
+			deskupdate(
+				container->mon,
+				container->state & STICKY ?
+				container->mon->seldesk : container->desk
+			);
+		}
 		if (tab->row->fact == 0.0)
 			rowstretch(tab->row->col, tab->row);
 		XRaiseWindow(dpy, tab->row->frame);
 		XRaiseWindow(dpy, tab->frame);
-		if (c->state & SHADED || tab->row->isunmapped) {
+		if (container->state & SHADED || tab->row->isunmapped) {
 			XSetInputFocus(dpy, tab->row->bar, RevertToPointerRoot, CurrentTime);
 		} else if (!TAILQ_EMPTY(&tab->dialq)) {
 			dial = TAILQ_FIRST(&tab->dialq)->self;
@@ -831,12 +840,12 @@ tabfocus(struct Tab *tab, int gotodesk)
 		}
 		set_active_window(tab->obj.win);
 		tabclearurgency(tab);
-		containeraddfocus(c);
-		containerdecorate(&c->obj);
-		c->state &= ~MINIMIZED;
-		containerhide(c, 0);
-		set_container_group(c);
-		setstate_recursive(c);
+		containeraddfocus(container);
+		containerdecorate(&container->obj);
+		container->state &= ~MINIMIZED;
+		containerhide(container, 0);
+		set_container_group(container);
+		setstate_recursive(container);
 		menu_class.restack();
 	}
 	if (prevfocused != NULL && prevfocused != wm.focused) {
@@ -1030,7 +1039,7 @@ rownew(void)
 		.obj.class = &row_class,
 	};
 	TAILQ_INIT(&row->tabq);
-	row->frame = createframe((XRectangle){0, 0, 1, 1});
+	row->frame = createwindow(root, (XRectangle){0, 0, 1, 1}, 0, NULL);
 	row->bar = createdecoration(
 		root,
 		(XRectangle){0, 0, config.titlewidth, config.titlewidth},
@@ -1625,11 +1634,6 @@ containernew(int x, int y, int w, int h, enum State state)
 		.obj.self = c,
 		.obj.class = &container_class,
 	};
-	XGrabButton(
-		dpy, AnyButton, AnyModifier,
-		c->obj.win, False, MOUSE_EVENTS,
-		GrabModeSync, GrabModeAsync, None, None
-	);
 	context_add(c->obj.win, &c->obj);
 	TAILQ_INIT(&c->colq);
 	for (size_t i = 0; i < LEN(table); i++) {

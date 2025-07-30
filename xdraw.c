@@ -14,7 +14,7 @@ drawrectangle(Pixmap pix, int x, int y, int w, int h, unsigned long color)
 	XFillRectangle(dpy, pix, wm.gc, x, y, w, h);
 }
 
-static Window
+Window
 createwindow(Window parent, XRectangle geom, long mask, XSetWindowAttributes *attrs)
 {
 	XSetWindowAttributes new_attrs = {0};
@@ -36,11 +36,18 @@ createwindow(Window parent, XRectangle geom, long mask, XSetWindowAttributes *at
 Window
 createframe(XRectangle geom)
 {
+	Window frame;
 	XSetWindowAttributes attrs = {
 		.event_mask = EnterWindowMask,
 	};
 
-	return createwindow(root, geom, CWEventMask, &attrs);
+	frame = createwindow(root, geom, CWEventMask, &attrs);
+	XGrabButton(
+		dpy, AnyButton, AnyModifier,
+		frame, False, MOUSE_EVENTS,
+		GrabModeSync, GrabModeAsync, None, None
+	);
+	return frame;
 }
 
 Window

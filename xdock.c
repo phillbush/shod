@@ -560,7 +560,7 @@ init(void)
 	swa.background_pixel = BlackPixel(dpy, screen);
 	swa.border_pixel = BlackPixel(dpy, screen);
 	swa.colormap = colormap;
-	dock.obj.win = createframe((XRectangle){0,0,1,1});
+	dock.obj.win = createwindow(root, (XRectangle){0,0,1,1}, 0, NULL);
 	dock.state = MAXIMIZED;
 	dock.obj.class = &dock_class;
 	settitle(dock.obj.win, "shod's dock");
