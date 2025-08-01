@@ -960,6 +960,7 @@ tabfocus(struct Tab *tab, int gotodesk)
 		tab->row->seltab = tab;
 		tab->row->col->selrow = tab->row;
 		tab->row->col->c->selcol = tab->row->col;
+		deskshow(False);
 		if (gotodesk) {
 			deskupdate(
 				container->mon,

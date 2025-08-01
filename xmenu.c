@@ -522,47 +522,37 @@ handle_enter(struct Object *self)
 }
 
 static void
-hide_desktop(void)
+update_visibility(struct Menu *menu)
 {
-	struct Object *obj;
-	struct Menu *menu;
-
-	TAILQ_FOREACH(obj, &managed_menus, entry) {
-		menu = obj->self;
-		if (menu->leader == None)
-			continue;
-		if (focused_follows_leader(menu->leader)) {
-			XMapWindow(dpy, menu->frame);
-			XChangeProperty(
-				dpy, menu->obj.win, atoms[WM_STATE], atoms[WM_STATE],
-				32, PropModeReplace, (void *)&(long[]){
-					[0] = NormalState,
-					[1] = None,
-				}, 2
-			);
-		}
+	if (!wm.showingdesk &&
+	    (menu->leader == None || focused_follows_leader(menu->leader))) {
+		XMapWindow(dpy, menu->frame);
+		XChangeProperty(
+			dpy, menu->obj.win, atoms[WM_STATE], atoms[WM_STATE],
+			32, PropModeReplace, (void *)&(long[]){
+				[0] = NormalState,
+				[1] = None,
+			}, 2
+		);
+	} else {
+		XUnmapWindow(dpy, menu->frame);
+		XChangeProperty(
+			dpy, menu->obj.win, atoms[WM_STATE], atoms[WM_STATE],
+			32, PropModeReplace, (void *)&(long[]){
+				[0] = IconicState,
+				[1] = None,
+			}, 2
+		);
 	}
 }
 
 static void
-show_desktop(void)
+hide_desktop(void)
 {
 	struct Object *obj;
-	struct Menu *menu;
 
-	TAILQ_FOREACH(obj, &managed_menus, entry) {
-		menu = obj->self;
-		if (menu->leader == None)
-			continue;
-		XUnmapWindow(dpy, ((struct Menu *)obj)->frame);
-			XChangeProperty(
-				dpy, menu->obj.win, atoms[WM_STATE], atoms[WM_STATE],
-				32, PropModeReplace, (void *)&(long[]){
-					[0] = IconicState,
-					[1] = None,
-				}, 2
-			);
-	}
+	TAILQ_FOREACH(obj, &managed_menus, entry)
+		update_visibility(obj->self);
 }
 
 static void
@@ -574,6 +564,7 @@ restack(void)
 	wins[0] = wm.layertop[LAYER_MENU];
 	TAILQ_FOREACH(obj, &managed_menus, entry) {
 		struct Menu *menu = (obj->self);
+		update_visibility(menu);
 		if (!focused_follows_leader(menu->leader))
 			continue;
 		menu = obj->self;
@@ -598,6 +589,6 @@ struct Class menu_class = {
 	.handle_enter   = handle_enter,
 	.handle_message = handle_message,
 	.hide_desktop   = hide_desktop,
-	.show_desktop   = show_desktop,
+	.show_desktop   = hide_desktop,
 	.restack        = restack,
 };

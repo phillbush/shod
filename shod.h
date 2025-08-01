@@ -247,6 +247,7 @@ void redecorate(Window win, int border, int style, Bool pressed);
 void fitmonitor(struct Monitor *mon, XRectangle *geometry, float factor);
 struct Monitor *getmon(int x, int y);
 void deskupdate(struct Monitor *mon, long desk);
+void deskshow(Bool show);
 
 Bool isvalidstate(unsigned int state);
 

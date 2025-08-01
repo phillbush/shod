@@ -277,22 +277,6 @@ getresource(XrmDatabase xdb, XrmClass *class, XrmName *name)
 }
 
 static void
-deskshow(long show)
-{
-	if (show) {
-		FOREACH_CLASS(show_desktop);
-	} else {
-		FOREACH_CLASS(hide_desktop);
-	}
-	wm.showingdesk = show;
-	XChangeProperty(
-		dpy, root, atoms[_NET_SHOWING_DESKTOP],
-		XA_CARDINAL, 32, PropModeReplace,
-		(void *)&show, 1
-	);
-}
-
-static void
 deskfocus(struct Monitor *mon, int desk)
 {
 	if (desk < 0 || desk >= config.ndesktops || (mon == wm.selmon && desk == wm.selmon->seldesk))
@@ -875,6 +859,9 @@ xeventbuttonpress(XEvent *event)
 	struct Object *obj = context_get(press->window);
 	struct Monitor *mon = getmon(press->x_root, press->y_root);
 
+	XAllowEvents(dpy, ReplayPointer, CurrentTime);
+	(void)XSync(dpy, False);
+
 	if (press->time - last_click_time < DOUBLE_CLICK_TIME &&
 	    press->button == last_click_button &&
 	    press->window == last_click_window) {
@@ -898,8 +885,6 @@ xeventbuttonpress(XEvent *event)
 	)) {
 		deskfocus(mon, mon->seldesk);
 	}
-
-	XAllowEvents(dpy, ReplayPointer, CurrentTime);
 }
 
 static void
@@ -1944,6 +1929,25 @@ winupdatetitle(Window win, char **name)
 		XFree(*name);
 	}
 	*name = NULL;
+}
+
+void
+deskshow(Bool show)
+{
+	if (wm.showingdesk && show)
+		return;
+	if (!wm.showingdesk && !show)
+		return;
+	if (show)
+		FOREACH_CLASS(show_desktop);
+	else
+		FOREACH_CLASS(hide_desktop);
+	wm.showingdesk = show;
+	XChangeProperty(
+		dpy, root, atoms[_NET_SHOWING_DESKTOP],
+		XA_CARDINAL, 32, PropModeReplace,
+		(void *)&show, 1
+	);
 }
 
 int
