@@ -14,7 +14,7 @@ struct Menu {
 	int pw, ph;                             /* pixmap size */
 	int tw;                                 /* titlebar pixmap size */
 
-	int x, y, w, h;                         /* geometry of the menu window + the frame */
+	XRectangle frame_geometry;
 	int ignoreunmap;                        /* number of unmapnotifys to ignore */
 	char *name;                             /* client name */
 };
@@ -33,12 +33,20 @@ menudelraise(struct Menu *menu)
 static void
 menudecorate(struct Menu *menu)
 {
-	updatepixmap(&menu->pixtitlebar, &menu->tw, NULL, menu->w, config.titlewidth);
-	drawshadow(
-		menu->pixtitlebar,
-		0, 0, menu->w, config.titlewidth, FOCUSED
+	updatepixmap(
+		&menu->pixtitlebar, &menu->tw, NULL,
+		menu->frame_geometry.width, config.titlewidth
 	);
-	drawtitle(menu->pixtitlebar, menu->name, menu->w, 0, FOCUSED, 0, 1);
+	drawshadow(
+		menu->pixtitlebar, 0, 0,
+		menu->frame_geometry.width,
+		config.titlewidth, FOCUSED
+	);
+	drawtitle(
+		menu->pixtitlebar, menu->name,
+		menu->frame_geometry.width, 0,
+		FOCUSED, 0, 1
+	);
 	drawcommit(menu->pixtitlebar, menu->titlebar);
 }
 
@@ -46,20 +54,27 @@ menudecorate(struct Menu *menu)
 static void
 menumoveresize(struct Menu *menu)
 {
-	XMoveResizeWindow(dpy, menu->frame, menu->x, menu->y, menu->w, menu->h);
-	XResizeWindow(dpy, menu->titlebar, menu->w, config.titlewidth);
+	XMoveResizeWindow(
+		dpy, menu->frame,
+		menu->frame_geometry.x, menu->frame_geometry.y,
+		menu->frame_geometry.width, menu->frame_geometry.height
+	);
+	XResizeWindow(
+		dpy, menu->titlebar,
+		menu->frame_geometry.width, config.titlewidth
+	);
 	XResizeWindow(
 		dpy, menu->obj.win,
-		max(1, menu->w - 2 * BORDER),
-		max(1, menu->h - BORDER - config.titlewidth)
+		max(1, menu->frame_geometry.width - 2 * BORDER),
+		max(1, menu->frame_geometry.height - BORDER - config.titlewidth)
 	);
-	menu->mon = getmon(menu->x, menu->y);
+	menu->mon = getmon(menu->frame_geometry.x, menu->frame_geometry.y);
 	window_configure_notify(
 		dpy, menu->obj.win,
-		menu->x + BORDER,
-		menu->y + config.titlewidth,
-		menu->w - 2 * BORDER,
-		menu->h - BORDER - config.titlewidth
+		menu->frame_geometry.x + BORDER,
+		menu->frame_geometry.y + config.titlewidth,
+		menu->frame_geometry.width - 2 * BORDER,
+		menu->frame_geometry.height - BORDER - config.titlewidth
 	);
 }
 
@@ -82,7 +97,7 @@ menufocusraise(struct Menu *menu)
 static void
 menuplace(struct Monitor *mon, struct Menu *menu)
 {
-	fitmonitor(mon, &menu->x, &menu->y, &menu->w, &menu->h, 1.0);
+	fitmonitor(mon, &menu->frame_geometry, 1.0);
 	menumoveresize(menu);
 }
 
@@ -101,17 +116,16 @@ static void
 manage(struct Object *app, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
 {
 	struct Menu *menu;
-	int framex, framey, framew, frameh;
 
 	(void)mon;
 	(void)desk;
 	(void)state;
 
 	/* adjust geometry for border on all sides and titlebar on top */
-	framex = rect.x - BORDER;
-	framey = rect.y - config.titlewidth;
-	framew = rect.width + 2 * BORDER;
-	frameh = rect.height + BORDER + config.titlewidth;
+	rect.x -= BORDER;
+	rect.y -= config.titlewidth;
+	rect.width += 2 * BORDER;
+	rect.height += BORDER + config.titlewidth;
 
 	if (leader == None)
 		leader = app->win;
@@ -122,20 +136,17 @@ manage(struct Object *app, struct Monitor *mon, int desk, Window win, Window lea
 		.obj.self = menu,
 		.obj.class = &menu_class,
 		.pixtitlebar = None,
-		.x = framex,
-		.y = framey,
-		.w = framew,
-		.h = frameh,
+		.frame_geometry = rect,
 	};
-	menu->frame = createframe((XRectangle){0, 0, framew, frameh});
+	menu->frame = createframe(menu->frame_geometry);
 	menu->titlebar = createdecoration(
 		menu->frame,
-		(XRectangle){0, 0, framew, config.titlewidth},
+		(XRectangle){0, 0, menu->frame_geometry.width, config.titlewidth},
 		None, NorthWestGravity
 	);
 	menu->close_btn = createdecoration(
 		menu->titlebar, (XRectangle){
-			framew - config.button_size - config.shadowthickness,
+			menu->frame_geometry.width - config.button_size - config.shadowthickness,
 			config.shadowthickness,
 			config.button_size, config.button_size
 		},
@@ -221,8 +232,8 @@ drag_move(struct Menu *menu, int xroot, int yroot)
 			continue;
 		x = event.xmotion.x_root - xroot;
 		y = event.xmotion.y_root - yroot;
-		menu->x += x;
-		menu->y += y;
+		menu->frame_geometry.x += x;
+		menu->frame_geometry.y += y;
 		menumoveresize(menu);
 		xroot = event.xmotion.x_root;
 		yroot = event.xmotion.y_root;
@@ -280,15 +291,15 @@ drag_resize(struct Menu *menu, int border, int xroot, int yroot)
 		break;
 	}
 	if (direction & LEFT)
-		x = xroot - menu->x;
+		x = xroot - menu->frame_geometry.x;
 	else if (direction & RIGHT)
-		x = menu->x + menu->w - xroot;
+		x = menu->frame_geometry.x + menu->frame_geometry.width - xroot;
 	else
 		x = 0;
 	if (direction & TOP)
-		y = yroot - menu->y;
+		y = yroot - menu->frame_geometry.y;
 	else if (direction & BOTTOM)
-		y = menu->y + menu->h - yroot;
+		y = menu->frame_geometry.y + menu->frame_geometry.height - yroot;
 	else
 		y = 0;
 	if (XGrabPointer(
@@ -306,35 +317,41 @@ drag_resize(struct Menu *menu, int border, int xroot, int yroot)
 			break;
 		if (event.type != MotionNotify)
 			continue;
-		if (x > menu->w) x = 0;
-		if (y > menu->h) y = 0;
+		if (x > menu->frame_geometry.width) x = 0;
+		if (y > menu->frame_geometry.height) y = 0;
 		if (direction & LEFT &&
-		    ((motion->x_root < xroot && x > motion->x_root - menu->x) ||
-		     (motion->x_root > xroot && x < motion->x_root - menu->x))) {
+		    ((motion->x_root < xroot && x > motion->x_root - menu->frame_geometry.x) ||
+		     (motion->x_root > xroot && x < motion->x_root - menu->frame_geometry.x))) {
 			dx = xroot - motion->x_root;
-			if (menu->w + dx < wm.minsize) continue;
-			menu->x -= dx;
-			menu->w += dx;
+			if (menu->frame_geometry.width + dx < wm.minsize) continue;
+			menu->frame_geometry.x -= dx;
+			menu->frame_geometry.width += dx;
 		} else if (direction & RIGHT &&
-		    ((motion->x_root > xroot && x > menu->x + menu->w - motion->x_root) ||
-		     (motion->x_root < xroot && x < menu->x + menu->w - motion->x_root))) {
+		    ((motion->x_root > xroot && x >
+		    menu->frame_geometry.x + menu->frame_geometry.width - motion->x_root) ||
+		     (motion->x_root < xroot && x <
+		     menu->frame_geometry.x + menu->frame_geometry.width - motion->x_root))) {
 			dx = motion->x_root - xroot;
-			if (menu->w + dx < wm.minsize) continue;
-			menu->w += dx;
+			if (menu->frame_geometry.width + dx < wm.minsize) continue;
+			menu->frame_geometry.width += dx;
 		}
 		if (direction & TOP &&
-		    ((motion->y_root < yroot && y > motion->y_root - menu->y) ||
-		     (motion->y_root > yroot && y < motion->y_root - menu->y))) {
+		    ((motion->y_root < yroot && y > motion->y_root -
+		    menu->frame_geometry.y) ||
+		     (motion->y_root > yroot && y < motion->y_root -
+		     menu->frame_geometry.y))) {
 			dy = yroot - motion->y_root;
-			if (menu->h + dy < wm.minsize) continue;
-			menu->y -= dy;
-			menu->h += dy;
+			if (menu->frame_geometry.height + dy < wm.minsize) continue;
+			menu->frame_geometry.y -= dy;
+			menu->frame_geometry.height += dy;
 		} else if (direction & BOTTOM &&
-		    ((motion->y_root > yroot && menu->y + menu->h - motion->y_root < y) ||
-		     (motion->y_root < yroot && menu->y + menu->h - motion->y_root > y))) {
+		    ((motion->y_root > yroot && menu->frame_geometry.y +
+		    menu->frame_geometry.height - motion->y_root < y) ||
+		     (motion->y_root < yroot && menu->frame_geometry.y +
+		     menu->frame_geometry.height - motion->y_root > y))) {
 			dy = motion->y_root - yroot;
-			if (menu->h + dy < wm.minsize) continue;
-			menu->h += dy;
+			if (menu->frame_geometry.height + dy < wm.minsize) continue;
+			menu->frame_geometry.height += dy;
 		}
 		xroot = motion->x_root;
 		yroot = motion->y_root;
@@ -357,11 +374,11 @@ btnpress(struct Object *self, XButtonPressedEvent *press)
 	} else if (isvalidstate(press->state) && press->button == Button3) {
 		enum border border;
 
-		if (press->x <= menu->w/2 && press->y <= menu->h/2)
+		if (press->x <= menu->frame_geometry.width/2 && press->y <= menu->frame_geometry.height/2)
 			border = BORDER_NW;
-		else if (press->x > menu->w/2 && press->y <= menu->h/2)
+		else if (press->x > menu->frame_geometry.width/2 && press->y <= menu->frame_geometry.height/2)
 			border = BORDER_NE;
-		else if (press->x <= menu->w/2 && press->y > menu->h/2)
+		else if (press->x <= menu->frame_geometry.width/2 && press->y > menu->frame_geometry.height/2)
 			border = BORDER_SW;
 		else
 			border = BORDER_SE;
@@ -486,13 +503,13 @@ handle_configure(struct Object *self, unsigned int valuemask, XWindowChanges *wc
 	if (menu == NULL)
 		return;
 	if (valuemask & CWX)
-		menu->x = wc->x - BORDER;
+		menu->frame_geometry.x = wc->x - BORDER;
 	if (valuemask & CWY)
-		menu->y = wc->y - config.titlewidth;
+		menu->frame_geometry.y = wc->y - config.titlewidth;
 	if (valuemask & CWWidth)
-		menu->w = wc->width + 2 * BORDER;
+		menu->frame_geometry.width = wc->width + 2 * BORDER;
 	if (valuemask & CWHeight)
-		menu->h = wc->height + BORDER + config.titlewidth;
+		menu->frame_geometry.height = wc->height + BORDER + config.titlewidth;
 	menumoveresize(menu);
 	menudecorate(menu);
 }

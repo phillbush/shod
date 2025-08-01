@@ -32,54 +32,55 @@ monitor_reset(void)
 {
 	struct Object *n;
 	struct Notification *notif;
+	struct Monitor *mon = wm.monitors[0];
 	int x, y, h;
 
 	h = 0;
 	TAILQ_FOREACH(n, &managed_notifications, entry) {
 		notif = n->self;
-		x = wm.monitors[0]->wx;
-		y = wm.monitors[0]->wy;
+		x = mon->window_area.x;
+		y = mon->window_area.y;
 		switch (config.notifgravity[0]) {
 		case 'N':
 			switch (config.notifgravity[1]) {
 			case 'W':
 				break;
 			case 'E':
-				x += wm.monitors[0]->ww - notif->w;
+				x += wm.monitors[0]->window_area.width - notif->w;
 				break;
 			default:
-				x += (wm.monitors[0]->ww - notif->w) / 2;
+				x += (wm.monitors[0]->window_area.width - notif->w) / 2;
 				break;
 			}
 			break;
 		case 'S':
 			switch(config.notifgravity[1]) {
 			case 'W':
-				y += wm.monitors[0]->wh - notif->h;
+				y += wm.monitors[0]->window_area.height - notif->h;
 				break;
 			case 'E':
-				x += wm.monitors[0]->ww - notif->w;
-				y += wm.monitors[0]->wh - notif->h;
+				x += wm.monitors[0]->window_area.width - notif->w;
+				y += wm.monitors[0]->window_area.height - notif->h;
 				break;
 			default:
-				x += (wm.monitors[0]->ww - notif->w) / 2;
-				y += wm.monitors[0]->wh - notif->h;
+				x += (wm.monitors[0]->window_area.width - notif->w) / 2;
+				y += wm.monitors[0]->window_area.height - notif->h;
 				break;
 			}
 			break;
 		case 'W':
-			y += (wm.monitors[0]->wh - notif->h) / 2;
+			y += (wm.monitors[0]->window_area.height - notif->h) / 2;
 			break;
 		case 'C':
-			x += (wm.monitors[0]->ww - notif->w) / 2;
-			y += (wm.monitors[0]->wh - notif->h) / 2;
+			x += (wm.monitors[0]->window_area.width - notif->w) / 2;
+			y += (wm.monitors[0]->window_area.height - notif->h) / 2;
 			break;
 		case 'E':
-			x += wm.monitors[0]->ww - notif->w;
-			y += (wm.monitors[0]->wh - notif->h) / 2;
+			x += wm.monitors[0]->window_area.width - notif->w;
+			y += (wm.monitors[0]->window_area.height - notif->h) / 2;
 			break;
 		default:
-			x += wm.monitors[0]->ww - notif->w;
+			x += wm.monitors[0]->window_area.width - notif->w;
 			break;
 		}
 

@@ -1500,21 +1500,17 @@ setoptions(int argc, char *argv[])
 static void
 monupdate(void)
 {
-	static struct Monitor def_monitor;
+	static struct Monitor def_monitor = {0};
 	static struct Monitor *list = &def_monitor;
 	struct Monitor **monitors = NULL;
 	XRRMonitorInfo *infos = NULL;
 	int nmonitors = 0;
 
-	def_monitor = (struct Monitor){
-		.mx = 0,
-		.wx = 0,
-		.my = 0,
-		.wy = 0,
-		.mw = DisplayWidth(dpy, screen),
-		.ww = DisplayWidth(dpy, screen),
-		.mh = DisplayHeight(dpy, screen),
-		.wh = DisplayHeight(dpy, screen),
+	def_monitor.geometry = def_monitor.window_area = (XRectangle){
+		.x = 0,
+		.y = 0,
+		.width = DisplayWidth(dpy, screen),
+		.height = DisplayHeight(dpy, screen),
 	};
 	infos = XRRGetMonitors(dpy, root, True, &nmonitors);
 	if (infos == NULL || nmonitors <= 0)
@@ -1535,16 +1531,12 @@ monupdate(void)
 			}
 		}
 		if (monitors[i] == NULL) {
-			monitors[i] = emalloc(sizeof(*monitors[i]));
-			*monitors[i] = (struct Monitor){
-				.mx = infos[i].x,
-				.wx = infos[i].x,
-				.my = infos[i].y,
-				.wy = infos[i].y,
-				.mw = infos[i].width,
-				.ww = infos[i].width,
-				.mh = infos[i].height,
-				.wh = infos[i].height,
+			monitors[i] = ecalloc(1, sizeof(*monitors[i]));
+			monitors[i]->geometry = monitors[i]->window_area = (XRectangle){
+				.x = infos[i].x,
+				.y = infos[i].y,
+				.width = infos[i].width,
+				.height = infos[i].height,
 			};
 		}
 	}
@@ -1851,13 +1843,13 @@ struct Monitor *
 getmon(int x, int y)
 {
 	for (int i = 0; i < wm.nmonitors; i++) {
-		if (x < wm.monitors[i]->mx)
+		if (x < wm.monitors[i]->geometry.x)
 			continue;
-		if (x >= wm.monitors[i]->mx + wm.monitors[i]->mw)
+		if (x >= wm.monitors[i]->geometry.x + wm.monitors[i]->geometry.width)
 			continue;
-		if (y < wm.monitors[i]->my)
+		if (y < wm.monitors[i]->geometry.y)
 			continue;
-		if (y >= wm.monitors[i]->my + wm.monitors[i]->mh)
+		if (y >= wm.monitors[i]->geometry.y + wm.monitors[i]->geometry.height)
 			continue;
 		return wm.monitors[i];
 	}
@@ -1865,15 +1857,15 @@ getmon(int x, int y)
 }
 
 void
-fitmonitor(struct Monitor *mon, int *x, int *y, int *w, int *h, float factor)
+fitmonitor(struct Monitor *mon, XRectangle *geometry, float factor)
 {
 	int origw, origh;
 	int minw, minh;
 
-	origw = *w;
-	origh = *h;
-	minw = min(origw, mon->ww * factor);
-	minh = min(origh, mon->wh * factor);
+	origw = geometry->width;
+	origh = geometry->height;
+	minw = min(origw, mon->window_area.width * factor);
+	minh = min(origh, mon->window_area.height * factor);
 	if (origw * minh > origh * minw) {
 		minh = (origh * minw) / origw;
 		minw = (origw * minh) / origh;
@@ -1881,10 +1873,10 @@ fitmonitor(struct Monitor *mon, int *x, int *y, int *w, int *h, float factor)
 		minw = (origw * minh) / origh;
 		minh = (origh * minw) / origw;
 	}
-	*w = max(wm.minsize, minw);
-	*h = max(wm.minsize, minh);
-	*x = max(mon->wx, min(mon->wx + mon->ww - *w, *x));
-	*y = max(mon->wy, min(mon->wy + mon->wh - *h, *y));
+	geometry->width = max(wm.minsize, minw);
+	geometry->height = max(wm.minsize, minh);
+	geometry->x = max(mon->window_area.x, min(mon->window_area.x + mon->window_area.width - geometry->width, geometry->x));
+	geometry->y = max(mon->window_area.y, min(mon->window_area.y + mon->window_area.height - geometry->height, geometry->y));
 }
 
 void

@@ -129,17 +129,8 @@ struct Monitor {
 	 */
 	int seldesk;                            /* focused desktop on that monitor */
 
-	/*
-	 * Monitor area: a rectangle spanning the entire monitor.
-	 */
-	int mx, my, mw, mh;                     /* monitor size */
-
-	/*
-	 * Window area: a rectangle spanning only the region within the
-	 * monitor without any dock/bar/panel (that is, the region where
-	 * containers can be maximized into).
-	 */
-	int wx, wy, ww, wh;                     /* window area */
+	XRectangle geometry;
+	XRectangle window_area;
 };
 
 struct Class {
@@ -266,7 +257,7 @@ void drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, 
 void drawprompt(Pixmap pix, int w, int h);
 void redecorate(Window win, int border, int style, Bool pressed);
 
-void fitmonitor(struct Monitor *mon, int *x, int *y, int *w, int *h, float factor);
+void fitmonitor(struct Monitor *mon, XRectangle *geometry, float factor);
 struct Monitor *getmon(int x, int y);
 void deskupdate(struct Monitor *mon, long desk);
 

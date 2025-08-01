@@ -4,7 +4,7 @@ struct Splash {
 	struct Object obj;
 	struct Monitor *mon;
 	int desk;
-	int x, y, w, h;
+	XRectangle geometry;
 };
 
 static struct Queue managed_splashs;
@@ -13,10 +13,15 @@ static struct Queue managed_splashs;
 static void
 splashplace(struct Monitor *mon, struct Splash *splash)
 {
-	fitmonitor(mon, &splash->x, &splash->y, &splash->w, &splash->h, 0.5);
-	splash->x = mon->wx + (mon->ww - splash->w) / 2;
-	splash->y = mon->wy + (mon->wh - splash->h) / 2;
-	XMoveWindow(dpy, splash->obj.win, splash->x, splash->y);
+	fitmonitor(mon, &splash->geometry, 0.5);
+	splash->geometry.x = mon->window_area.x
+	                   + (mon->window_area.width - splash->geometry.width) / 2;
+	splash->geometry.y = mon->window_area.y
+	                   + (mon->window_area.height - splash->geometry.height) / 2;
+	XMoveWindow(
+		dpy, splash->obj.win,
+		splash->geometry.x, splash->geometry.y
+	);
 }
 
 /* (un)hide splash screen */
@@ -53,8 +58,7 @@ manage(struct Object *tab, struct Monitor *mon, int desk, Window win,
 		.obj.win = win,
 		.obj.self = splash,
 		.obj.class = &splash_class,
-		.w = rect.width,
-		.h = rect.height,
+		.geometry = rect,
 	};
 	context_add(win, &splash->obj);
 	XMapWindow(dpy, win);

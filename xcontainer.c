@@ -3,7 +3,11 @@
 #define TAB_FOREACH(container, tab) \
 	for (struct Object *_col = TAILQ_FIRST(&(container)->colq); _col != NULL; _col = TAILQ_NEXT(_col, entry)) \
 	for (struct Object *_row = TAILQ_FIRST(&((struct Column *)_col)->rowq); _row != NULL; _row = TAILQ_NEXT(_row, entry)) \
-	for (tab = TAILQ_FIRST(&((struct Row *)_row)->tabq); tab != NULL; tab = TAILQ_NEXT(tab, entry))
+	for (\
+		tab = (struct Tab *)TAILQ_FIRST(&((struct Row *)_row)->tabq);\
+		tab != NULL;\
+		tab = (struct Tab *)TAILQ_NEXT(&tab->obj, entry)\
+	)
 
 struct Tab {
 	struct Object obj;
@@ -154,17 +158,10 @@ struct Container {
 
 	Window borders[BORDER_LAST];
 
-	/*
-	 * A container has three geometries (position and size): one for
-	 * when it is maximized, one for when it is fullscreen, and one
-	 * for when it is floating.  The maximized and fullscreen
-	 * geometry of a container is obvious (they can be inferred from
-	 * the monitor size).  We then save the non-maximized geometry.
-	 * We also save the current geometry (which can be one of those
-	 * three).
-	 */
-	int x, y, w, h, b;                      /* current geometry */
-	int nx, ny, nw, nh;                     /* non-maximized geometry */
+	struct {
+		XRectangle saved;
+		XRectangle current;
+	} geometry;
 
 	/*
 	 * Container state bitmask.
@@ -206,12 +203,6 @@ is_visible(struct Container *container, struct Monitor *mon, int desk)
 		(container->state & STICKY || container->desk == desk);
 }
 
-static int
-is_shaded(struct Container *c)
-{
-	return (c->state & (SHADED|FULLSCREEN)) == (SHADED & ~FULLSCREEN);
-}
-
 static void
 set_active_window(Window window)
 {
@@ -233,55 +224,61 @@ set_window_desktop(Window window, int desk)
 }
 
 static void
-set_container_group(struct Container *c)
+set_container_group(struct Container *container)
 {
-	struct Object *t;
+	struct Tab *tab;
 
-	TAB_FOREACH(c, t) {
-		XChangeProperty(dpy, t->win, atoms[_SHOD_GROUP_CONTAINER], XA_WINDOW, 32, PropModeReplace, (unsigned char *)&c->selcol->selrow->seltab->obj.win, 1);
+	TAB_FOREACH(container, tab) {
+		XChangeProperty(
+			dpy, tab->obj.win,
+			atoms[_SHOD_GROUP_CONTAINER], XA_WINDOW, 32,
+			PropModeReplace,
+			(void *)&container->selcol->selrow->seltab->obj.win, 1
+		);
 	}
 }
 
 static void
-setstate_recursive(struct Container *c)
+setstate_recursive(struct Container *container)
 {
-	struct Object *t, *d;
+	struct Tab *tab;
+	struct Object *d;
 	Atom data[9];
 	int n = 0;
-	int state = (c->state & MINIMIZED) ? IconicState : NormalState;
+	int state = (container->state & MINIMIZED) ? IconicState : NormalState;
 
-	if (&c->obj == wm.focused)
+	if (&container->obj == wm.focused)
 		data[n++] = atoms[_NET_WM_STATE_FOCUSED];
-	if (c->state & FULLSCREEN)
+	if (container->state & FULLSCREEN)
 		data[n++] = atoms[_NET_WM_STATE_FULLSCREEN];
-	if (c->state & STICKY)
+	if (container->state & STICKY)
 		data[n++] = atoms[_NET_WM_STATE_STICKY];
-	if (c->state & SHADED)
+	if (container->state & SHADED)
 		data[n++] = atoms[_NET_WM_STATE_SHADED];
-	if (c->state & MINIMIZED)
+	if (container->state & MINIMIZED)
 		data[n++] = atoms[_NET_WM_STATE_HIDDEN];
-	if (c->state & ABOVE)
+	if (container->state & ABOVE)
 		data[n++] = atoms[_NET_WM_STATE_ABOVE];
-	if (c->state & BELOW)
+	if (container->state & BELOW)
 		data[n++] = atoms[_NET_WM_STATE_BELOW];
-	if (c->state & MAXIMIZED) {
+	if (container->state & MAXIMIZED) {
 		data[n++] = atoms[_NET_WM_STATE_MAXIMIZED_VERT];
 		data[n++] = atoms[_NET_WM_STATE_MAXIMIZED_HORZ];
 	}
-	TAB_FOREACH(c, t) {
+	TAB_FOREACH(container, tab) {
 		XChangeProperty(
-			dpy, t->win, atoms[_NET_WM_STATE],
+			dpy, tab->obj.win, atoms[_NET_WM_STATE],
 			XA_ATOM, 32, PropModeReplace,
 			(void *)data, n
 		);
 		XChangeProperty(
-			dpy, t->win, atoms[WM_STATE], atoms[WM_STATE],
+			dpy, tab->obj.win, atoms[WM_STATE], atoms[WM_STATE],
 			32, PropModeReplace, (void *)&(long[]){
 				[0] = state,
 				[1] = None,
 			}, 2
 		);
-		TAILQ_FOREACH(d, &((struct Tab *)t)->dialq, entry) {
+		TAILQ_FOREACH(d, &tab->dialq, entry) {
 			XChangeProperty(
 				dpy, d->win, atoms[_NET_WM_STATE],
 				XA_ATOM, 32, PropModeReplace,
@@ -320,15 +317,15 @@ containerhide(struct Container *c, int hide)
 void
 container_setdesk(struct Container *container)
 {
-	struct Object *obj;
+	struct Tab *tab;
 	unsigned long desk;
 
 	if (container->state & (STICKY|MINIMIZED))
 		desk = 0xFFFFFFFF;
 	else
 		desk = (unsigned long)container->desk;
-	TAB_FOREACH(container, obj) {
-		set_window_desktop(obj->win, desk);
+	TAB_FOREACH(container, tab) {
+		set_window_desktop(tab->obj.win, desk);
 	}
 }
 
@@ -339,43 +336,43 @@ snaptoedge(int *x, int *y, int w, int h)
 
 	if (config.snap <= 0)
 		return;
-	if (abs(*y - wm.selmon->wy) < config.snap)
-		*y = wm.selmon->wy;
-	if (abs(*y + h - wm.selmon->wy - wm.selmon->wh) < config.snap)
-		*y = wm.selmon->wy + wm.selmon->wh - h;
-	if (abs(*x - wm.selmon->wx) < config.snap)
-		*x = wm.selmon->wx;
-	if (abs(*x + w - wm.selmon->wx - wm.selmon->ww) < config.snap)
-		*x = wm.selmon->wx + wm.selmon->ww - w;
+	if (abs(*y - wm.selmon->window_area.y) < config.snap)
+		*y = wm.selmon->window_area.y;
+	if (abs(*y + h - wm.selmon->window_area.y - wm.selmon->window_area.height) < config.snap)
+		*y = wm.selmon->window_area.y + wm.selmon->window_area.height - h;
+	if (abs(*x - wm.selmon->window_area.x) < config.snap)
+		*x = wm.selmon->window_area.x;
+	if (abs(*x + w - wm.selmon->window_area.x - wm.selmon->window_area.width) < config.snap)
+		*x = wm.selmon->window_area.x + wm.selmon->window_area.width - w;
 	TAILQ_FOREACH(obj, &focus_history, entry) {
 		struct Container *container = obj->self;
 		if (is_visible(container, wm.selmon, wm.selmon->seldesk)) {
-			if (*x + w >= container->x && *x <= container->x + container->w) {
-				if (abs(*y + h - container->y) < config.snap) {
-					*y = container->y - h;
+			if (*x + w >= container->geometry.current.x && *x <= container->geometry.current.x + container->geometry.current.width) {
+				if (abs(*y + h - container->geometry.current.y) < config.snap) {
+					*y = container->geometry.current.y - h;
 				}
-				if (abs(*y - container->y) < config.snap) {
-					*y = container->y;
+				if (abs(*y - container->geometry.current.y) < config.snap) {
+					*y = container->geometry.current.y;
 				}
-				if (abs(*y + h - container->y - container->h) < config.snap) {
-					*y = container->y + container->h - h;
+				if (abs(*y + h - container->geometry.current.y - container->geometry.current.height) < config.snap) {
+					*y = container->geometry.current.y + container->geometry.current.height - h;
 				}
-				if (abs(*y - container->y - container->h) < config.snap) {
-					*y = container->y + container->h;
+				if (abs(*y - container->geometry.current.y - container->geometry.current.height) < config.snap) {
+					*y = container->geometry.current.y + container->geometry.current.height;
 				}
 			}
-			if (*y + h >= container->y && *y <= container->y + container->h) {
-				if (abs(*x + w - container->x) < config.snap) {
-					*x = container->x - w;
+			if (*y + h >= container->geometry.current.y && *y <= container->geometry.current.y + container->geometry.current.height) {
+				if (abs(*x + w - container->geometry.current.x) < config.snap) {
+					*x = container->geometry.current.x - w;
 				}
-				if (abs(*x - container->x) < config.snap) {
-					*x = container->x;
+				if (abs(*x - container->geometry.current.x) < config.snap) {
+					*x = container->geometry.current.x;
 				}
-				if (abs(*x + w - container->x - container->w) < config.snap) {
-					*x = container->x + container->w - w;
+				if (abs(*x + w - container->geometry.current.x - container->geometry.current.width) < config.snap) {
+					*x = container->geometry.current.x + container->geometry.current.width - w;
 				}
-				if (abs(*x - container->x - container->w) < config.snap) {
-					*x = container->x + container->w;
+				if (abs(*x - container->geometry.current.x - container->geometry.current.width) < config.snap) {
+					*x = container->geometry.current.x + container->geometry.current.width;
 				}
 			}
 		}
@@ -556,8 +553,8 @@ dialogmoveresize(struct Dialog *dial)
 	XMoveResizeWindow(dpy, dial->obj.win, config.borderwidth, config.borderwidth, dial->w, dial->h);
 	window_configure_notify(
 		dpy, dial->obj.win,
-		c->x + dial->tab->row->col->x + dial->x,
-		c->y + dial->tab->row->y + dial->y,
+		c->geometry.current.x + dial->tab->row->col->x + dial->x,
+		c->geometry.current.y + dial->tab->row->y + dial->y,
 		dial->w,
 		dial->h
 	);
@@ -583,102 +580,16 @@ tabmoveresize(struct Tab *tab)
 		tabdecorate(tab, False);
 	window_configure_notify(
 		dpy, tab->obj.win,
-		container->x + tab->row->col->x,
-		container->y + tab->row->y + config.titlewidth,
+		container->geometry.current.x + tab->row->col->x,
+		container->geometry.current.y + tab->row->y + config.titlewidth,
 		tab->winw, tab->winh
 	);
 }
 
-static void
-containermoveresize(struct Container *c)
+static int
+containercontentwidth(struct Container *c)
 {
-	struct Object *l, *r, *t;
-	int rowy;
-
-	if (c == NULL)
-		return;
-	XMoveResizeWindow(dpy, c->obj.win, c->x, c->y, c->w, c->h);
-	XResizeWindow(dpy, c->borders[BORDER_N], c->w, config.borderwidth);
-	XResizeWindow(dpy, c->borders[BORDER_S], c->w, config.borderwidth);
-	XResizeWindow(dpy, c->borders[BORDER_W], config.borderwidth, c->h);
-	XResizeWindow(dpy, c->borders[BORDER_E], config.borderwidth, c->h);
-	TAILQ_FOREACH(l, &c->colq, entry) {
-		struct Column *col = l->self;
-		rowy = c->b;
-		if (TAILQ_NEXT(l, entry) != NULL) {
-			XMoveResizeWindow(dpy, col->obj.win, col->x + col->w, c->b, config.divwidth, c->h - 2 * c->b);
-			XMapWindow(dpy, col->obj.win);
-		} else {
-			XUnmapWindow(dpy, col->obj.win);
-		}
-		TAILQ_FOREACH(r, &col->rowq, entry) {
-			struct Row *row = r->self;
-			if (!is_shaded(c)) {
-				if (TAILQ_NEXT(r, entry) != NULL) {
-					XMoveResizeWindow(dpy, row->obj.win, col->x, row->y + row->h, col->w, config.divwidth);
-					XMapWindow(dpy, row->obj.win);
-				} else {
-					XUnmapWindow(dpy, row->obj.win);
-				}
-				XMoveResizeWindow(
-					dpy, row->bar,
-					col->x, row->y, col->w,
-					config.titlewidth
-				);
-				if (row->h - config.titlewidth > 0) {
-					XMoveResizeWindow(dpy, row->frame, col->x, row->y + config.titlewidth, col->w, row->h - config.titlewidth);
-					XMapWindow(dpy, row->frame);
-					row->isunmapped = 0;
-				} else {
-					XUnmapWindow(dpy, row->frame);
-					row->isunmapped = 1;
-				}
-			} else {
-				XMoveResizeWindow(
-					dpy, row->bar,
-					col->x, rowy, col->w,
-					config.titlewidth
-				);
-				XUnmapWindow(dpy, row->frame);
-				XUnmapWindow(dpy, row->obj.win);
-				row->isunmapped = 1;
-			}
-			rowy += config.titlewidth;
-			TAILQ_FOREACH(t, &row->tabq, entry) {
-				tabmoveresize(t->self);
-			}
-		}
-	}
-	if (!(c->state & STICKY)) {
-		struct Monitor *monto = getmon(c->nx + c->nw / 2, c->ny + c->nh / 2);
-		if (monto != NULL && monto != c->mon) {
-			c->mon = monto;
-			if (&c->obj == wm.focused) {
-				deskupdate(monto, monto->seldesk);
-			}
-		}
-	}
-}
-
-static void
-containerinsertfocus(struct Container *container)
-{
-	TAILQ_INSERT_HEAD(&focus_history, &container->obj, entry);
-}
-
-static void
-containerdelfocus(struct Container *container)
-{
-	TAILQ_REMOVE(&focus_history, &container->obj, entry);
-}
-
-static void
-containeraddfocus(struct Container *c)
-{
-	if (c == NULL || c->state & MINIMIZED)
-		return;
-	containerdelfocus(c);
-	containerinsertfocus(c);
+	return c->geometry.current.width - (c->ncols - 1) * config.divwidth - 2 * config.borderwidth;
 }
 
 /* calculate position and width of tabs of a row */
@@ -709,21 +620,18 @@ rowcalctabs(struct Row *row)
 static int
 columncontentheight(struct Column *col)
 {
-	return col->c->h - col->nrows * config.titlewidth
-	       - (col->nrows - 1) * config.divwidth - 2 * col->c->b;
+	return col->c->geometry.current.height - col->nrows * config.titlewidth
+	       - (col->nrows - 1) * config.divwidth - 2 * config.borderwidth;
 }
 
 /* calculate position and height of rows of a column */
 static void
 colcalcrows(struct Column *col, int recalcfact)
 {
-	struct Container *c;
 	struct Object *obj;
 	int i, y, h, sumh;
 	int content;
 	int recalc;
-
-	c = col->c;
 
 	if (TAILQ_EMPTY(&col->rowq))
 		return;
@@ -731,7 +639,7 @@ colcalcrows(struct Column *col, int recalcfact)
 		TAILQ_FOREACH(obj, &col->rowq, entry) {
 			struct Row *row = obj->self;
 			row->y = -config.titlewidth;
-			row->h = col->c->h + config.titlewidth;
+			row->h = col->c->geometry.current.height + config.titlewidth;
 			rowcalctabs(row);
 		}
 		return;
@@ -758,8 +666,8 @@ colcalcrows(struct Column *col, int recalcfact)
 	if (sumh != content)
 		recalc = 1;
 
-	h = col->c->h - 2 * c->b - (col->nrows - 1) * config.divwidth;
-	y = c->b;
+	h = col->c->geometry.current.height - 2 * config.borderwidth - (col->nrows - 1) * config.divwidth;
+	y = config.borderwidth;
 	i = 0;
 	TAILQ_FOREACH(obj, &col->rowq, entry) {
 		struct Row *row = obj->self;
@@ -772,6 +680,219 @@ colcalcrows(struct Column *col, int recalcfact)
 		rowcalctabs(row);
 		i++;
 	}
+}
+
+/* calculate position and width of columns of a container */
+static void
+containercalccols(struct Container *c)
+{
+	struct Object *obj;
+	int i, x, w;
+	int sumw;
+	int content;
+	int recalc;
+
+	if (c->state & FULLSCREEN) {
+		TAILQ_FOREACH(obj, &c->colq, entry) {
+			struct Column *col = obj->self;
+			col->x = 0;
+			col->w = c->geometry.current.width;
+			colcalcrows(col, 0);
+		}
+		return;
+	}
+
+	/* check if columns sum up the width of the container */
+	content = containercontentwidth(c);
+	sumw = 0;
+	recalc = 0;
+	TAILQ_FOREACH(obj, &c->colq, entry) {
+		struct Column *col = obj->self;
+		if (TAILQ_NEXT(obj, entry) == NULL)
+			col->w = content - sumw;
+		else
+			col->w = col->fact * content;
+		if (col->w == 0)
+			recalc = 1;
+		sumw += col->w;
+	}
+	if (sumw != content)
+		recalc = 1;
+
+	w = c->geometry.current.width - 2 * config.borderwidth - (c->ncols - 1) * config.divwidth;
+	x = config.borderwidth;
+	i = 0;
+	TAILQ_FOREACH(obj, &c->colq, entry) {
+		struct Column *col = obj->self;
+		if (c->state & SHADED)
+			c->geometry.current.height = max(c->geometry.current.height, col->nrows * config.titlewidth);
+		if (recalc)
+			col->w = max(1, partition(i, w, c->ncols));
+		if (recalc)
+			col->fact = (double)col->w/(double)c->geometry.current.width;
+		col->x = x;
+		x += col->w + config.divwidth;
+		colcalcrows(col, 0);
+		i++;
+	}
+	if (c->state & SHADED) {
+		c->geometry.current.height += 2 * config.borderwidth;
+	}
+}
+
+static void
+update_tiles(struct Container *c)
+{
+	struct Object *l, *r, *t;
+	int rowy;
+
+	containercalccols(c);
+	TAILQ_FOREACH(l, &c->colq, entry) {
+		struct Column *col = l->self;
+		rowy = config.borderwidth;
+		if (TAILQ_NEXT(l, entry) != NULL) {
+			XMoveResizeWindow(
+				dpy, col->obj.win,
+				col->x + col->w, config.borderwidth,
+				config.divwidth,
+				c->geometry.current.height - 2 * config.borderwidth
+			);
+			XMapWindow(dpy, col->obj.win);
+		} else {
+			XUnmapWindow(dpy, col->obj.win);
+		}
+		TAILQ_FOREACH(r, &col->rowq, entry) {
+			struct Row *row = r->self;
+			if (c->state & SHADED && !(c->state & FULLSCREEN)) {
+				XMoveResizeWindow(
+					dpy, row->bar,
+					col->x, rowy, col->w,
+					config.titlewidth
+				);
+				XUnmapWindow(dpy, row->frame);
+				XUnmapWindow(dpy, row->obj.win);
+				row->isunmapped = 1;
+			} else {
+				if (TAILQ_NEXT(r, entry) != NULL) {
+					XMoveResizeWindow(dpy, row->obj.win, col->x, row->y + row->h, col->w, config.divwidth);
+					XMapWindow(dpy, row->obj.win);
+				} else {
+					XUnmapWindow(dpy, row->obj.win);
+				}
+				XMoveResizeWindow(
+					dpy, row->bar,
+					col->x, row->y, col->w,
+					config.titlewidth
+				);
+				if (row->h - config.titlewidth > 0) {
+					XMoveResizeWindow(dpy, row->frame, col->x, row->y + config.titlewidth, col->w, row->h - config.titlewidth);
+					XMapWindow(dpy, row->frame);
+					row->isunmapped = 0;
+				} else {
+					XUnmapWindow(dpy, row->frame);
+					row->isunmapped = 1;
+				}
+			}
+			rowy += config.titlewidth;
+			TAILQ_FOREACH(t, &row->tabq, entry) {
+				tabmoveresize(t->self);
+			}
+		}
+	}
+}
+
+static void
+containermoveresize(struct Container *container, XRectangle geometry)
+{
+	XMoveResizeWindow(
+		dpy, container->obj.win,
+		geometry.x, geometry.y,
+		geometry.width, geometry.height
+	);
+	XResizeWindow(
+		dpy, container->borders[BORDER_N],
+		geometry.width, config.borderwidth
+	);
+	XResizeWindow(
+		dpy, container->borders[BORDER_S],
+		geometry.width, config.borderwidth
+	);
+	XResizeWindow(
+		dpy, container->borders[BORDER_W],
+		config.borderwidth, geometry.height
+		);
+	XResizeWindow(
+		dpy, container->borders[BORDER_E],
+		config.borderwidth, geometry.height
+	);
+	container->geometry.current = geometry;
+	if (!(container->state & STICKY)) {
+		struct Monitor *monto = getmon(
+			geometry.x + geometry.width / 2,
+			geometry.y + geometry.height / 2
+		);
+
+		if (monto != NULL && monto != container->mon) {
+			container->mon = monto;
+			if (&container->obj == wm.focused) {
+				deskupdate(monto, monto->seldesk);
+			}
+		}
+	}
+	update_tiles(container);
+}
+
+static void
+update_geometry(struct Container *container)
+{
+	if (container == NULL || container->state & MINIMIZED)
+		return;
+	if (container->state & FULLSCREEN) {
+		container->geometry.current = container->mon->geometry;
+	} else if (container->state & MAXIMIZED) {
+		container->geometry.current = container->mon->window_area;
+	} else {
+		container->geometry.current = container->geometry.saved;
+		container->geometry.saved.x = container->geometry.current.x;
+		container->geometry.saved.y = container->geometry.current.y;
+		container->geometry.saved.width = container->geometry.current.width;
+		if (container->state & SHADED) {
+			struct Object *obj;
+			container->geometry.current.height = 0;
+			TAILQ_FOREACH(obj, &container->colq, entry) {
+				struct Column *col = obj->self;
+				container->geometry.current.height = max(
+					container->geometry.current.height,
+					col->nrows * config.titlewidth
+				);
+			}
+			container->geometry.current.height += 2 * config.borderwidth;
+		} else {
+			container->geometry.saved.height = container->geometry.current.height;
+		}
+	}
+	containermoveresize(container, container->geometry.current);
+}
+
+static void
+containerinsertfocus(struct Container *container)
+{
+	TAILQ_INSERT_HEAD(&focus_history, &container->obj, entry);
+}
+
+static void
+containerdelfocus(struct Container *container)
+{
+	TAILQ_REMOVE(&focus_history, &container->obj, entry);
+}
+
+static void
+containeraddfocus(struct Container *c)
+{
+	if (c == NULL || c->state & MINIMIZED)
+		return;
+	containerdelfocus(c);
+	containerinsertfocus(c);
 }
 
 static void
@@ -793,7 +914,7 @@ rowstretch(struct Column *col, struct Row *row)
 		}
 	}
 	colcalcrows(col, 0);
-	containermoveresize(col->c);
+	update_tiles(col->c);
 }
 
 static void
@@ -1106,90 +1227,6 @@ colnew(void)
 	return col;
 }
 
-static int
-containercontentwidth(struct Container *c)
-{
-	return c->w - (c->ncols - 1) * config.divwidth - 2 * c->b;
-}
-
-/* calculate position and width of columns of a container */
-static void
-containercalccols(struct Container *c)
-{
-	struct Object *obj;
-	int i, x, w;
-	int sumw;
-	int content;
-	int recalc;
-
-	if (c->state & FULLSCREEN) {
-		c->x = c->mon->mx;
-		c->y = c->mon->my;
-		c->w = c->mon->mw;
-		c->h = c->mon->mh;
-		c->b = 0;
-		TAILQ_FOREACH(obj, &c->colq, entry) {
-			struct Column *col = obj->self;
-			col->x = 0;
-			col->w = c->w;
-			colcalcrows(col, 0);
-		}
-		return;
-	} else if (c->state & MAXIMIZED) {
-		c->x = c->mon->wx;
-		c->y = c->mon->wy;
-		c->w = c->mon->ww;
-		c->h = c->mon->wh;
-		c->b = config.borderwidth;
-	} else {
-		c->x = c->nx;
-		c->y = c->ny;
-		c->w = c->nw;
-		c->h = c->nh;
-		c->b = config.borderwidth;
-	}
-	if (is_shaded(c)) {
-		c->h = 0;
-	}
-
-	/* check if columns sum up the width of the container */
-	content = containercontentwidth(c);
-	sumw = 0;
-	recalc = 0;
-	TAILQ_FOREACH(obj, &c->colq, entry) {
-		struct Column *col = obj->self;
-		if (TAILQ_NEXT(obj, entry) == NULL)
-			col->w = content - sumw;
-		else
-			col->w = col->fact * content;
-		if (col->w == 0)
-			recalc = 1;
-		sumw += col->w;
-	}
-	if (sumw != content)
-		recalc = 1;
-
-	w = c->w - 2 * c->b - (c->ncols - 1) * config.divwidth;
-	x = c->b;
-	i = 0;
-	TAILQ_FOREACH(obj, &c->colq, entry) {
-		struct Column *col = obj->self;
-		if (is_shaded(c))
-			c->h = max(c->h, col->nrows * config.titlewidth);
-		if (recalc)
-			col->w = max(1, partition(i, w, c->ncols));
-		if (recalc)
-			col->fact = (double)col->w/(double)c->w;
-		col->x = x;
-		x += col->w + config.divwidth;
-		colcalcrows(col, 0);
-		i++;
-	}
-	if (is_shaded(c)) {
-		c->h += 2 * c->b;
-	}
-}
-
 #define DIV 15  /* see containerplace() for details */
 
 /* fill placement grid for given rectangle */
@@ -1202,10 +1239,10 @@ fillgrid(struct Monitor *mon, int x, int y, int w, int h, int grid[DIV][DIV])
 
 	for (i = 0; i < DIV; i++) {
 		for (j = 0; j < DIV; j++) {
-			ha = mon->wy + (mon->wh * i)/DIV;
-			hb = mon->wy + (mon->wh * (i + 1))/DIV;
-			wa = mon->wx + (mon->ww * j)/DIV;
-			wb = mon->wx + (mon->ww * (j + 1))/DIV;
+			ha = mon->window_area.y + (mon->window_area.height * i)/DIV;
+			hb = mon->window_area.y + (mon->window_area.height * (i + 1))/DIV;
+			wa = mon->window_area.x + (mon->window_area.width * j)/DIV;
+			wb = mon->window_area.x + (mon->window_area.width * (j + 1))/DIV;
 			ya = y;
 			yb = y + h;
 			xa = x;
@@ -1237,7 +1274,7 @@ containerplace(struct Container *c, struct Monitor *mon, int desk, int userplace
 	if (c == NULL || c->state & MINIMIZED)
 		return;
 
-	fitmonitor(mon, &c->nx, &c->ny, &c->nw, &c->nh, 1.0);
+	fitmonitor(mon, &c->geometry.saved, 1.0);
 
 	/* if the user placed the window, we should not re-place it */
 	if (userplaced)
@@ -1264,7 +1301,14 @@ containerplace(struct Container *c, struct Monitor *mon, int desk, int userplace
 	TAILQ_FOREACH(obj, &focus_history, entry) {
 		struct Container *tmp = obj->self;
 		if (tmp != c && is_visible(tmp, c->mon, c->desk)) {
-			fillgrid(mon, tmp->nx, tmp->ny, tmp->nw, tmp->nh, grid);
+			fillgrid(
+				mon,
+				tmp->geometry.saved.x,
+				tmp->geometry.saved.y,
+				tmp->geometry.saved.width,
+				tmp->geometry.saved.height,
+				grid
+			);
 		}
 	}
 
@@ -1298,12 +1342,24 @@ containerplace(struct Container *c, struct Monitor *mon, int desk, int userplace
 			}
 		}
 	}
-	subx = subx * mon->ww / DIV;
-	suby = suby * mon->wh / DIV;
-	subw = subw * mon->ww / DIV;
-	subh = subh * mon->wh / DIV;
-	c->nx = min(mon->wx + mon->ww - c->nw, max(mon->wx, mon->wx + subx + subw / 2 - c->nw / 2));
-	c->ny = min(mon->wy + mon->wh - c->nh, max(mon->wy, mon->wy + suby + subh / 2 - c->nh / 2));
+	subx = subx * mon->window_area.width / DIV;
+	suby = suby * mon->window_area.height / DIV;
+	subw = subw * mon->window_area.width / DIV;
+	subh = subh * mon->window_area.height / DIV;
+	c->geometry.saved.x = min(
+		mon->window_area.x + mon->window_area.width - c->geometry.saved.width,
+		max(
+			mon->window_area.x,
+			mon->window_area.x + subx + subw / 2 - c->geometry.saved.width / 2
+		)
+	);
+	c->geometry.saved.y = min(
+		mon->window_area.y + mon->window_area.height - c->geometry.saved.height,
+		max(
+			mon->window_area.y,
+			mon->window_area.y + suby + subh / 2 - c->geometry.saved.height / 2
+		)
+	);
 	containercalccols(c);
 }
 
@@ -1353,7 +1409,7 @@ coladdrow(struct Column *col, struct Row *row, struct Row *prev)
 	else
 		TAILQ_INSERT_AFTER(&col->rowq, &prev->obj, &row->obj, entry);
 	colcalcrows(col, 1);    /* set row->y, row->h, etc */
-	XReparentWindow(dpy, row->obj.win, c->obj.win, col->x + col->w, c->b);
+	XReparentWindow(dpy, row->obj.win, c->obj.win, col->x + col->w, config.borderwidth);
 	XReparentWindow(dpy, row->bar, c->obj.win, col->x, row->y);
 	XReparentWindow(dpy, row->frame, c->obj.win, col->x, row->y);
 	XMapWindow(dpy, row->bar);
@@ -1454,33 +1510,32 @@ containersendtodesk(struct Container *c, struct Monitor *mon, unsigned long desk
 }
 
 static void
-containerfullscreen(struct Container *c, int fullscreen)
+containerfullscreen(struct Container *container, int fullscreen)
 {
-	if (fullscreen == REMOVE && !(c->state & FULLSCREEN))
+	if (fullscreen == REMOVE && !(container->state & FULLSCREEN))
 		return;         /* already unset */
-	if (fullscreen == ADD    &&  (c->state & FULLSCREEN))
+	if (fullscreen == ADD    &&  (container->state & FULLSCREEN))
 		return;         /* already set */
-	c->state ^= FULLSCREEN;
-	containercalccols(c);
-	containermoveresize(c);
-	containerdecorate(&c->obj);
-	setstate_recursive(c);
-	if (&c->obj == wm.focused) {
+	container->state ^= FULLSCREEN;
+	update_geometry(container);
+	containerdecorate(&container->obj);
+	if (&container->obj == wm.focused) {
 		restackdocks();
 	}
 }
 
 static void
-containermaximize(struct Container *c, int maximize)
+containermaximize(struct Container *container, int maximize)
 {
-	if (maximize == REMOVE && !(c->state & MAXIMIZED))
+	if (container->state & FULLSCREEN)
+		return;
+	if (maximize == REMOVE && !(container->state & MAXIMIZED))
 		return;         /* already unset */
-	if (maximize == ADD    &&  (c->state & MAXIMIZED))
+	if (maximize == ADD    &&  (container->state & MAXIMIZED))
 		return;         /* already set */
-	c->state ^= MAXIMIZED;
-	containercalccols(c);
-	containermoveresize(c);
-	containerdecorate(&c->obj);
+	container->state ^= MAXIMIZED;
+	update_geometry(container);
+	containerdecorate(&container->obj);
 }
 
 static void
@@ -1493,8 +1548,8 @@ containerminimize(struct Container *c, int minimize, int focus)
 			focusnext(c->mon, c->desk);
 		}
 	} else if (minimize != ADD && (c->state & MINIMIZED)) {
+		c->state &= ~MINIMIZED;
 		(void)containersendtodesk(c, wm.selmon, wm.selmon->seldesk);
-		containermoveresize(c);
 		tabfocus(c->selcol->selrow->seltab, 0);
 		containerraise(c, c->state);
 	}
@@ -1503,6 +1558,8 @@ containerminimize(struct Container *c, int minimize, int focus)
 static void
 containershade(struct Container *c, int shade)
 {
+	if (c->state & FULLSCREEN)
+		return;
 	if (shade != REMOVE && !(c->state & SHADED)) {
 		XDefineCursor(dpy, c->borders[BORDER_NW], wm.cursors[CURSOR_W]);
 		XDefineCursor(dpy, c->borders[BORDER_SW], wm.cursors[CURSOR_W]);
@@ -1517,8 +1574,7 @@ containershade(struct Container *c, int shade)
 		return;
 	}
 	c->state ^= SHADED;
-	containercalccols(c);
-	containermoveresize(c);
+	update_geometry(c);
 	containerdecorate(&c->obj);
 	if (&c->obj == wm.focused) {
 		tabfocus(c->selcol->selrow->seltab, 0);
@@ -1618,27 +1674,26 @@ containernew(int x, int y, int w, int h, enum State state)
 		{ BORDER_SE, CURSOR_SE, SouthEastGravity, corner, corner,        },
 	};
 
-	x -= config.borderwidth,
-	y -= config.borderwidth,
-	w += 2 * config.borderwidth,
-	h += 2 * config.borderwidth + config.titlewidth,
 	c = emalloc(sizeof *c);
 	*c = (struct Container) {
-		.x  = x, .y  = y, .w  = w, .h  = h,
-		.nx = x, .ny = y, .nw = w, .nh = h,
-		.b = config.borderwidth,
 		.state = state,
 		.ishidden = 0,
 		.layer = NULL,
-		.obj.win = createframe((XRectangle){x, y, w, h}),
 		.obj.self = c,
 		.obj.class = &container_class,
 	};
+	c->geometry.saved = c->geometry.current = (XRectangle){
+		.x = x - config.borderwidth,
+		.y = y - config.borderwidth,
+		.width = w + 2 * config.borderwidth,
+		.height = h + 2 * config.borderwidth + config.titlewidth,
+	};
+	c->obj.win = createframe(c->geometry.current);
 	context_add(c->obj.win, &c->obj);
 	TAILQ_INIT(&c->colq);
 	for (size_t i = 0; i < LEN(table); i++) {
-		int x = table[i].x != 0 ? c->w - table[i].x : 0;
-		int y = table[i].y != 0 ? c->h - table[i].y : 0;
+		int x = table[i].x != 0 ? c->geometry.current.width - table[i].x : 0;
+		int y = table[i].y != 0 ? c->geometry.current.height - table[i].y : 0;
 
 		context_add(c->borders[table[i].window], &c->obj);
 		c->borders[table[i].window] = createdecoration(
@@ -1708,6 +1763,7 @@ static void
 container_configure(struct Object *self, unsigned int valuemask, XWindowChanges *wc)
 {
 	struct Container *container;
+	XRectangle geometry;
 
 	if (self->class == &tab_class)
 		container = ((struct Tab *)self)->row->col->c;
@@ -1715,18 +1771,19 @@ container_configure(struct Object *self, unsigned int valuemask, XWindowChanges 
 		container = self->self;
 	else
 		return;
+	geometry = container->geometry.current;
 	if (container->state & (MINIMIZED|FULLSCREEN|MAXIMIZED))
 		return;
 	if (valuemask & CWX)
-		container->nx = wc->x;
+		geometry.x = wc->x;
 	if (valuemask & CWY)
-		container->ny = wc->y;
+		geometry.y = wc->y;
 	if ((valuemask & CWWidth) && wc->width >= wm.minsize)
-		container->nw = wc->width;
-	if ((valuemask & CWHeight) && wc->height >= wm.minsize)
-		container->nh = wc->height;
-	containercalccols(container);
-	containermoveresize(container);
+		geometry.width = wc->width;
+	if (!(container->state & SHADED) &&
+	    (valuemask & CWHeight) && wc->height >= wm.minsize)
+		geometry.height = wc->height;
+	containermoveresize(container, geometry);
 	containerdecorate(&container->obj);
 }
 
@@ -1789,7 +1846,7 @@ tabattach(struct Container *c, struct Tab *det, int x, int y)
 		flag = CREATCOL | CREATROW;
 		goto found;
 	}
-	if (x >= c->w - config.borderwidth) {
+	if (x >= c->geometry.current.width - config.borderwidth) {
 		flag = CREATCOL | CREATROW;
 		col = (void *)TAILQ_LAST(&c->colq, Queue);
 		goto found;
@@ -1805,7 +1862,7 @@ tabattach(struct Container *c, struct Tab *det, int x, int y)
 				flag = CREATROW;
 				goto found;
 			}
-			if (y >= c->h - config.borderwidth) {
+			if (y >= c->geometry.current.height - config.borderwidth) {
 				flag = CREATROW;
 				row = (void *)TAILQ_LAST(&col->rowq, Queue);
 				goto found;
@@ -1856,7 +1913,7 @@ found:
 	XMapSubwindows(dpy, c->obj.win);
 	/* no need to call set_container_group(); tabfocus() already calls them */
 	set_window_desktop(det->obj.win, c->desk);
-	containermoveresize(c);
+	update_tiles(c);
 	containerdecorate(&c->obj);
 	return 1;
 }
@@ -1881,8 +1938,7 @@ containerdelrow(struct Row *row)
 		recalc = 0;
 	}
 	if (recalc) {
-		containercalccols(c);
-		containermoveresize(c);
+		update_tiles(c);
 		set_container_group(c);
 	}
 }
@@ -2004,7 +2060,7 @@ containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle r
 	containerdecorate(&c->obj);
 	XMapSubwindows(dpy, c->obj.win);
 	containerplace(c, mon, desk, (state & USERPLACED));
-	containermoveresize(c);
+	update_geometry(c);
 	if (is_visible(c, wm.selmon, wm.selmon->seldesk)) {
 		containerraise(c, c->state);
 		containerhide(c, 0);
@@ -2018,18 +2074,17 @@ containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle r
 static struct Tab *
 getleaderof(Window leader)
 {
-	struct Object *c, *tab;
+	struct Object *c, *obj;
+	struct Tab *tab;
 
 	if (leader == None)
 		return NULL;
-	if ((tab = context_get(leader)) != NULL && tab->class == &tab_class)
-		return tab->self;
-	TAILQ_FOREACH(c, &focus_history, entry) {
-		TAB_FOREACH((struct Container *)c, tab) {
-			if (((struct Tab *)tab)->leader == leader)
-				return tab->self;
-		}
-	}
+	if ((obj = context_get(leader)) != NULL && obj->class == &tab_class)
+		return obj->self;
+	TAILQ_FOREACH(c, &focus_history, entry)
+		TAB_FOREACH((struct Container *)c, tab)
+			if (tab->leader == leader)
+				return tab;
 	return NULL;
 }
 
@@ -2053,7 +2108,7 @@ managecontainer(struct Object *app, struct Monitor *mon, int desk, Window win, W
 		rowcalctabs(row);
 		set_window_desktop(win, c->desk);
 		wm.setclientlist = True;
-		containermoveresize(c);
+		update_tiles(c);
 		containerdecorate(&c->obj);
 		XMapSubwindows(dpy, c->obj.win);
 		if (&c->obj == wm.focused) {
@@ -2085,8 +2140,7 @@ unmanagetab(struct Object *obj)
 			}
 		}
 	}
-	containercalccols(container);
-	containermoveresize(container);
+	update_tiles(container);
 	containerdecorate(&container->obj);
 	set_container_group(container);
 done:
@@ -2099,7 +2153,6 @@ static void
 drag_move(struct Container *container, int xroot, int yroot)
 {
 	XEvent event;
-	int x, y;
 
 	if (container->state & (FULLSCREEN|MINIMIZED))
 		return;
@@ -2116,23 +2169,20 @@ drag_move(struct Container *container, int xroot, int yroot)
 			break;
 		if (event.type != MotionNotify)
 			continue;
-		x = event.xmotion.x_root - xroot;
-		y = event.xmotion.y_root - yroot;
 		if (!(container->state & MAXIMIZED) && event.xmotion.y_root <= 0) {
 			containersetstate(&container->obj, MAXIMIZED, ADD);
 		} else if (!(container->state & MAXIMIZED)) {
-			container->x = container->nx += x;
-			container->y = container->ny += y;
-			snaptoedge(
-				&container->nx, &container->ny,
-				container->nw, container->nh
-			);
-			containermoveresize(container);
+			//snaptoedge(
+			//	&container->geometry.saved.x, &container->geometry.saved.y,
+			//	container->geometry.saved.width, container->geometry.saved.height
+			//);
+			container->geometry.saved.x += event.xmotion.x_root - xroot,
+			container->geometry.saved.y += event.xmotion.y_root - yroot,
+			containermoveresize(container, container->geometry.saved);
 		} else if (event.xmotion.y_root > config.titlewidth) {
+			container->geometry.saved.x = event.xmotion.x_root - container->geometry.saved.width / 2;
+			container->geometry.saved.y = 0;
 			containersetstate(&container->obj, MAXIMIZED, REMOVE);
-			container->x = container->nx = event.xmotion.x_root - container->nw / 2;
-			container->y = container->ny = 0;
-			containermoveresize(container);
 		}
 		xroot = event.xmotion.x_root;
 		yroot = event.xmotion.y_root;
@@ -2155,13 +2205,15 @@ drag_resize(struct Container *container, int border, int xroot, int yroot)
 	int x, y;
 	int direction;
 
-	if (container->state & (FULLSCREEN|MINIMIZED))
+	if (container->state & (FULLSCREEN|MINIMIZED|MAXIMIZED))
 		return;
-	if (is_shaded(container)) {
+	if (container->state & SHADED) {
 		if (border == BORDER_SW || border == BORDER_NW)
 			border = BORDER_W;
 		else if (border == BORDER_SE || border == BORDER_NE)
 			border = BORDER_E;
+		else if (border == BORDER_N || border == BORDER_S)
+			return;
 	}
 	switch (border) {
 	case BORDER_NW:
@@ -2198,15 +2250,15 @@ drag_resize(struct Container *container, int border, int xroot, int yroot)
 		break;
 	}
 	if (direction & LEFT)
-		x = xroot - container->nx;
+		x = xroot - container->geometry.saved.x;
 	else if (direction & RIGHT)
-		x = container->nx + container->nw - xroot;
+		x = container->geometry.saved.x + container->geometry.saved.width - xroot;
 	else
 		x = 0;
 	if (direction & TOP)
-		y = yroot - container->ny;
+		y = yroot - container->geometry.saved.y;
 	else if (direction & BOTTOM)
-		y = container->ny + container->nh - yroot;
+		y = container->geometry.saved.y + container->geometry.saved.height - yroot;
 	else
 		y = 0;
 	if (XGrabPointer(
@@ -2224,43 +2276,40 @@ drag_resize(struct Container *container, int border, int xroot, int yroot)
 			break;
 		if (event.type != MotionNotify)
 			continue;
-		if (x > container->nw) x = 0;
-		if (y > container->nh) y = 0;
+		if (x > container->geometry.saved.width) x = 0;
+		if (y > container->geometry.saved.height) y = 0;
 		if (direction & LEFT &&
-		    ((motion->x_root < xroot && x > motion->x_root - container->nx) ||
-		     (motion->x_root > xroot && x < motion->x_root - container->nx))) {
+		    ((motion->x_root < xroot && x > motion->x_root - container->geometry.saved.x) ||
+		     (motion->x_root > xroot && x < motion->x_root - container->geometry.saved.x))) {
 			dx = xroot - motion->x_root;
-			if (container->nw + dx < wm.minsize) continue;
-			container->nx -= dx;
-			container->nw += dx;
+			if (container->geometry.saved.width + dx < wm.minsize) continue;
+			container->geometry.saved.x -= dx;
+			container->geometry.saved.width += dx;
 		} else if (direction & RIGHT &&
-		    ((motion->x_root > xroot && x > container->nx + container->nw - motion->x_root) ||
-		     (motion->x_root < xroot && x < container->nx + container->nw - motion->x_root))) {
+		    ((motion->x_root > xroot && x > container->geometry.saved.x + container->geometry.saved.width - motion->x_root) ||
+		     (motion->x_root < xroot && x < container->geometry.saved.x + container->geometry.saved.width - motion->x_root))) {
 			dx = motion->x_root - xroot;
-			if (container->nw + dx < wm.minsize) continue;
-			container->nw += dx;
+			if (container->geometry.saved.width + dx < wm.minsize) continue;
+			container->geometry.saved.width += dx;
 		}
 		if (direction & TOP &&
-		    ((motion->y_root < yroot && y > motion->y_root - container->ny) ||
-		     (motion->y_root > yroot && y < motion->y_root - container->ny))) {
+		    ((motion->y_root < yroot && y > motion->y_root - container->geometry.saved.y) ||
+		     (motion->y_root > yroot && y < motion->y_root - container->geometry.saved.y))) {
 			dy = yroot - motion->y_root;
-			if (container->nh + dy < wm.minsize) continue;
-			container->ny -= dy;
-			container->nh += dy;
+			if (container->geometry.saved.height + dy < wm.minsize) continue;
+			container->geometry.saved.y -= dy;
+			container->geometry.saved.height += dy;
 		} else if (direction & BOTTOM &&
-		    ((motion->y_root > yroot && container->ny + container->nh - motion->y_root < y) ||
-		     (motion->y_root < yroot && container->ny + container->nh - motion->y_root > y))) {
+		    ((motion->y_root > yroot && container->geometry.saved.y + container->geometry.saved.height - motion->y_root < y) ||
+		     (motion->y_root < yroot && container->geometry.saved.y + container->geometry.saved.height - motion->y_root > y))) {
 			dy = motion->y_root - yroot;
-			if (container->nh + dy < wm.minsize) continue;
-			container->nh += dy;
+			if (container->geometry.saved.height + dy < wm.minsize) continue;
+			container->geometry.saved.height += dy;
 		}
 		xroot = motion->x_root;
 		yroot = motion->y_root;
-		containercalccols(container);
-		containermoveresize(container);
+		containermoveresize(container, container->geometry.saved);
 	}
-	containercalccols(container);
-	containermoveresize(container);
 	XUngrabPointer(dpy, CurrentTime);
 }
 
@@ -2287,7 +2336,7 @@ drag_tab(struct Tab *tab, int xroot, int yroot, int x, int y)
 	) != GrabSuccess)
 		return;
 	tabdetach(tab, xroot - x, yroot - y);
-	containermoveresize(container);
+	update_tiles(container);
 	XUnmapWindow(dpy, tab->title);
 	XMoveWindow(
 		dpy, wm.dragwin,
@@ -2417,8 +2466,7 @@ coldiv_btnpress(struct Object *self, XButtonPressedEvent *press)
 		    (nextcol->fact - fact) * width >= wm.minsize) {
 			thiscol->fact += fact;
 			nextcol->fact -= fact;
-			containercalccols(container);
-			containermoveresize(container);
+			update_tiles(container);
 		}
 		x_prev = event.xmotion.x;
 	}
@@ -2483,8 +2531,7 @@ rowdiv_btnpress(struct Object *self, XButtonPressedEvent *press)
 			row->fact -= fact;
 			break;
 		}
-		containercalccols(container);
-		containermoveresize(container);
+		update_tiles(container);
 		y_prev = event.xmotion.y;
 	}
 	XUngrabPointer(dpy, CurrentTime);
@@ -2508,11 +2555,11 @@ container_btnpress(struct Object *self, XButtonPressedEvent *press)
 	} else if (isvalidstate(press->state) && press->button == Button3) {
 		enum border border;
 
-		if (press->x <= container->w/2 && press->y <= container->h/2)
+		if (press->x <= container->geometry.current.width/2 && press->y <= container->geometry.current.height/2)
 			border = BORDER_NW;
-		else if (press->x > container->w/2 && press->y <= container->h/2)
+		else if (press->x > container->geometry.current.width/2 && press->y <= container->geometry.current.height/2)
 			border = BORDER_NE;
-		else if (press->x <= container->w/2 && press->y > container->h/2)
+		else if (press->x <= container->geometry.current.width/2 && press->y > container->geometry.current.height/2)
 			border = BORDER_SW;
 		else
 			border = BORDER_SE;
@@ -2605,15 +2652,11 @@ monitor_reset(void)
 			container->mon = wm.selmon;
 			container->desk = wm.selmon->seldesk;
 			containerplace(container, wm.selmon, wm.selmon->seldesk, 0);
-			containermoveresize(container);
 			container_setdesk(container);
 			setstate_recursive(container);
 		}
-		if (container->state & MAXIMIZED) {
-			containercalccols(container);
-			containermoveresize(container);
-			containerdecorate(obj);
-		}
+		update_geometry(container);
+		containerdecorate(obj);
 	}
 	if (refocus != NULL)
 		tabfocus(refocus->selcol->selrow->seltab, 1);
@@ -2991,10 +3034,10 @@ handle_message(struct Object *self, Atom message, long int data[5])
 		};
 
 		if (data[0] & _SHOD_MOVERESIZE_RELATIVE) {
-			changes.x	+= container->x;
-			changes.y	+= container->y;
-			changes.width	+= container->w;
-			changes.height	+= container->h;
+			changes.x	+= container->geometry.current.x;
+			changes.y	+= container->geometry.current.y;
+			changes.width	+= container->geometry.current.width;
+			changes.height	+= container->geometry.current.height;
 		}
 		container_configure(self, CWX | CWY | CWWidth | CWHeight, &changes);
 	} else if (message == atoms[_NET_WM_DESKTOP]) {
@@ -3229,16 +3272,15 @@ focused_is_fullscreen(void)
 struct Tab *
 gettabfrompid(unsigned long pid)
 {
-	struct Object *c, *tab;
+	struct Object *c;
+	struct Tab *tab;
 
 	if (pid <= 1)
 		return NULL;
-	TAILQ_FOREACH(c, &focus_history, entry) {
-		TAB_FOREACH((struct Container *)c, tab) {
-			if (pid == ((struct Tab *)tab)->pid)
-				return tab->self;
-		}
-	}
+	TAILQ_FOREACH(c, &focus_history, entry)
+		TAB_FOREACH((struct Container *)c, tab)
+			if (pid == tab->pid)
+				return tab;
 	return NULL;
 }
 

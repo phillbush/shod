@@ -121,43 +121,43 @@ is_bar_at_mon(struct Monitor *mon, struct Bar *bar, int *l, int *r, int *t, int 
 	strutr = DisplayWidth(dpy, screen) - bar->strut[STRUT_RIGHT];
 	strutt = bar->strut[STRUT_TOP];
 	strutb = DisplayHeight(dpy, screen) - bar->strut[STRUT_BOTTOM];
-	if (strutt > 0 && strutt >= mon->my && strutt < mon->my + mon->mh &&
+	if (strutt > 0 && strutt >= mon->geometry.y && strutt < mon->geometry.y + mon->geometry.height &&
 	    (!bar->ispartial ||
-	     (bar->strut[STRUT_TOP_START_X] >= mon->mx &&
-	     bar->strut[STRUT_TOP_END_X] <= mon->mx + mon->mw))) {
+	     (bar->strut[STRUT_TOP_START_X] >= mon->geometry.x &&
+	     bar->strut[STRUT_TOP_END_X] <= mon->geometry.x + mon->geometry.width))) {
 		if (t != NULL) {
-			*t = bar->strut[STRUT_TOP] - mon->my;
+			*t = bar->strut[STRUT_TOP] - mon->geometry.y;
 		}
 		atmon = True;
 	}
-	if (strutb > 0 && strutb <= mon->my + mon->mh && strutb > mon->my &&
+	if (strutb > 0 && strutb <= mon->geometry.y + mon->geometry.height && strutb > mon->geometry.y &&
 	    (!bar->ispartial ||
-	     (bar->strut[STRUT_BOTTOM_START_X] >= mon->mx &&
-	     bar->strut[STRUT_BOTTOM_END_X] <= mon->mx + mon->mw))) {
+	     (bar->strut[STRUT_BOTTOM_START_X] >= mon->geometry.x &&
+	     bar->strut[STRUT_BOTTOM_END_X] <= mon->geometry.x + mon->geometry.width))) {
 		if (b != NULL) {
 			*b = bar->strut[STRUT_BOTTOM];
 			*b -= DisplayHeight(dpy, screen);
-			*b += mon->my + mon->mh;
+			*b += mon->geometry.y + mon->geometry.height;
 		}
 		atmon = True;
 	}
-	if (strutl > 0 && strutl >= mon->mx && strutl < mon->mx + mon->mw &&
+	if (strutl > 0 && strutl >= mon->geometry.x && strutl < mon->geometry.x + mon->geometry.width &&
 	    (!bar->ispartial ||
-	     (bar->strut[STRUT_LEFT_START_Y] >= mon->my &&
-	     bar->strut[STRUT_LEFT_END_Y] <= mon->my + mon->mh))) {
+	     (bar->strut[STRUT_LEFT_START_Y] >= mon->geometry.y &&
+	     bar->strut[STRUT_LEFT_END_Y] <= mon->geometry.y + mon->geometry.height))) {
 		if (l != NULL) {
-			*l = bar->strut[STRUT_LEFT] - mon->mx;
+			*l = bar->strut[STRUT_LEFT] - mon->geometry.x;
 		}
 		atmon = True;
 	}
-	if (strutr > 0 && strutr <= mon->mx + mon->mw && strutr > mon->mx &&
+	if (strutr > 0 && strutr <= mon->geometry.x + mon->geometry.width && strutr > mon->geometry.x &&
 	    (!bar->ispartial ||
-	     (bar->strut[STRUT_RIGHT_START_Y] >= mon->my &&
-	     bar->strut[STRUT_RIGHT_END_Y] <= mon->my + mon->mh))) {
+	     (bar->strut[STRUT_RIGHT_START_Y] >= mon->geometry.y &&
+	     bar->strut[STRUT_RIGHT_END_Y] <= mon->geometry.y + mon->geometry.height))) {
 		if (r != NULL) {
 			*r = bar->strut[STRUT_RIGHT];
 			*r -= DisplayWidth(dpy, screen);
-			*r += mon->mx + mon->mw;
+			*r += mon->geometry.x + mon->geometry.width;
 		}
 		atmon = True;
 	}
@@ -184,10 +184,20 @@ monitor_reset(void)
 			top    = max(top, t);
 			bottom = max(bottom, b);
 		}
-		mon->wx = max(mon->wx, mon->mx + left);
-		mon->wy = max(mon->wy, mon->my + top);
-		mon->ww = max(1, min(mon->ww, mon->mw - left - right));
-		mon->wh = max(1, min(mon->wh, mon->mh - top - bottom));
+		mon->window_area = (XRectangle){
+			.x = max(mon->window_area.x, mon->geometry.x + left),
+			.y = max(mon->window_area.y, mon->geometry.y + top),
+			.width = min(
+				mon->window_area.width,
+				mon->geometry.width - left - right
+			),
+			.height = min(
+				mon->window_area.height,
+				mon->geometry.height - top - bottom
+			),
+		};
+		mon->window_area.width = max(mon->window_area.width, 1);
+		mon->window_area.height = max(mon->window_area.height, 1);
 	}
 }
 

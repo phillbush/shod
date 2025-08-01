@@ -217,63 +217,63 @@ dockupdateresizeable(void)
 	switch (config.dockgravity[0]) {
 	case 'N':
 		dock.h = config.dockwidth;
-		dock.x = mon->mx;
-		dock.y = mon->my;
+		dock.x = mon->geometry.x;
+		dock.y = mon->geometry.y;
 		break;
 	case 'S':
 		dock.h = config.dockwidth;
-		dock.x = mon->mx;
-		dock.y = mon->my + mon->mh - config.dockwidth;
+		dock.x = mon->geometry.x;
+		dock.y = mon->geometry.y + mon->geometry.height - config.dockwidth;
 		break;
 	case 'W':
 		dock.w = config.dockwidth;
-		dock.x = mon->mx;
-		dock.y = mon->my;
+		dock.x = mon->geometry.x;
+		dock.y = mon->geometry.y;
 		break;
 	case 'E':
 	default:
 		dock.w = config.dockwidth;
-		dock.x = mon->mx + mon->mw - config.dockwidth;
-		dock.h = min(size, mon->mh);
-		dock.y = mon->my + mon->mh / 2 - size / 2;
+		dock.x = mon->geometry.x + mon->geometry.width - config.dockwidth;
+		dock.h = min(size, mon->geometry.height);
+		dock.y = mon->geometry.y + mon->geometry.height / 2 - size / 2;
 		break;
 	}
 	if (config.dockgravity[0] == 'N' || config.dockgravity[0] == 'S') {
 		switch (config.dockgravity[1]) {
 		case 'F':
-			dock.x = mon->mx;
-			dock.w = mon->mw;
+			dock.x = mon->geometry.x;
+			dock.w = mon->geometry.width;
 			break;
 		case 'W':
-			dock.w = min(size, mon->mw);
-			dock.x = mon->mx;
+			dock.w = min(size, mon->geometry.width);
+			dock.x = mon->geometry.x;
 			break;
 		case 'E':
-			dock.w = min(size, mon->mw);
-			dock.x = mon->mx + mon->mw - size;
+			dock.w = min(size, mon->geometry.width);
+			dock.x = mon->geometry.x + mon->geometry.width - size;
 			break;
 		default:
-			dock.w = min(size, mon->mw);
-			dock.x = mon->mx + mon->mw / 2 - size / 2;
+			dock.w = min(size, mon->geometry.width);
+			dock.x = mon->geometry.x + mon->geometry.width / 2 - size / 2;
 			break;
 		}
 	} else if (config.dockgravity[0] != '\0') {
 		switch (config.dockgravity[1]) {
 		case 'F':
-			dock.h = mon->mh;
-			dock.y = mon->my;
+			dock.h = mon->geometry.height;
+			dock.y = mon->geometry.y;
 			break;
 		case 'N':
-			dock.h = min(size, mon->mh);
-			dock.y = mon->my;
+			dock.h = min(size, mon->geometry.height);
+			dock.y = mon->geometry.y;
 			break;
 		case 'S':
-			dock.h = min(size, mon->mh);
-			dock.y = mon->my + mon->mh - size;
+			dock.h = min(size, mon->geometry.height);
+			dock.y = mon->geometry.y + mon->geometry.height - size;
 			break;
 		default:
-			dock.h = min(size, mon->mh);
-			dock.y = mon->my + mon->mh / 2 - size / 2;
+			dock.h = min(size, mon->geometry.height);
+			dock.y = mon->geometry.y + mon->geometry.height / 2 - size / 2;
 			break;
 		}
 	}
@@ -295,32 +295,32 @@ dockupdatefull(void)
 
 	switch (config.dockgravity[0]) {
 	case 'N':
-		dock.x = mon->mx;
-		dock.y = mon->my;
-		dock.w = mon->mw;
+		dock.x = mon->geometry.x;
+		dock.y = mon->geometry.y;
+		dock.w = mon->geometry.width;
 		dock.h = config.dockwidth;
 		part = dock.w;
 		break;
 	case 'S':
-		dock.x = mon->mx;
-		dock.y = mon->my + mon->mh - config.dockwidth;
-		dock.w = mon->mw;
+		dock.x = mon->geometry.x;
+		dock.y = mon->geometry.y + mon->geometry.height - config.dockwidth;
+		dock.w = mon->geometry.width;
 		dock.h = config.dockwidth;
 		part = dock.w;
 		break;
 	case 'W':
-		dock.x = mon->mx;
-		dock.y = mon->my;
+		dock.x = mon->geometry.x;
+		dock.y = mon->geometry.y;
 		dock.w = config.dockwidth;
-		dock.h = mon->mh;
+		dock.h = mon->geometry.height;
 		part = dock.h;
 		break;
 	case 'E':
 	default:
-		dock.x = mon->mx + mon->mw - config.dockwidth;
-		dock.y = mon->my;
+		dock.x = mon->geometry.x + mon->geometry.width - config.dockwidth;
+		dock.y = mon->geometry.y;
 		dock.w = config.dockwidth;
-		dock.h = mon->mh;
+		dock.h = mon->geometry.height;
 		part = dock.h;
 		break;
 	}
@@ -447,11 +447,20 @@ update_window_area(void)
 			break;
 		}
 	}
-	mon->wx = max(mon->wx, mon->mx + left);
-	mon->wy = max(mon->wy, mon->my + top);
-	mon->ww = max(1, min(mon->ww, mon->mw - left - right));
-	mon->wh = max(1, min(mon->wh, mon->mh - top - bottom));
-	container_class.monitor_reset();
+	mon->window_area = (XRectangle){
+		.x = max(mon->window_area.x, mon->geometry.x + left),
+		.y = max(mon->window_area.y, mon->geometry.y + top),
+		.width = min(
+			mon->window_area.width,
+			mon->geometry.width - left - right
+		),
+		.height = min(
+			mon->window_area.height,
+			mon->geometry.height - top - bottom
+		),
+	};
+	mon->window_area.width = max(mon->window_area.width, 1);
+	mon->window_area.height = max(mon->window_area.height, 1);
 }
 
 static void

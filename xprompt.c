@@ -4,10 +4,10 @@
 static void
 promptcalcgeom(int *x, int *y, int *w, int *h, int *fw, int *fh)
 {
-	*w = min(*w, wm.selmon->ww - config.borderwidth * 2);
-	*h = min(*h, wm.selmon->wh - config.borderwidth);
-	*x = wm.selmon->wx + (wm.selmon->ww - *w) / 2 - config.borderwidth;
-	*y = wm.selmon->wy;
+	*w = min(*w, wm.selmon->window_area.width - config.borderwidth * 2);
+	*h = min(*h, wm.selmon->window_area.height - config.borderwidth);
+	*x = wm.selmon->window_area.x + (wm.selmon->window_area.width - *w) / 2 - config.borderwidth;
+	*y = wm.selmon->window_area.y;
 	*fw = *w + config.borderwidth * 2;
 	*fh = *h + config.borderwidth;
 }
