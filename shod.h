@@ -4,19 +4,6 @@
 
 #define MOUSE_EVENTS (ButtonReleaseMask|ButtonPressMask|PointerMotionMask)
 
-enum border {
-	/* border array indices */
-	BORDER_N,
-	BORDER_S,
-	BORDER_W,
-	BORDER_E,
-	BORDER_NW,
-	BORDER_NE,
-	BORDER_SW,
-	BORDER_SE,
-	BORDER_LAST
-};
-
 enum {
 	/* cursor array indices */
 	CURSOR_NORMAL,                          /* regular cursor */

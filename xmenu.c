@@ -2,6 +2,13 @@
 
 #define BORDER          1       /* pixel size of decoration around menus */
 
+enum direction {
+	TOP    = (1 << 0),
+	BOTTOM = (1 << 1),
+	LEFT   = (1 << 2),
+	RIGHT  = (1 << 3),
+};
+
 struct Menu {
 	struct Object obj;
 	struct Monitor *mon;
@@ -242,50 +249,41 @@ drag_move(struct Menu *menu, int xroot, int yroot)
 }
 
 static void
-drag_resize(struct Menu *menu, int border, int xroot, int yroot)
+drag_resize(struct Menu *menu, int direction, int xroot, int yroot)
 {
-	enum {
-		TOP    = (1 << 0),
-		BOTTOM = (1 << 1),
-		LEFT   = (1 << 2),
-		RIGHT  = (1 << 3),
-	};
 	Cursor cursor;
 	XEvent event;
 	XMotionEvent *motion = &event.xmotion;
 	int x, y;
-	int direction;
 
-	switch (border) {
-	case BORDER_NW:
-		direction = TOP | LEFT;
+	switch (direction) {
+	case TOP | LEFT:
 		cursor = wm.cursors[CURSOR_NW];
 		break;
-	case BORDER_NE:
-		direction = TOP | RIGHT;
+	case TOP | RIGHT:
 		cursor = wm.cursors[CURSOR_NE];
 		break;
-	case BORDER_N:
+	case TOP:
 		direction = TOP;
 		cursor = wm.cursors[CURSOR_N];
 		break;
-	case BORDER_SW:
+	case BOTTOM | LEFT:
 		direction = BOTTOM | LEFT;
 		cursor = wm.cursors[CURSOR_SW];
 		break;
-	case BORDER_SE:
+	case BOTTOM | RIGHT:
 		direction = BOTTOM | RIGHT;
 		cursor = wm.cursors[CURSOR_SE];
 		break;
-	case BORDER_S:
+	case BOTTOM:
 		direction = BOTTOM;
 		cursor = wm.cursors[CURSOR_S];
 		break;
-	case BORDER_W:
+	case LEFT:
 		direction = LEFT;
 		cursor = wm.cursors[CURSOR_W];
 		break;
-	case BORDER_E:
+	case RIGHT:
 		direction = RIGHT;
 		cursor = wm.cursors[CURSOR_E];
 		break;
@@ -372,18 +370,18 @@ btnpress(struct Object *self, XButtonPressedEvent *press)
 	} else if (isvalidstate(press->state) && press->button == Button1) {
 		drag_move(menu, press->x_root, press->y_root);
 	} else if (isvalidstate(press->state) && press->button == Button3) {
-		enum border border;
+		enum direction direction;
 
 		if (press->x <= menu->frame_geometry.width/2 && press->y <= menu->frame_geometry.height/2)
-			border = BORDER_NW;
+			direction = TOP | LEFT;
 		else if (press->x > menu->frame_geometry.width/2 && press->y <= menu->frame_geometry.height/2)
-			border = BORDER_NE;
+			direction = TOP | RIGHT;
 		else if (press->x <= menu->frame_geometry.width/2 && press->y > menu->frame_geometry.height/2)
-			border = BORDER_SW;
+			direction = BOTTOM | LEFT;
 		else
-			border = BORDER_SE;
+			direction = BOTTOM | RIGHT;
 		drag_resize(
-			menu, border,
+			menu, direction,
 			press->x_root, press->y_root
 		);
 	} else if (press->window == menu->close_btn && press->button == Button1) {
@@ -462,28 +460,28 @@ handle_message(struct Object *self, Atom message, long int data[5])
 		 */
 		switch (data[2]) {
 		case _NET_WM_MOVERESIZE_SIZE_TOPLEFT:
-			drag_resize(menu, BORDER_NW, data[0], data[1]);
+			drag_resize(menu, TOP|LEFT, data[0], data[1]);
 			break;
 		case _NET_WM_MOVERESIZE_SIZE_TOP:
-			drag_resize(menu, BORDER_N, data[0], data[1]);
+			drag_resize(menu, TOP, data[0], data[1]);
 			break;
 		case _NET_WM_MOVERESIZE_SIZE_TOPRIGHT:
-			drag_resize(menu, BORDER_NE, data[0], data[1]);
+			drag_resize(menu, TOP|RIGHT, data[0], data[1]);
 			break;
 		case _NET_WM_MOVERESIZE_SIZE_RIGHT:
-			drag_resize(menu, BORDER_E, data[0], data[1]);
+			drag_resize(menu, RIGHT, data[0], data[1]);
 			break;
 		case _NET_WM_MOVERESIZE_SIZE_BOTTOMRIGHT:
-			drag_resize(menu, BORDER_SE, data[0], data[1]);
+			drag_resize(menu, BOTTOM|RIGHT, data[0], data[1]);
 			break;
 		case _NET_WM_MOVERESIZE_SIZE_BOTTOM:
-			drag_resize(menu, BORDER_S, data[0], data[1]);
+			drag_resize(menu, BOTTOM, data[0], data[1]);
 			break;
 		case _NET_WM_MOVERESIZE_SIZE_BOTTOMLEFT:
-			drag_resize(menu, BORDER_SW, data[0], data[1]);
+			drag_resize(menu, BOTTOM|LEFT, data[0], data[1]);
 			break;
 		case _NET_WM_MOVERESIZE_SIZE_LEFT:
-			drag_resize(menu, BORDER_W, data[0], data[1]);
+			drag_resize(menu, LEFT, data[0], data[1]);
 			break;
 		case _NET_WM_MOVERESIZE_MOVE:
 			drag_move(menu, data[0], data[1]);

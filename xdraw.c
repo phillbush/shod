@@ -54,10 +54,11 @@ Window
 createdecoration(Window frame, XRectangle geom, Cursor cursor, int gravity)
 {
 	return createwindow(
-		frame, geom, CWCursor|CWWinGravity,
+		frame, geom, CWCursor|CWWinGravity|CWBitGravity,
 		&(XSetWindowAttributes){
 			.cursor = cursor,
 			.win_gravity = gravity,
+			.bit_gravity = gravity,
 		}
 	);
 }
