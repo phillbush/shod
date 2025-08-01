@@ -933,13 +933,18 @@ rowstretch(struct Column *col, struct Row *row)
 	update_tiles(col->c);
 }
 
+dialog_focus(struct Dialog *dial)
+{
+	XRaiseWindow(dpy, dial->frame);
+	XSetInputFocus(dpy, dial->obj.win, RevertToPointerRoot, CurrentTime);
+}
+
 static void
 tabfocus(struct Tab *tab, int gotodesk)
 {
 	Window focused;
 	static struct Object *prevfocused;
 	struct Container *container;
-	struct Dialog *dial;
 
 	prevfocused = wm.focused;
 	(void)XGetInputFocus(dpy, &focused, &(int){0});
@@ -969,9 +974,7 @@ tabfocus(struct Tab *tab, int gotodesk)
 		if (container->state & SHADED || tab->row->isunmapped) {
 			XSetInputFocus(dpy, tab->row->bar, RevertToPointerRoot, CurrentTime);
 		} else if (!TAILQ_EMPTY(&tab->dialq)) {
-			dial = TAILQ_FIRST(&tab->dialq)->self;
-			XRaiseWindow(dpy, dial->frame);
-			XSetInputFocus(dpy, dial->obj.win, RevertToPointerRoot, CurrentTime);
+			dialog_focus(TAILQ_FIRST(&tab->dialq)->self);
 		} else {
 			XSetInputFocus(dpy, tab->obj.win, RevertToPointerRoot, CurrentTime);
 		}
@@ -1050,7 +1053,7 @@ managedialog(struct Object *app, struct Monitor *mon, int desk, Window win, Wind
 	dialog_update_geometry(dial);
 	XMapRaised(dpy, dial->frame);
 	if (&tab->row->col->c->obj == wm.focused)
-		tabfocus(tab, 0);
+		dialog_focus(dial);
 }
 
 static void
