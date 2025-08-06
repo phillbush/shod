@@ -385,7 +385,8 @@ btnpress(struct Object *self, XButtonPressedEvent *press)
 			press->x_root, press->y_root
 		);
 	} else if (press->window == menu->close_btn && press->button == Button1) {
-		window_close(dpy, menu->obj.win);
+		if (released_inside(dpy, press))
+			window_close(dpy, menu->obj.win);
 	}
 }
 

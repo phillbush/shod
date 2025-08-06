@@ -92,4 +92,5 @@ Window getwinprop(Display *display, Window window, Atom property);
 Atom getatomprop(Display *display, Window window, Atom property);
 long getcardprop(Display *display, Window window, Atom property);
 
+Bool released_inside(Display *display, XButtonPressedEvent const *press);
 Bool compress_motion(Display *, XEvent *);

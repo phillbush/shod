@@ -192,3 +192,22 @@ window_configure_notify(Display *display, Window window, int x, int y, int w, in
 		}
 	);
 }
+
+Bool
+released_inside(Display *display, XButtonPressedEvent const *press)
+{
+	XButtonReleasedEvent *release = (void *)(XEvent [1]){0};
+	unsigned width, height;
+	void *dummy = &(int){0};
+
+	(void)XMaskEvent(display, ButtonReleaseMask, (void *)release);
+	if (XGetGeometry(
+		display, press->window, &(Window){0},
+		dummy, dummy, &width, &height, dummy, dummy
+	)) return (
+		release->button == press->button &&
+		release->x >= 0 && release->x < width &&
+		release->y >= 0 && release->y < height
+	);
+	return False;
+}

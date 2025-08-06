@@ -2371,7 +2371,8 @@ tab_btnpress(struct Object *self, XButtonPressedEvent *press)
 	} else if (press->window == tab->title && press->button == Button5) {
 		containersetstate(&container->obj, SHADED, REMOVE);
 	} else if (press->window == tab->close_btn && press->button == Button1) {
-		window_close(dpy, tab->obj.win);
+		if (released_inside(dpy, press))
+			window_close(dpy, tab->obj.win);
 	}
 }
 
