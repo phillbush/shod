@@ -1127,9 +1127,9 @@ static void
 tabremove(struct Row *row, struct Tab *tab)
 {
 	if (row->seltab == tab) {
-		row->seltab = (void *)TAILQ_PREV((struct Object *)tab, Queue, entry);
+		row->seltab = (void *)TAILQ_NEXT((struct Object *)tab, entry);
 		if (row->seltab == NULL) {
-			row->seltab = (void *)TAILQ_NEXT((struct Object *)tab, entry);
+			row->seltab = (void *)TAILQ_PREV((struct Object *)tab, Queue, entry);
 		}
 	}
 	row->ntabs--;
