@@ -1090,16 +1090,15 @@ tabnew(Window win, Window leader)
 	TAILQ_INIT(&tab->dialq);
 	tab->frame = createframe((XRectangle){0, 0, 1, 1});
 	tab->title = createdecoration(
-		root, (XRectangle){0, 0, 1, 1},
+		root, (XRectangle){0, 0, 1, config.titlewidth},
 		None, NorthWestGravity
 	);
 	tab->close_btn = createdecoration(
 		tab->title, (XRectangle){
-			1 - config.button_size - config.shadowthickness,
-			1 - config.button_size - config.shadowthickness,
-			config.button_size, config.button_size
+			1 - config.titlewidth, 0,
+			config.titlewidth, config.titlewidth
 		},
-		wm.cursors[CURSOR_PIRATE], SouthEastGravity
+		wm.cursors[CURSOR_PIRATE], NorthEastGravity
 	);
 	context_add(tab->obj.win, &tab->obj);
 	context_add(tab->frame, &tab->obj);

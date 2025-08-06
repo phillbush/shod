@@ -153,9 +153,8 @@ manage(struct Object *app, struct Monitor *mon, int desk, Window win, Window lea
 	);
 	menu->close_btn = createdecoration(
 		menu->titlebar, (XRectangle){
-			menu->frame_geometry.width - config.button_size - config.shadowthickness,
-			config.shadowthickness,
-			config.button_size, config.button_size
+			menu->frame_geometry.width - config.titlewidth, 0,
+			config.titlewidth, config.titlewidth
 		},
 		wm.cursors[CURSOR_PIRATE], NorthEastGravity
 	);

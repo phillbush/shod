@@ -622,7 +622,8 @@ openfont(const char *s)
 static void
 draw_close_btn(int style)
 {
-	int cross_size = max(1, config.button_size - config.shadowthickness * 2);
+	int padding = config.shadowthickness + 1;
+	int cross_size = max(1, config.titlewidth - padding * 2 + 1);
 
 	for (int style = 0; style < STYLE_LAST; style++)
 	for (int focus = 0; focus < 2; focus++) {
@@ -634,11 +635,11 @@ draw_close_btn(int style)
 			fg = theme.colors[style][COLOR_FG].pixel;
 		updatepixmap(
 			&wm.close_btn[style][focus], NULL, NULL,
-			config.button_size, config.button_size
+			config.titlewidth, config.titlewidth
 		);
 		drawshadow(
 			wm.close_btn[style][focus], 0, 0,
-			config.button_size, config.button_size, style
+			config.titlewidth, config.titlewidth, style
 		);
 		XChangeGC(dpy, wm.gc, GCForeground|GCLineWidth|GCCapStyle,
 			&(XGCValues){
@@ -650,15 +651,15 @@ draw_close_btn(int style)
 		XDrawSegments(dpy, wm.close_btn[style][focus], wm.gc,
 			(XSegment[]){
 				[0] = {
-					.x1 = config.shadowthickness + 1,
-					.y1 = config.shadowthickness + 1,
+					.x1 = padding + 1,
+					.y1 = padding + 1,
 					.x2 = cross_size,
 					.y2 = cross_size,
 				},
 				[1] = {
 					.x1 = cross_size,
-					.y1 = config.shadowthickness + 1,
-					.x2 = config.shadowthickness + 1,
+					.y1 = padding + 1,
+					.x2 = padding + 1,
 					.y2 = cross_size,
 				},
 			}, 2
@@ -678,7 +679,6 @@ reload_theme(void)
 		config.shadowthickness = 2;     /* thick shadow */
 	else
 		config.shadowthickness = 1;     /* slim shadow */
-	config.button_size = max(1, config.titlewidth - config.shadowthickness * 2);
 
 	pix = XCreatePixmap(
 		dpy,
