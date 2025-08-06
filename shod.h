@@ -242,7 +242,6 @@ void drawbackground(Pixmap pix, int x, int y, int w, int h, int style);
 void drawshadow(Pixmap pix, int x, int y, int w, int h, int style);
 void drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int pressed, int ismenu);
 void drawprompt(Pixmap pix, int w, int h);
-void redecorate(Window win, int border, int style, Bool pressed);
 
 void fitmonitor(struct Monitor *mon, XRectangle *geometry, float factor);
 struct Monitor *getmon(int x, int y);
