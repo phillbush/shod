@@ -2031,6 +2031,21 @@ getleaderof(Window leader)
 	return NULL;
 }
 
+static struct Tab *
+gettabfrompid(unsigned long pid)
+{
+	struct Object *c;
+	struct Tab *tab;
+
+	if (pid <= 1)
+		return NULL;
+	TAILQ_FOREACH(c, &focus_history, entry)
+		TAB_FOREACH((struct Container *)c, tab)
+			if (pid == tab->pid)
+				return tab;
+	return NULL;
+}
+
 static void
 managecontainer(struct Object *app, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
 {
@@ -2039,7 +2054,8 @@ managecontainer(struct Object *app, struct Monitor *mon, int desk, Window win, W
 	struct Row *row;
 
 	(void)app;
-	prev = getleaderof(leader);
+	if ((prev = getleaderof(leader)) == NULL)
+		prev = gettabfrompid(getcardprop(dpy, win, atoms[_NET_WM_PID]));
 	tab = tabnew(win, leader);
 	winupdatetitle(tab->obj.win, &tab->name);
 	if (prev == NULL) {
@@ -3326,21 +3342,6 @@ focused_is_fullscreen(void)
 		return False;
 	container = wm.focused->self;
 	return container->state & FULLSCREEN;
-}
-
-struct Tab *
-gettabfrompid(unsigned long pid)
-{
-	struct Object *c;
-	struct Tab *tab;
-
-	if (pid <= 1)
-		return NULL;
-	TAILQ_FOREACH(c, &focus_history, entry)
-		TAB_FOREACH((struct Container *)c, tab)
-			if (pid == tab->pid)
-				return tab;
-	return NULL;
 }
 
 void
