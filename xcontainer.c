@@ -1715,7 +1715,12 @@ containernew(int x, int y, int w, int h, enum State state)
 		{ BORDER_NW, CURSOR_NW, NorthWestGravity, 0, 0,                           },
 		{ BORDER_NE, CURSOR_NE, NorthEastGravity, w - corner, 0,                  },
 	};
-	c->obj.win = createframe(c->geometry.current);
+	c->obj.win = createwindow(
+		root, c->geometry.current,
+		CWEventMask, &(XSetWindowAttributes){
+			.event_mask = EnterWindowMask,
+		}
+	);
 	context_add(c->obj.win, &c->obj);
 	TAILQ_INIT(&c->colq);
 	for (size_t i = 0; i < BORDER_LAST; i++) {

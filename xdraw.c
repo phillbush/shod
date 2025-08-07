@@ -37,11 +37,13 @@ Window
 createframe(XRectangle geom)
 {
 	Window frame;
-	XSetWindowAttributes attrs = {
-		.event_mask = EnterWindowMask,
-	};
 
-	frame = createwindow(root, geom, CWEventMask, &attrs);
+	frame = createwindow(
+		root, geom,
+		CWEventMask, &(XSetWindowAttributes){
+			.event_mask = EnterWindowMask,
+		}
+	);
 	XGrabButton(
 		dpy, AnyButton, AnyModifier,
 		frame, False, MOUSE_EVENTS,
