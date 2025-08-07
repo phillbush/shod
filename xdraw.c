@@ -97,20 +97,11 @@ backgroundcommit(Window win, int style)
 	XClearWindow(dpy, win);
 }
 
-/* draw text into drawable */
-void
-drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int pressed, int ismenu)
+static void
+draw_titlebar_lines(Drawable pix, int width, int style, Bool pressed)
 {
-	XGCValues val;
-	XGlyphInfo box;
-	XftColor *color;
-	XftDraw *draw;
-	size_t len;
 	unsigned int top, bot;
-	int i, x, y;
 
-	if (text == NULL)
-		return;
 	if (pressed) {
 		top = theme.colors[style][COLOR_DARK].pixel;
 		bot = theme.colors[style][COLOR_LIGHT].pixel;
@@ -118,26 +109,59 @@ drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int p
 		top = theme.colors[style][COLOR_LIGHT].pixel;
 		bot = theme.colors[style][COLOR_DARK].pixel;
 	}
+	for (int i = config.shadowthickness+1; i < config.titlewidth - config.shadowthickness-1; i += config.shadowthickness+1) {
+		XChangeGC(dpy, wm.gc, GCForeground, &(XGCValues){
+			.foreground = top,
+		});
+		XFillRectangle(
+			dpy, pix, wm.gc,
+			config.shadowthickness*2, i,
+			width - config.shadowthickness*2, 1
+		);
+	}
+	for (int i = config.shadowthickness*2; i < config.titlewidth - config.shadowthickness; i += config.shadowthickness+1) {
+		XChangeGC(dpy, wm.gc, GCForeground, &(XGCValues){
+			.foreground = bot,
+		});
+		XFillRectangle(
+			dpy, pix, wm.gc,
+			config.shadowthickness*2, i,
+			width - config.shadowthickness*2, 1
+		);
+	}
+}
+
+void
+drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int pressed, int ismenu)
+{
+	XGlyphInfo box;
+	XftColor *color;
+	XftDraw *draw;
+	size_t len;
+	int x, y;
+
+	if (text == NULL)
+		return;
 	if (ismenu || drawlines)
 		color = &theme.colors[STYLE_OTHER][COLOR_LIGHT];
 	else
 		color = &theme.colors[style][COLOR_LIGHT];
+	drawshadow(pix, 0, 0, w, config.titlewidth, style);
 	draw = XftDrawCreate(dpy, pix, visual, colormap);
 	len = strlen(text);
 	XftTextExtentsUtf8(dpy, theme.font, (FcChar8 *)text, len, &box);
-	x = max(0, (w - box.width) / 2 + box.x);
-	y = (config.titlewidth - theme.font->ascent) / 2 + theme.font->ascent;
-	for (i = 3; drawlines && i < config.titlewidth - 3; i += 3) {
-		val.foreground = top;
-		XChangeGC(dpy, wm.gc, GCForeground, &val);
-		XFillRectangle(dpy, pix, wm.gc, 4, i, x - 8, 1);
-		XFillRectangle(dpy, pix, wm.gc, w - x + 2, i, x - 6, 1);
-	}
-	for (i = 4; drawlines && i < config.titlewidth - 2; i += 3) {
-		val.foreground = bot;
-		XChangeGC(dpy, wm.gc, GCForeground, &val);
-		XFillRectangle(dpy, pix, wm.gc, 4, i, x - 8, 1);
-		XFillRectangle(dpy, pix, wm.gc, w - x + 2, i, x - 6, 1);
+	w -= config.titlewidth; /* ignore close button's size to draw title */
+	x = max(0, (w - box.width) / 2);
+	y = (config.titlewidth - theme.font->height) / 2 + theme.font->ascent;
+	if (drawlines) {
+		draw_titlebar_lines(pix, w, style, pressed);
+		drawbackground(
+			pix, x - config.shadowthickness*2,
+			config.shadowthickness,
+			box.width + config.shadowthickness*4,
+			config.titlewidth - config.shadowthickness*2,
+			style
+		);
 	}
 	XftDrawStringUtf8(draw, color, theme.font, x, y, (FcChar8 *)text, len);
 	XftDrawDestroy(draw);
@@ -197,7 +221,6 @@ drawbackground(Pixmap pix, int x, int y, int w, int h, int style)
 void
 drawshadow(Pixmap pix, int x, int y, int w, int h, int style)
 {
-	XGCValues val;
 	XRectangle rects[config.shadowthickness * 2];
 
 	if (w <= 0 || h <= 0)

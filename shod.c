@@ -622,8 +622,8 @@ openfont(const char *s)
 static void
 draw_close_btn(int style)
 {
-	int padding = config.shadowthickness + 1;
-	int cross_size = max(1, config.titlewidth - padding * 2 + 1);
+	int button_size = max(1, config.titlewidth - config.shadowthickness*2);
+	int cross_size = max(1, button_size - config.shadowthickness * 2);
 
 	for (int style = 0; style < STYLE_LAST; style++)
 	for (int focus = 0; focus < 2; focus++) {
@@ -638,8 +638,15 @@ draw_close_btn(int style)
 			config.titlewidth, config.titlewidth
 		);
 		drawshadow(
-			wm.close_btn[style][focus], 0, 0,
-			config.titlewidth, config.titlewidth, style
+			wm.close_btn[style][focus], -config.titlewidth, 0,
+			config.titlewidth*2, config.titlewidth, style
+		);
+		drawshadow(
+			wm.close_btn[style][focus],
+			config.shadowthickness,
+			config.shadowthickness,
+			button_size, button_size,
+			style
 		);
 		XChangeGC(dpy, wm.gc, GCForeground|GCLineWidth|GCCapStyle,
 			&(XGCValues){
@@ -651,16 +658,16 @@ draw_close_btn(int style)
 		XDrawSegments(dpy, wm.close_btn[style][focus], wm.gc,
 			(XSegment[]){
 				[0] = {
-					.x1 = padding + 1,
-					.y1 = padding + 1,
-					.x2 = cross_size,
-					.y2 = cross_size,
+					.x1 = config.shadowthickness*2 + 1,
+					.y1 = config.shadowthickness*2 + 1,
+					.x2 = config.shadowthickness + cross_size,
+					.y2 = config.shadowthickness + cross_size,
 				},
 				[1] = {
-					.x1 = cross_size,
-					.y1 = padding + 1,
-					.x2 = padding + 1,
-					.y2 = cross_size,
+					.x1 = config.shadowthickness + cross_size,
+					.y1 = config.shadowthickness*2 + 1,
+					.x2 = config.shadowthickness*2 + 1,
+					.y2 = config.shadowthickness + cross_size,
 				},
 			}, 2
 		);
