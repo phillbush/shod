@@ -1721,10 +1721,14 @@ containernew(int x, int y, int w, int h, enum State state)
 			.event_mask = EnterWindowMask,
 		}
 	);
+	XGrabButton(
+		dpy, AnyButton, config.modifier,
+		c->obj.win, False, MOUSE_EVENTS,
+		GrabModeSync, GrabModeAsync, None, None
+	);
 	context_add(c->obj.win, &c->obj);
 	TAILQ_INIT(&c->colq);
 	for (size_t i = 0; i < BORDER_LAST; i++) {
-		context_add(c->borders[table[i].window], &c->obj);
 		c->borders[table[i].window] = createdecoration(
 			c->obj.win,
 			(XRectangle){
@@ -1736,6 +1740,7 @@ containernew(int x, int y, int w, int h, enum State state)
 			},
 			wm.cursors[table[i].cursor], table[i].gravity
 		);
+		context_add(c->borders[table[i].window], &c->obj);
 		XMapRaised(dpy, c->borders[table[i].window]);
 	}
 	TAILQ_INSERT_TAIL(c->layer, &c->obj, z_entry);
@@ -2369,6 +2374,10 @@ tab_btnpress(struct Object *self, XButtonPressedEvent *press)
 		return;
 	container = tab->row->col->c;
 
+	if (press->button == Button1 && press->window != tab->close_btn) {
+		tabfocus(tab, True);
+		container_stack(container);
+	}
 	if (press->window == tab->title && press->button == Button1 && press->serial == 2) {
 		rowstretch(tab->row->col, tab->row);
 	} else if (press->window == tab->title && press->button == Button1) {
@@ -2383,10 +2392,6 @@ tab_btnpress(struct Object *self, XButtonPressedEvent *press)
 		if (released_inside(dpy, press))
 			window_close(dpy, tab->obj.win);
 		return;
-	}
-	if (press->button == Button1) {
-		tabfocus(tab, True);
-		container_stack(container);
 	}
 }
 
@@ -2501,14 +2506,12 @@ container_btnpress(struct Object *self, XButtonPressedEvent *press)
 {
 	struct Container *container = self->self;
 
+	if (container->state & (FULLSCREEN|MINIMIZED))
+		return;
 	if (press->button == Button1) {
 		tabfocus(container->selcol->selrow->seltab, True);
 		container_stack(container);
 	}
-	if (press->window != container->obj.win)
-		return;
-	if (container->state & (FULLSCREEN|MINIMIZED))
-		return;
 	if (isvalidstate(press->state) && press->button == Button1) {
 		drag_move(container, press->x_root, press->y_root);
 	} else if (isvalidstate(press->state) && press->button == Button3) {
@@ -2527,7 +2530,7 @@ container_btnpress(struct Object *self, XButtonPressedEvent *press)
 			press->x_root, press->y_root
 		);
 	} else for (enum border border = 0; border < BORDER_LAST; border++) {
-		if (press->subwindow != container->borders[border])
+		if (press->window != container->borders[border])
 			continue;
 		if (press->button == Button1) {
 			drag_resize(
