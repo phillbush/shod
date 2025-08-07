@@ -1700,7 +1700,7 @@ containernew(int x, int y, int w, int h, enum State state)
 	*c = (struct Container) {
 		.state = state,
 		.ishidden = 0,
-		.layer = NULL,
+		.layer = &stack_order.middle,
 		.obj.self = c,
 		.obj.class = &container_class,
 	};
@@ -1740,6 +1740,7 @@ containernew(int x, int y, int w, int h, enum State state)
 		);
 		XMapRaised(dpy, c->borders[table[i].window]);
 	}
+	TAILQ_INSERT_TAIL(c->layer, &c->obj, z_entry);
 	containerinsertfocus(c);
 	return c;
 }
