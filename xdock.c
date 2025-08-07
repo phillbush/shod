@@ -28,9 +28,7 @@ restack(void)
 {
 	Window wins[2];
 
-	if (focused_is_fullscreen())
-		wins[0] = wm.focused->win;
-	else if (dock.state & BELOW)
+	if (dock.state & BELOW)
 		wins[0] = wm.layertop[LAYER_DESK];
 	else
 		wins[0] = wm.layertop[LAYER_DOCK];

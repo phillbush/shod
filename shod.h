@@ -51,6 +51,7 @@ enum {
 	LAYER_ABOVE,
 	LAYER_MENU,
 	LAYER_DOCK,
+	LAYER_FULLSCREEN,
 	LAYER_LAST
 };
 
@@ -225,7 +226,6 @@ struct Theme {
 void focusnext(struct Monitor *mon, int desk);
 void alttab(KeyCode altkey, KeyCode tabkey, Bool shift);
 Bool focused_follows_leader(Window leader);
-Bool focused_is_fullscreen(void);
 void shoddocks(void);
 void winupdatetitle(Window win, char **name);
 void window_configure_notify(Display *display, Window window, int x, int y, int w, int h);

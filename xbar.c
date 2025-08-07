@@ -55,9 +55,7 @@ barstack(struct Bar *bar)
 {
 	Window wins[2];
 
-	if (focused_is_fullscreen())
-		wins[0] = wm.focused->win;
-	else if (bar->state & BELOW)
+	if (bar->state & BELOW)
 		wins[0] = wm.layertop[LAYER_DESK];
 	else
 		wins[0] = wm.layertop[LAYER_DOCK];

@@ -308,13 +308,6 @@ setstate_recursive(struct Container *container)
 }
 
 static void
-restackdocks(void)
-{
-	dock_class.restack();
-	bar_class.restack();
-}
-
-static void
 containerhide(struct Container *c, int hide)
 {
 	if (c == NULL)
@@ -996,7 +989,6 @@ tabfocus(struct Tab *tab, int gotodesk)
 	}
 	if (wm.showingdesk)
 		menu_class.show_desktop();
-	restackdocks();
 	wm.setclientlist = True;
 }
 
@@ -1480,7 +1472,10 @@ container_stack(struct Container *container)
 	struct Object *prev = TAILQ_PREV(&container->obj, Queue, entry);
 	Window above;
 
-	if (prev != NULL)
+	if (&container->obj == wm.focused &&
+	    (container->state & FULLSCREEN))
+		above = wm.layertop[LAYER_FULLSCREEN];
+	else if (prev != NULL)
 		above = prev->win;
 	else if (container->state & ABOVE)
 		above = wm.layertop[LAYER_ABOVE];
@@ -1534,9 +1529,7 @@ containerfullscreen(struct Container *container, int fullscreen)
 	container->state ^= FULLSCREEN;
 	container_update_geometry(container);
 	redecorate(&container->obj);
-	if (&container->obj == wm.focused) {
-		restackdocks();
-	}
+	container_stack(container);
 }
 
 static void
@@ -3330,19 +3323,6 @@ done:
 		return;
 	tabfocus(c->selcol->selrow->seltab, 0);
 	container_stack(c);
-}
-
-Bool
-focused_is_fullscreen(void)
-{
-	struct Container *container;
-
-	if (wm.focused == NULL)
-		return False;
-	if (wm.focused->class != &container_class)
-		return False;
-	container = wm.focused->self;
-	return container->state & FULLSCREEN;
 }
 
 void
