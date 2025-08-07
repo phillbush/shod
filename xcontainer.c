@@ -2364,11 +2364,6 @@ tab_btnpress(struct Object *self, XButtonPressedEvent *press)
 		return;
 	container = tab->row->col->c;
 
-	if (press->button == Button1) {
-		tabfocus(tab, True);
-		container_stack(container);
-	}
-#warning TODO: implement tab button presses
 	if (press->window == tab->title && press->button == Button1 && press->serial == 2) {
 		rowstretch(tab->row->col, tab->row);
 	} else if (press->window == tab->title && press->button == Button1) {
@@ -2382,6 +2377,11 @@ tab_btnpress(struct Object *self, XButtonPressedEvent *press)
 	} else if (press->window == tab->close_btn && press->button == Button1) {
 		if (released_inside(dpy, press))
 			window_close(dpy, tab->obj.win);
+		return;
+	}
+	if (press->button == Button1) {
+		tabfocus(tab, True);
+		container_stack(container);
 	}
 }
 
