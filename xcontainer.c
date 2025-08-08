@@ -935,17 +935,19 @@ dialog_focus(struct Dialog *dial)
 static void
 tabfocus(struct Tab *tab, int gotodesk)
 {
+	Window focused;
 	static struct Object *prevfocused;
 	struct Container *container;
 
 	prevfocused = wm.focused;
+	(void)XGetInputFocus(dpy, &focused, &(int){0});
 	if (tab == NULL) {
 		if (wm.focused == NULL)
 			return;
 		wm.focused = NULL;
 		XSetInputFocus(dpy, wm.focuswin, RevertToPointerRoot, CurrentTime);
 		set_active_window(None);
-	} else if (wm.focused != NULL && tab->row->col->c == wm.focused) {
+	} else if (tab->obj.win == focused) {
 		return;
 	} else {
 		container = tab->row->col->c;
