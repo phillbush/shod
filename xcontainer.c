@@ -2030,12 +2030,19 @@ getleaderof(Window leader)
 
 	if (leader == None)
 		return NULL;
-	if ((obj = context_get(leader)) != NULL && obj->class == &tab_class)
-		return obj->self;
+	if (wm.focused != NULL && wm.focused->class == &container_class) {
+		tab = ((struct Container *)wm.focused)->selcol->selrow->seltab;
+		if (tab->obj.win == leader || tab->leader == leader)
+			return tab;
+	}
+	if ((obj = context_get(leader)) != NULL && obj->class == &tab_class) {
+		tab = obj->self;
+		return TAILQ_LAST(&tab->row->tabq, Queue)->self;
+	}
 	TAILQ_FOREACH(c, &focus_history, entry)
 		TAB_FOREACH((struct Container *)c, tab)
 			if (tab->leader == leader)
-				return tab;
+				return TAILQ_LAST(&tab->row->tabq, Queue)->self;
 	return NULL;
 }
 
@@ -2047,10 +2054,15 @@ gettabfrompid(unsigned long pid)
 
 	if (pid <= 1)
 		return NULL;
+	if (wm.focused != NULL && wm.focused->class == &container_class) {
+		tab = ((struct Container *)wm.focused)->selcol->selrow->seltab;
+		if (tab->pid == pid)
+			return tab;
+	}
 	TAILQ_FOREACH(c, &focus_history, entry)
 		TAB_FOREACH((struct Container *)c, tab)
 			if (pid == tab->pid)
-				return tab;
+				return TAILQ_LAST(&tab->row->tabq, Queue)->self;
 	return NULL;
 }
 
