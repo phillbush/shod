@@ -556,7 +556,7 @@ hide_desktop(void)
 }
 
 static void
-restack(void)
+restack_all(void)
 {
 	Window wins[2];
 	struct Object *obj;
@@ -590,5 +590,5 @@ struct Class menu_class = {
 	.handle_message = handle_message,
 	.hide_desktop   = hide_desktop,
 	.show_desktop   = hide_desktop,
-	.restack        = restack,
+	.restack_all    = restack_all,
 };

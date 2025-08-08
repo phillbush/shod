@@ -24,7 +24,7 @@ struct Dockapp {
 static struct Dock dock;
 
 static void
-restack(void)
+restack_all(void)
 {
 	Window wins[2];
 
@@ -409,7 +409,7 @@ dockupdate(void)
 		dockupdateresizeable();
 	dockdecorate();
 	XMoveResizeWindow(dpy, dock.obj.win, dock.x, dock.y, dock.w, dock.h);
-	restack();
+	restack_all();
 	if (dock.state & MINIMIZED)
 		XUnmapWindow(dpy, dock.obj.win);
 	else
@@ -591,7 +591,7 @@ struct Class dock_class = {
 	.manage         = NULL,
 	.unmanage       = NULL,
 	.monitor_reset  = dockupdate,
-	.restack        = restack,
+	.restack_all    = restack_all,
 };
 
 struct Class dockapp_class = {

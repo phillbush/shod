@@ -126,7 +126,7 @@ struct Class {
 	void (*init)(void);
 	void (*clean)(void);
 	void (*manage)(struct Object *, struct Monitor *, int, Window, Window, XRectangle, enum State);
-	void (*restack)(void);
+	void (*restack_all)(void);
 	void (*monitor_delete)(struct Monitor *);
 	void (*monitor_reset)(void);
 	void (*redecorate_all)(void);
@@ -138,6 +138,7 @@ struct Class {
 
 	/* instance methods */
 	void (*focus)(struct Object *);
+	void (*restack)(struct Object *);
 	void (*setstate)(struct Object *, enum State, int);
 	void (*unmanage)(struct Object *);
 	void (*btnpress)(struct Object *, XButtonPressedEvent *);
@@ -325,3 +326,16 @@ extern struct Class container_class;
 	context_del((win)); \
 	XDestroyWindow((dpy), (win)); \
 } while(0)
+
+/* call instance method, if it exists */
+#define ARG1(arg, ...) (arg)
+#define CALL_METHOD(method, ...) \
+	if (ARG1(__VA_ARGS__, 0) != NULL) \
+		if (ARG1(__VA_ARGS__, 0)->class->method != NULL) \
+			ARG1(__VA_ARGS__, 0)->class->method(__VA_ARGS__)
+
+/* for each class, call class method, if it exists */
+#define FOREACH_CLASS(method, ...) \
+	for (size_t i = 0; i < LEN(classes); i++) \
+		if (classes[i]->method != NULL) \
+			classes[i]->method(__VA_ARGS__)

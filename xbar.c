@@ -64,7 +64,7 @@ barstack(struct Bar *bar)
 }
 
 static void
-restack(void)
+restack_all(void)
 {
 	struct Object *obj;
 
@@ -359,5 +359,5 @@ struct Class bar_class = {
 	.monitor_delete = monitor_delete,
 	.monitor_reset  = monitor_reset,
 	.handle_property = handle_property,
-	.restack        = restack,
+	.restack_all    = restack_all,
 };

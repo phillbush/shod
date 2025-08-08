@@ -935,17 +935,17 @@ dialog_focus(struct Dialog *dial)
 static void
 tabfocus(struct Tab *tab, int gotodesk)
 {
-	Window focused;
 	static struct Object *prevfocused;
 	struct Container *container;
 
 	prevfocused = wm.focused;
-	(void)XGetInputFocus(dpy, &focused, &(int){0});
 	if (tab == NULL) {
+		if (wm.focused == NULL)
+			return;
 		wm.focused = NULL;
 		XSetInputFocus(dpy, wm.focuswin, RevertToPointerRoot, CurrentTime);
 		set_active_window(None);
-	} else if (tab->obj.win == focused) {
+	} else if (wm.focused != NULL && tab->row->col->c == wm.focused) {
 		return;
 	} else {
 		container = tab->row->col->c;
@@ -980,10 +980,11 @@ tabfocus(struct Tab *tab, int gotodesk)
 		containerhide(container, 0);
 		set_container_group(container);
 		setstate_recursive(container);
-		menu_class.restack();
+		menu_class.restack_all();
 	}
 	if (prevfocused != NULL && prevfocused != wm.focused) {
-		prevfocused->class->redecorate(prevfocused);
+		CALL_METHOD(redecorate, prevfocused);
+		CALL_METHOD(restack, prevfocused);
 		if (prevfocused->class == &container_class)
 			setstate_recursive(prevfocused->self);
 	}
@@ -1467,8 +1468,9 @@ containerdelraise(struct Container *container)
 }
 
 static void
-container_stack(struct Container *container)
+restack(struct Object *obj)
 {
+	struct Container *container = obj->self;
 	struct Object *prev = TAILQ_PREV(&container->obj, Queue, entry);
 	Window above;
 
@@ -1509,7 +1511,7 @@ containersendtodesk(struct Container *c, struct Monitor *mon, unsigned long desk
 			containerhide(c, 1);
 		else
 			containerhide(c, 0);
-		container_stack(c);
+		restack(&c->obj);
 	} else {
 		return 0;
 	}
@@ -1529,7 +1531,7 @@ containerfullscreen(struct Container *container, int fullscreen)
 	container->state ^= FULLSCREEN;
 	container_update_geometry(container);
 	redecorate(&container->obj);
-	container_stack(container);
+	restack(&container->obj);
 }
 
 static void
@@ -1559,7 +1561,7 @@ containerminimize(struct Container *c, int minimize, int focus)
 		c->state &= ~MINIMIZED;
 		(void)containersendtodesk(c, wm.selmon, wm.selmon->seldesk);
 		tabfocus(c->selcol->selrow->seltab, 0);
-		container_stack(c);
+		restack(&c->obj);
 	}
 }
 
@@ -1637,7 +1639,7 @@ container_changelayer(struct Container *container, enum State state, int action)
 	else
 		container->layer = &stack_order.middle;
 	TAILQ_INSERT_TAIL(container->layer, &container->obj, z_entry);
-	container_stack(container);
+	restack(&container->obj);
 }
 
 static void
@@ -1942,7 +1944,7 @@ found:
 	else
 		rowcalctabs(row);
 	tabfocus(det, 0);
-	container_stack(c);
+	restack(&c->obj);
 	XMapSubwindows(dpy, c->obj.win);
 	/* no need to call set_container_group(); tabfocus() already calls them */
 	set_window_desktop(det->obj.win, c->desk);
@@ -2009,7 +2011,7 @@ containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle r
 	containerplace(c, mon, desk, (state & USERPLACED));
 	container_update_geometry(c);
 	if (is_visible(c, wm.selmon, wm.selmon->seldesk)) {
-		container_stack(c);
+		restack(&c->obj);
 		containerhide(c, 0);
 		tabfocus(tab, 0);
 	}
@@ -2376,7 +2378,7 @@ tab_btnpress(struct Object *self, XButtonPressedEvent *press)
 
 	if (press->button == Button1 && press->window != tab->close_btn) {
 		tabfocus(tab, True);
-		container_stack(container);
+		restack(&container->obj);
 	}
 	if (press->window == tab->title && press->button == Button1 && press->serial == 2) {
 		rowstretch(tab->row->col, tab->row);
@@ -2510,7 +2512,7 @@ container_btnpress(struct Object *self, XButtonPressedEvent *press)
 		return;
 	if (press->button == Button1) {
 		tabfocus(container->selcol->selrow->seltab, True);
-		container_stack(container);
+		restack(&container->obj);
 	}
 	if (isvalidstate(press->state) && press->button == Button1) {
 		drag_move(container, press->x_root, press->y_root);
@@ -3062,7 +3064,7 @@ handle_message(struct Object *self, Atom message, long int data[5])
 			break;
 		default:
 			tabfocus(tab, True);
-			container_stack(container);
+			restack(&container->obj);
 			break;
 		}
 	} else if (message == atoms[_NET_WM_MOVERESIZE]) {
@@ -3270,7 +3272,7 @@ alttab_raise(struct Container *prevc, Bool backward)
 	 */
 	if (newc != prevc) {
 		container_decorate(prevc, UNFOCUSED);
-		container_stack(prevc);
+		restack(&prevc->obj);
 		if (prevc->ishidden)
 			XUnmapWindow(dpy, prevc->obj.win);
 		XFlush(dpy);
@@ -3309,6 +3311,7 @@ alttab(KeyCode altkey, KeyCode tabkey, Bool shift)
 		None, None, CurrentTime
 	) != GrabSuccess)
 		goto done;
+	wm.focused = NULL;
 	c = alttab_raise(c, shift);
 	for (;;) {
 		XMaskEvent(dpy, KeyPressMask|KeyReleaseMask, &ev);
@@ -3327,10 +3330,12 @@ alttab(KeyCode altkey, KeyCode tabkey, Bool shift)
 done:
 	XUngrabKeyboard(dpy, CurrentTime);
 	XUngrabPointer(dpy, CurrentTime);
-	if (c == NULL)
+	if (c == NULL) {
+		tabfocus(NULL, False);
 		return;
+	}
 	tabfocus(c->selcol->selrow->seltab, 0);
-	container_stack(c);
+	restack(&c->obj);
 }
 
 void
@@ -3342,7 +3347,7 @@ focusnext(struct Monitor *mon, int desk)
 		struct Container *container = obj->self;
 		if (is_visible(container, mon, desk)) {
 			tabfocus(container->selcol->selrow->seltab, 0);
-			container_stack(container);
+			restack(&container->obj);
 			return;
 		}
 	}
@@ -3368,6 +3373,7 @@ struct Class container_class = {
 	.btnpress       = container_btnpress,
 	.init           = init,
 	.clean          = clean,
+	.restack        = restack,
 	.redecorate     = redecorate,
 	.monitor_delete = monitor_delete,
 	.monitor_reset  = monitor_reset,

@@ -17,19 +17,6 @@
 
 #include "shod.h"
 
-/* call instance method, if it exists */
-#define ARG1(arg, ...) (arg)
-#define CALL_METHOD(method, ...) \
-	if (ARG1(__VA_ARGS__, 0) != NULL) \
-		if (ARG1(__VA_ARGS__, 0)->class->method != NULL) \
-			ARG1(__VA_ARGS__, 0)->class->method(__VA_ARGS__)
-
-/* for each class, call class method, if it exists */
-#define FOREACH_CLASS(method, ...) \
-	for (size_t i = 0; i < LEN(classes); i++) \
-		if (classes[i]->method != NULL) \
-			classes[i]->method(__VA_ARGS__)
-
 #define RESOURCES                                                                        \
 	/*                      CLASS                        NAME                      */\
 	X(RES_TYPE,            "Type",                      "type"                      )\
@@ -1998,6 +1985,8 @@ main(int argc, char *argv[])
 		}
 		if (wm.setclientlist)
 			FOREACH_CLASS(list_clients);
+		if (wm.focused == NULL)
+			focusnext(wm.selmon, wm.selmon->seldesk);
 		wm.setclientlist = False;
 	}
 	cleanup();
