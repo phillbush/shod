@@ -935,19 +935,18 @@ dialog_focus(struct Dialog *dial)
 static void
 tabfocus(struct Tab *tab, int gotodesk)
 {
-	Window focused;
 	static struct Object *prevfocused;
 	struct Container *container;
 
 	prevfocused = wm.focused;
-	(void)XGetInputFocus(dpy, &focused, &(int){0});
 	if (tab == NULL) {
 		if (wm.focused == NULL)
 			return;
 		wm.focused = NULL;
 		XSetInputFocus(dpy, wm.focuswin, RevertToPointerRoot, CurrentTime);
 		set_active_window(None);
-	} else if (tab->obj.win == focused) {
+	} else if (wm.focused != NULL && wm.focused->class == &container_class &&
+	           ((struct Container *)wm.focused)->selcol->selrow->seltab == tab) {
 		return;
 	} else {
 		container = tab->row->col->c;
@@ -986,9 +985,12 @@ tabfocus(struct Tab *tab, int gotodesk)
 	}
 	if (prevfocused != NULL && prevfocused != wm.focused) {
 		CALL_METHOD(redecorate, prevfocused);
-		CALL_METHOD(restack, prevfocused);
-		if (prevfocused->class == &container_class)
+		if (prevfocused->class == &container_class) {
 			setstate_recursive(prevfocused->self);
+			if (((struct Container *)prevfocused)->state &
+			    FULLSCREEN)
+				CALL_METHOD(restack, prevfocused);
+		}
 	}
 	if (wm.showingdesk)
 		menu_class.show_desktop();
