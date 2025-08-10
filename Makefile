@@ -1,7 +1,7 @@
-SHOD_OBJS   = shod.o config.o xdraw.o \
-              xcontainer.o xmenu.o xbar.o xdock.o xsplash.o xnotif.o xprompt.o
+SHOD_OBJS   = shod.o config.o draw.o \
+              container.o menu.o bar.o dock.o splash.o notification.o prompt.o
 SHODC_OBJS  = shodc.o
-SHARED_OBJS = xutil.o
+SHARED_OBJS = util.o
 OBJS        = ${SHOD_OBJS} ${SHODC_OBJS} ${SHARED_OBJS}
 
 SRCS        = ${OBJS:.o=.c}
@@ -31,7 +31,7 @@ shodc: ${SHODC_OBJS} ${SHARED_OBJS}
 	${CC} -o $@ ${SHODC_OBJS} ${SHARED_OBJS} ${PROG_LDFLAGS} -lX11
 
 ${SHOD_OBJS}: shod.h
-${OBJS}: xutil.h
+${OBJS}: util.h
 
 .c.o:
 	${CC} ${PROG_CFLAGS} -o $@ -c $<

@@ -1,6 +1,6 @@
 #include <sys/queue.h>
 
-#include "xutil.h"
+#include "util.h"
 
 #define MOUSE_EVENTS (ButtonReleaseMask|ButtonPressMask|PointerMotionMask)
 

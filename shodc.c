@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <unistd.h>
 
-#include "xutil.h"
+#include "util.h"
 
 #define DIRECT_ACTION                   2
 #define _SHOD_MOVERESIZE_RELATIVE       ((long)(1 << 16))
