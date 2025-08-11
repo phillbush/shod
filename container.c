@@ -1466,7 +1466,6 @@ rowaddtab(struct Row *row, struct Tab *tab, struct Tab *prev)
 
 	oldrow = tab->row;
 	tab->row = row;
-	row->seltab = tab;
 	row->ntabs++;
 	if (prev == NULL || TAILQ_EMPTY(&row->tabq))
 		TAILQ_INSERT_HEAD(&row->tabq, (struct Object *)tab, entry);
