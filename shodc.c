@@ -45,8 +45,8 @@ enum Direction {
 };
 
 static Window active;
-static Display *dpy;
-static Window root;
+static Display *display;
+static Window rootwin;
 static Atom atoms[NATOMS];
 
 /* show usage and exit */
@@ -85,7 +85,7 @@ clientmsg(Window win, Atom atom, unsigned long d0, unsigned long d1, unsigned lo
 	ev.xclient.data.l[2] = d2;
 	ev.xclient.data.l[3] = d3;
 	ev.xclient.data.l[4] = d4;
-	if (!XSendEvent(dpy, root, False, mask, &ev)) {
+	if (!XSendEvent(display, rootwin, False, mask, &ev)) {
 		errx(1, "could not send event");
 	}
 }
@@ -102,7 +102,7 @@ getactivewin(void)
 	Atom da;            /* dummy variable */
 
 	list = NULL;
-	if (XGetWindowProperty(dpy, root, atoms[_NET_ACTIVE_WINDOW], 0L, 1024, False, XA_WINDOW,
+	if (XGetWindowProperty(display, rootwin, atoms[_NET_ACTIVE_WINDOW], 0L, 1024, False, XA_WINDOW,
 		               &da, &di, &len, &dl, &list) != Success || list == NULL)
 		return None;
 	win = *(Window *)list;
@@ -128,7 +128,7 @@ getdesknames(char **desknames)
 	Atom da;            /* dummy variable */
 
 
-	if (XGetWindowProperty(dpy, root, atoms[_NET_DESKTOP_NAMES], 0, ~0, False,
+	if (XGetWindowProperty(display, rootwin, atoms[_NET_DESKTOP_NAMES], 0, ~0, False,
 	                       atoms[UTF8_STRING], &da, &di, &len, &dl, &str) ==
 	                       Success && str) {
 		*desknames = (char *)str;
@@ -324,14 +324,14 @@ longlist(Window win)
 	XID container, leader;
 
 	container = leader = 0x0;
-	if ((wmhints = XGetWMHints(dpy, win)) != NULL) {
+	if ((wmhints = XGetWMHints(display, win)) != NULL) {
 		if (wmhints->flags & XUrgencyHint)
 			state[LIST_URGENCY] = 'u';
 		if (wmhints->flags & WindowGroupHint)
 			leader = wmhints->window_group;
 		XFree(wmhints);
 	}
-	if (getwinsprop(dpy, win, atoms[_SHOD_GROUP_CONTAINER], &list) > 0) {
+	if (getwinsprop(display, win, atoms[_SHOD_GROUP_CONTAINER], &list) > 0) {
 		if (*list != None) {
 			container = *list;
 		}
@@ -339,7 +339,7 @@ longlist(Window win)
 	}
 	if (win == active)
 		state[LIST_ACTIVE] = 'a';
-	if ((natoms = getatomsprop(dpy, win, atoms[_NET_WM_STATE], &as)) > 0) {
+	if ((natoms = getatomsprop(display, win, atoms[_NET_WM_STATE], &as)) > 0) {
 		for (i = 0; i < natoms; i++) {
 			if (as[i] == atoms[_NET_WM_STATE_STICKY]) {
 				state[LIST_STICKY] = 'y';
@@ -381,12 +381,12 @@ longlist(Window win)
 		}
 		XFree(as);
 	}
-	l = getcardprop(dpy, win, atoms[_NET_WM_DESKTOP]);
+	l = getcardprop(display, win, atoms[_NET_WM_DESKTOP]);
 	desk = (l ==  0xFFFFFFFF) ? -1 : (long)l;
 
-	name = getwinname(dpy, win);
-	XGetGeometry(dpy, win, &dw, &x, &y, &w, &h, &b, &du);
-	XTranslateCoordinates(dpy, win, root, x, y, &x, &y, &dw);
+	name = getwinname(display, win);
+	XGetGeometry(display, win, &dw, &x, &y, &w, &h, &b, &du);
+	XTranslateCoordinates(display, win, rootwin, x, y, &x, &y, &dw);
 
 	printf(
 		"%s\t%ld\t%dx%d%+d%+d\t0x%08lx\t0x%08lx\t0x%08lx\t%s\n",
@@ -404,9 +404,9 @@ docklist(Window win)
 	unsigned int w, h, b, du;
 	char *name;
 
-	name = getwinname(dpy, win);
-	XGetGeometry(dpy, win, &dw, &x, &y, &w, &h, &b, &du);
-	XTranslateCoordinates(dpy, win, root, x, y, &x, &y, &dw);
+	name = getwinname(display, win);
+	XGetGeometry(display, win, &dw, &x, &y, &w, &h, &b, &du);
+	XTranslateCoordinates(display, win, rootwin, x, y, &x, &y, &dw);
 	printf(
 		"--------\t%dx%d%+d%+d\t0x%08lx\t%s\n",
 		w, h, x, y, win, name
@@ -436,15 +436,15 @@ listdesks(int argc, char *argv[])
 		usage();
 	
 	/* get variables */
-	ndesks = getcardprop(dpy, root, atoms[_NET_NUMBER_OF_DESKTOPS]);
-	curdesk = getcardprop(dpy, root, atoms[_NET_CURRENT_DESKTOP]);
+	ndesks = getcardprop(display, rootwin, atoms[_NET_NUMBER_OF_DESKTOPS]);
+	curdesk = getcardprop(display, rootwin, atoms[_NET_CURRENT_DESKTOP]);
 	nameslen = getdesknames(&desknames);
 	wdesk = ecalloc(ndesks, sizeof *wdesk);
 	urgdesks = ecalloc(ndesks, sizeof *urgdesks);
-	nwins = getwinsprop(dpy, root, atoms[_NET_CLIENT_LIST], &wins);
+	nwins = getwinsprop(display, rootwin, atoms[_NET_CLIENT_LIST], &wins);
 	for (i = 0; i < nwins; i++) {
-		desk = getcardprop(dpy, wins[i], atoms[_NET_WM_DESKTOP]);
-		hints = XGetWMHints(dpy, wins[i]);
+		desk = getcardprop(display, wins[i], atoms[_NET_WM_DESKTOP]);
+		hints = XGetWMHints(display, wins[i]);
 		if (desk < ndesks) {
 			wdesk[desk]++;
 			if (hints && hints->flags & XUrgencyHint) {
@@ -507,7 +507,7 @@ list(int argc, char *argv[])
 	}
 	argc -= optind;
 	argv += optind;
-	nwins = getwinsprop(dpy, root, prop, &wins);
+	nwins = getwinsprop(display, rootwin, prop, &wins);
 	if (argc == 0) {
 		for (i = 0; i < nwins; i++)
 			(*fun)(wins[i]);
@@ -647,9 +647,9 @@ exitshod(int argc, char *argv[])
 
 	(void)argc;
 	(void)argv;
-	checkwin = getwinprop(dpy, root, atoms[_NET_SUPPORTING_WM_CHECK]);
+	checkwin = getwinprop(display, rootwin, atoms[_NET_SUPPORTING_WM_CHECK]);
 	if (checkwin != None) {
-		XDestroyWindow(dpy, checkwin);
+		XDestroyWindow(display, checkwin);
 	}
 }
 
@@ -675,7 +675,7 @@ listdocks(int argc, char *argv[])
 	}
 	argc -= optind;
 	argv += optind;
-	nwins = getwinsprop(dpy, root, atoms[_SHOD_DOCK_LIST], &wins);
+	nwins = getwinsprop(display, rootwin, atoms[_SHOD_DOCK_LIST], &wins);
 	if (argc == 0) {
 		for (i = 0; i < nwins; i++)
 			(*fun)(wins[i]);
@@ -698,15 +698,15 @@ init(void)
 		ATOMS
 #undef  X
 	};
-	char const *dpyname;
+	char const *displayname;
 
-	if ((dpyname = XDisplayName(NULL)) == NULL || dpyname[0] == '\0')
+	if ((displayname = XDisplayName(NULL)) == NULL || displayname[0] == '\0')
 		errx(EXIT_FAILURE, "DISPLAY is not set");
-	if ((dpy = XOpenDisplay(NULL)) == NULL)
-		errx(EXIT_FAILURE, "%s: cannot open display", dpyname);
-	if (!XInternAtoms(dpy, atomnames, NATOMS, False, atoms))
-		errx(EXIT_FAILURE, "%s: cannot intern atoms", dpyname);
-	root = RootWindow(dpy, DefaultScreen(dpy));
+	if ((display = XOpenDisplay(NULL)) == NULL)
+		errx(EXIT_FAILURE, "%s: cannot open display", displayname);
+	if (!XInternAtoms(display, atomnames, NATOMS, False, atoms))
+		errx(EXIT_FAILURE, "%s: cannot intern atoms", displayname);
+	rootwin = RootWindow(display, DefaultScreen(display));
 }
 
 /* shodc: remote controller for shod */
@@ -742,6 +742,6 @@ main(int argc, char *argv[])
 		exitshod(argc - 1, argv + 1);
 	else
 		usage();
-	XCloseDisplay(dpy);
+	XCloseDisplay(display);
 	return 0;
 }

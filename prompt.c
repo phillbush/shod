@@ -14,11 +14,11 @@ promptcalcgeom(int *x, int *y, int *w, int *h, int *fw, int *fh)
 
 /* check if event is related to the prompt or its frame */
 static Bool
-promptvalidevent(Display *dpy, XEvent *ev, XPointer arg)
+promptvalidevent(Display *display, XEvent *ev, XPointer arg)
 {
 	Window win;
 
-	(void)dpy;
+	(void)display;
 	win = *(Window *)arg;
 	switch(ev->type) {
 	case DestroyNotify:
@@ -44,8 +44,8 @@ static void
 promptdecorate(Window frame, Pixmap *pix, int w, int h)
 {
 	if (*pix != None)
-		XFreePixmap(dpy, *pix);
-	*pix = XCreatePixmap(dpy, frame, w, h, depth);
+		XFreePixmap(wm.display, *pix);
+	*pix = XCreatePixmap(wm.display, frame, w, h, wm.depth);
 	drawbackground(*pix, 0, 0, w, h, FOCUSED);
 	drawprompt(*pix, w, h);
 	drawcommit(*pix, frame);
@@ -74,12 +74,12 @@ manage(struct Object *tab, struct Monitor *mon, int desk, Window win,
 	promptcalcgeom(&x, &y, &w, &h, &fw, &fh);
 	frame = createframe((XRectangle){x, y, fw, fh});
 	pix = None;
-	XReparentWindow(dpy, win, frame, config.borderwidth, 0);
-	XMapWindow(dpy, win);
-	XMapWindow(dpy, frame);
-	XSetInputFocus(dpy, win, RevertToPointerRoot, CurrentTime);
+	XReparentWindow(wm.display, win, frame, config.borderwidth, 0);
+	XMapWindow(wm.display, win);
+	XMapWindow(wm.display, frame);
+	XSetInputFocus(wm.display, win, RevertToPointerRoot, CurrentTime);
 	promptdecorate(frame, &pix, fw, fh);
-	while (!XIfEvent(dpy, &ev, promptvalidevent, (XPointer)&win)) {
+	while (!XIfEvent(wm.display, &ev, promptvalidevent, (XPointer)&win)) {
 		switch (ev.type) {
 		case DestroyNotify:
 		case UnmapNotify:
@@ -89,20 +89,20 @@ manage(struct Object *tab, struct Monitor *mon, int desk, Window win,
 			w = ev.xconfigurerequest.width;
 			h = ev.xconfigurerequest.height;
 			promptcalcgeom(&x, &y, &w, &h, &fw, &fh);
-			XMoveResizeWindow(dpy, frame, x, y, fw, fh);
-			XMoveResizeWindow(dpy, win, config.borderwidth, 0, w, h);
+			XMoveResizeWindow(wm.display, frame, x, y, fw, fh);
+			XMoveResizeWindow(wm.display, win, config.borderwidth, 0, w, h);
 			promptdecorate(frame, &pix, fw, fh);
 			break;
 		case ButtonPress:
 			if (ev.xbutton.window != win && ev.xbutton.window != frame)
-				window_close(dpy, win);
-			XAllowEvents(dpy, ReplayPointer, CurrentTime);
+				window_close(wm.display, win);
+			XAllowEvents(wm.display, ReplayPointer, CurrentTime);
 			break;
 		}
 	}
 done:
-	XReparentWindow(dpy, win, root, 0, 0);
-	XDestroyWindow(dpy, frame);
+	XReparentWindow(wm.display, win, wm.rootwin, 0, 0);
+	XDestroyWindow(wm.display, frame);
 	focusnext(wm.selmon, wm.selmon->seldesk);
 }
 

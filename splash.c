@@ -9,7 +9,7 @@ struct Splash {
 
 static struct Queue managed_splashs;
 
-/* center splash screen on monitor and raise it above other windows */
+/* center splash wm.screen on monitor and raise it above other windows */
 static void
 splashplace(struct Monitor *mon, struct Splash *splash)
 {
@@ -19,19 +19,19 @@ splashplace(struct Monitor *mon, struct Splash *splash)
 	splash->geometry.y = mon->window_area.y
 	                   + (mon->window_area.height - splash->geometry.height) / 2;
 	XMoveWindow(
-		dpy, splash->obj.win,
+		wm.display, splash->obj.win,
 		splash->geometry.x, splash->geometry.y
 	);
 }
 
-/* (un)hide splash screen */
+/* (un)hide splash wm.screen */
 static void
 splashhide(struct Splash *splash, int hide)
 {
 	if (hide)
-		XUnmapWindow(dpy, splash->obj.win);
+		XUnmapWindow(wm.display, splash->obj.win);
 	else
-		XMapWindow(dpy, splash->obj.win);
+		XMapWindow(wm.display, splash->obj.win);
 }
 
 static void
@@ -41,7 +41,7 @@ splashrise(struct Splash *splash)
 
 	wins[1] = splash->obj.win;
 	wins[0] = wm.layertop[LAYER_NORMAL];
-	XRestackWindows(dpy, wins, 2);
+	XRestackWindows(wm.display, wins, 2);
 }
 
 static void
@@ -61,7 +61,7 @@ manage(struct Object *tab, struct Monitor *mon, int desk, Window win,
 		.geometry = rect,
 	};
 	context_add(win, &splash->obj);
-	XMapWindow(dpy, win);
+	XMapWindow(wm.display, win);
 	TAILQ_INSERT_HEAD(&managed_splashs, (struct Object *)splash, entry);
 	splash->mon = mon;
 	splash->desk = desk;

@@ -37,10 +37,10 @@ barstrut(struct Bar *bar)
 	for (i = 0; i < STRUT_LAST; i++)
 		bar->strut[i] = 0;
 	bar->ispartial = 1;
-	l = getcardsprop(dpy, bar->obj.win, atoms[_NET_WM_STRUT_PARTIAL], &arr);
+	l = getcardsprop(wm.display, bar->obj.win, wm.atoms[_NET_WM_STRUT_PARTIAL], &arr);
 	if (l != 12) {
 		bar->ispartial = 0;
-		l = getcardsprop(dpy, bar->obj.win, atoms[_NET_WM_STRUT], &arr);
+		l = getcardsprop(wm.display, bar->obj.win, wm.atoms[_NET_WM_STRUT], &arr);
 		if (l != 4)
 			goto error;
 	}
@@ -60,7 +60,7 @@ barstack(struct Bar *bar)
 	else
 		wins[0] = wm.layertop[LAYER_DOCK];
 	wins[1] = bar->obj.win;
-	XRestackWindows(dpy, wins, 2);
+	XRestackWindows(wm.display, wins, 2);
 }
 
 static void
@@ -87,8 +87,8 @@ shoddocks(void)
 	TAILQ_FOREACH(obj, &managed_bars, entry)
 		wins[nwins++] = obj->win;
 	XChangeProperty(
-		dpy, root,
-		atoms[_SHOD_DOCK_LIST],
+		wm.display, wm.rootwin,
+		wm.atoms[_SHOD_DOCK_LIST],
 		XA_WINDOW, 32,
 		PropModeReplace,
 		(void *)wins, nwins
@@ -116,9 +116,9 @@ is_bar_at_mon(struct Monitor *mon, struct Bar *bar, int *l, int *r, int *t, int 
 		return False;
 	atmon = False;
 	strutl = bar->strut[STRUT_LEFT];
-	strutr = DisplayWidth(dpy, screen) - bar->strut[STRUT_RIGHT];
+	strutr = DisplayWidth(wm.display, wm.screen) - bar->strut[STRUT_RIGHT];
 	strutt = bar->strut[STRUT_TOP];
-	strutb = DisplayHeight(dpy, screen) - bar->strut[STRUT_BOTTOM];
+	strutb = DisplayHeight(wm.display, wm.screen) - bar->strut[STRUT_BOTTOM];
 	if (strutt > 0 && strutt >= mon->geometry.y && strutt < mon->geometry.y + mon->geometry.height &&
 	    (!bar->ispartial ||
 	     (bar->strut[STRUT_TOP_START_X] >= mon->geometry.x &&
@@ -134,7 +134,7 @@ is_bar_at_mon(struct Monitor *mon, struct Bar *bar, int *l, int *r, int *t, int 
 	     bar->strut[STRUT_BOTTOM_END_X] <= mon->geometry.x + mon->geometry.width))) {
 		if (b != NULL) {
 			*b = bar->strut[STRUT_BOTTOM];
-			*b -= DisplayHeight(dpy, screen);
+			*b -= DisplayHeight(wm.display, wm.screen);
 			*b += mon->geometry.y + mon->geometry.height;
 		}
 		atmon = True;
@@ -154,7 +154,7 @@ is_bar_at_mon(struct Monitor *mon, struct Bar *bar, int *l, int *r, int *t, int 
 	     bar->strut[STRUT_RIGHT_END_Y] <= mon->geometry.y + mon->geometry.height))) {
 		if (r != NULL) {
 			*r = bar->strut[STRUT_RIGHT];
-			*r -= DisplayWidth(dpy, screen);
+			*r -= DisplayWidth(wm.display, wm.screen);
 			*r += mon->geometry.x + mon->geometry.width;
 		}
 		atmon = True;
@@ -231,7 +231,7 @@ manage(struct Object *tab, struct Monitor *mon, int desk, Window win, Window lea
 	barstrut(bar);
 	update_window_area();
 	barstack(bar);
-	XMapWindow(dpy, win);
+	XMapWindow(wm.display, win);
 }
 
 static void
@@ -275,9 +275,9 @@ toggleminimized(struct Bar *bar)
 
 	win = bar->obj.win;
 	if (bar->state & MINIMIZED)
-		XMapWindow(dpy, win);
+		XMapWindow(wm.display, win);
 	else
-		XUnmapWindow(dpy, win);
+		XUnmapWindow(wm.display, win);
 	bar->state ^= MINIMIZED;
 }
 

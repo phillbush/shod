@@ -149,7 +149,21 @@ struct Class {
 	void (*handle_enter)(struct Object *);
 };
 
+struct Theme {
+	XftFont *font;
+	XftColor colors[STYLE_LAST][COLOR_LAST];
+};
+
 struct WM {
+	Display *display;
+	Window rootwin;
+	Atom atoms[NATOMS];
+	int screen;
+	Visual *visual;
+	Colormap colormap;
+	unsigned int depth;
+	struct Theme theme;
+
 	int nmonitors;
 	struct Monitor **monitors;
 	struct Monitor *selmon;
@@ -219,11 +233,6 @@ struct Config {
 	int divwidth;                           /* = .borderwidth */
 };
 
-struct Theme {
-	XftFont *font;
-	XftColor colors[STYLE_LAST][COLOR_LAST];
-};
-
 void focusnext(struct Monitor *mon, int desk);
 void alttab(KeyCode altkey, KeyCode tabkey, Bool shift);
 Bool focused_follows_leader(Window leader);
@@ -256,20 +265,9 @@ void context_del(XID);
 struct Object *context_get(XID);
 void window_close(Display *, Window win);
 
-/* extern variables */
-extern Display *dpy;
-extern Window root;
-extern Atom atoms[NATOMS];
-extern int screen;
-extern struct Config config;
 extern struct WM wm;
-extern Visual *visual;
-extern Colormap colormap;
-extern unsigned int depth;
-extern XrmDatabase xdb;
-extern struct Theme theme;
+extern struct Config config;
 
-/* object classes */
 extern struct Class bar_class;
 extern struct Class dialog_class;
 extern struct Class dock_class;
@@ -298,7 +296,7 @@ extern struct Class container_class;
 #define XMapWindow(dpy, win) do { \
 	XMapWindow((dpy), (win)); \
 	XChangeProperty( \
-		dpy, win, atoms[WM_STATE], atoms[WM_STATE], \
+		dpy, win, wm.atoms[WM_STATE], wm.atoms[WM_STATE], \
 		32, PropModeReplace, (void *)&(long[]){ \
 			[0] = NormalState, \
 			[1] = None, \
@@ -314,7 +312,7 @@ extern struct Class container_class;
 	XUnmapWindow((dpy), (win)); \
 	XSelectInput((dpy), (win), _attrs.your_event_mask); \
 	XChangeProperty( \
-		dpy, win, atoms[WM_STATE], atoms[WM_STATE], \
+		dpy, win, wm.atoms[WM_STATE], wm.atoms[WM_STATE], \
 		32, PropModeReplace, (void *)&(long[]){ \
 			[0] = IconicState, \
 			[1] = None, \
@@ -333,9 +331,3 @@ extern struct Class container_class;
 	if (ARG1(__VA_ARGS__, 0) != NULL) \
 		if (ARG1(__VA_ARGS__, 0)->class->method != NULL) \
 			ARG1(__VA_ARGS__, 0)->class->method(__VA_ARGS__)
-
-/* for each class, call class method, if it exists */
-#define FOREACH_CLASS(method, ...) \
-	for (size_t i = 0; i < LEN(classes); i++) \
-		if (classes[i]->method != NULL) \
-			classes[i]->method(__VA_ARGS__)

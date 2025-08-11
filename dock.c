@@ -33,7 +33,7 @@ restack_all(void)
 	else
 		wins[0] = wm.layertop[LAYER_DOCK];
 	wins[1] = dock.obj.win;
-	XRestackWindows(dpy, wins, 2);
+	XRestackWindows(wm.display, wins, 2);
 }
 
 static void
@@ -155,12 +155,12 @@ static void
 dappmoveresize(struct Dockapp *dapp)
 {
 	XMoveResizeWindow(
-		dpy, dapp->obj.win,
+		wm.display, dapp->obj.win,
 		dapp->x, dapp->y,
 		dapp->w, dapp->h
 	);
 	window_configure_notify(
-		dpy, dapp->obj.win,
+		wm.display, dapp->obj.win,
 		dock.x + dapp->x, dock.y + dapp->y,
 		dapp->w, dapp->h
 	);
@@ -208,7 +208,7 @@ dockupdateresizeable(void)
 		size += dapp->slotsize;
 	}
 	if (size == 0) {
-		XUnmapWindow(dpy, dock.obj.win);
+		XUnmapWindow(wm.display, dock.obj.win);
 		return;
 	}
 	size += DOCKBORDER * 2;
@@ -399,7 +399,7 @@ static void
 dockupdate(void)
 {
 	if (TAILQ_EMPTY(&dock.dappq)) {
-		XUnmapWindow(dpy, dock.obj.win);
+		XUnmapWindow(wm.display, dock.obj.win);
 		goto done;
 	}
 	if (config.dockgravity[0] != '\0' &&
@@ -408,13 +408,13 @@ dockupdate(void)
 	else
 		dockupdateresizeable();
 	dockdecorate();
-	XMoveResizeWindow(dpy, dock.obj.win, dock.x, dock.y, dock.w, dock.h);
+	XMoveResizeWindow(wm.display, dock.obj.win, dock.x, dock.y, dock.w, dock.h);
 	restack_all();
 	if (dock.state & MINIMIZED)
-		XUnmapWindow(dpy, dock.obj.win);
+		XUnmapWindow(wm.display, dock.obj.win);
 	else
-		XMapWindow(dpy, dock.obj.win);
-	XMapSubwindows(dpy, dock.obj.win);
+		XMapWindow(wm.display, dock.obj.win);
+	XMapSubwindows(wm.display, dock.obj.win);
 done:
 	shoddocks();
 }
@@ -484,7 +484,7 @@ manage(struct Object *p, struct Monitor *mon, int desk, Window win, Window leade
 	};
 	context_add(win, &dapp->obj);
 	dockappinsert(dapp);
-	XReparentWindow(dpy, win, dock.obj.win, 0, 0);
+	XReparentWindow(wm.display, win, dock.obj.win, 0, 0);
 	dockupdate();
 	update_window_area();
 }
@@ -495,7 +495,7 @@ unmanage(struct Object *obj)
 	struct Dockapp *dapp = obj->self;
 
 	TAILQ_REMOVE(&dock.dappq, (struct Object *)dapp, entry);
-	XReparentWindow(dpy, dapp->obj.win, root, 0, 0);
+	XReparentWindow(wm.display, dapp->obj.win, wm.rootwin, 0, 0);
 	context_del(dapp->obj.win);
 	free(dapp);
 	dockupdate();
@@ -535,8 +535,8 @@ settitle(Window win, const char *title)
 	struct {
 		Atom prop, type;
 	} props[] = {
-		{ atoms[_NET_WM_NAME],          atoms[UTF8_STRING] },
-		{ atoms[_NET_WM_ICON_NAME],     atoms[UTF8_STRING] },
+		{ wm.atoms[_NET_WM_NAME],          wm.atoms[UTF8_STRING] },
+		{ wm.atoms[_NET_WM_ICON_NAME],     wm.atoms[UTF8_STRING] },
 		{ XA_WM_NAME,                   XA_STRING },
 		{ XA_WM_ICON_NAME,              XA_STRING },
 	};
@@ -545,7 +545,7 @@ settitle(Window win, const char *title)
 	len = strlen(title);
 	for (i = 0; i < LEN(props); i++) {
 		XChangeProperty(
-			dpy, win,
+			wm.display, win,
 			props[i].prop,
 			props[i].type,
 			8,
@@ -559,15 +559,9 @@ settitle(Window win, const char *title)
 static void
 init(void)
 {
-	XSetWindowAttributes swa;
-
 	TAILQ_INIT(&dock.dappq);
 	dock.pix = None;
-	swa.event_mask = SubstructureNotifyMask | SubstructureRedirectMask;
-	swa.background_pixel = BlackPixel(dpy, screen);
-	swa.border_pixel = BlackPixel(dpy, screen);
-	swa.colormap = colormap;
-	dock.obj.win = createwindow(root, (XRectangle){0,0,1,1}, 0, NULL);
+	dock.obj.win = createwindow(wm.rootwin, (XRectangle){0,0,1,1}, 0, NULL);
 	dock.state = MAXIMIZED;
 	dock.obj.class = &dock_class;
 	settitle(dock.obj.win, "shod's dock");
@@ -582,8 +576,8 @@ clean(void)
 	while ((obj = TAILQ_FIRST(&dock.dappq)) != NULL)
 		unmanage(obj);
 	if (dock.pix != None)
-		XFreePixmap(dpy, dock.pix);
-	XDestroyWindow(dpy, dock.obj.win);
+		XFreePixmap(wm.display, dock.pix);
+	XDestroyWindow(wm.display, dock.obj.win);
 }
 
 struct Class dock_class = {

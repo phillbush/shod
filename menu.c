@@ -62,22 +62,22 @@ static void
 menumoveresize(struct Menu *menu)
 {
 	XMoveResizeWindow(
-		dpy, menu->frame,
+		wm.display, menu->frame,
 		menu->frame_geometry.x, menu->frame_geometry.y,
 		menu->frame_geometry.width, menu->frame_geometry.height
 	);
 	XResizeWindow(
-		dpy, menu->titlebar,
+		wm.display, menu->titlebar,
 		menu->frame_geometry.width, config.titlewidth
 	);
 	XResizeWindow(
-		dpy, menu->obj.win,
+		wm.display, menu->obj.win,
 		max(1, menu->frame_geometry.width - 2 * BORDER),
 		max(1, menu->frame_geometry.height - BORDER - config.titlewidth)
 	);
 	menu->mon = getmon(menu->frame_geometry.x, menu->frame_geometry.y);
 	window_configure_notify(
-		dpy, menu->obj.win,
+		wm.display, menu->obj.win,
 		menu->frame_geometry.x + BORDER,
 		menu->frame_geometry.y + config.titlewidth,
 		menu->frame_geometry.width - 2 * BORDER,
@@ -88,7 +88,7 @@ menumoveresize(struct Menu *menu)
 static void
 menufocus(struct Menu *menu)
 {
-	XSetInputFocus(dpy, menu->obj.win, RevertToPointerRoot, CurrentTime);
+	XSetInputFocus(wm.display, menu->obj.win, RevertToPointerRoot, CurrentTime);
 }
 
 /* put menu on beginning of menu list */
@@ -116,7 +116,7 @@ menuraise(struct Menu *menu)
 
 	wins[1] = menu->frame;
 	wins[0] = wm.layertop[LAYER_MENU];
-	XRestackWindows(dpy, wins, 2);
+	XRestackWindows(wm.display, wins, 2);
 }
 
 static void
@@ -159,7 +159,7 @@ manage(struct Object *app, struct Monitor *mon, int desk, Window win, Window lea
 		wm.cursors[CURSOR_PIRATE], NorthEastGravity
 	);
 	XGrabButton(
-		dpy, AnyButton, AnyModifier,
+		wm.display, AnyButton, AnyModifier,
 		menu->frame, False, MOUSE_EVENTS,
 		GrabModeSync, GrabModeAsync, None, None
 	);
@@ -169,12 +169,12 @@ manage(struct Object *app, struct Monitor *mon, int desk, Window win, Window lea
 	context_add(menu->titlebar, &menu->obj);
 	context_add(menu->close_btn, &menu->obj);
 	XReparentWindow(
-		dpy,
+		wm.display,
 		menu->obj.win, menu->frame,
 		BORDER, config.titlewidth
 	);
 	XChangeProperty(
-		dpy, win, atoms[_NET_FRAME_EXTENTS],
+		wm.display, win, wm.atoms[_NET_FRAME_EXTENTS],
 		XA_CARDINAL, 32, PropModeReplace,
 		(void *)(long[]){
 			config.borderwidth,
@@ -183,9 +183,9 @@ manage(struct Object *app, struct Monitor *mon, int desk, Window win, Window lea
 			config.borderwidth,
 		}, 4
 	);
-	XMapWindow(dpy, menu->obj.win);
-	XMapWindow(dpy, menu->titlebar);
-	XMapWindow(dpy, menu->close_btn);
+	XMapWindow(wm.display, menu->obj.win);
+	XMapWindow(wm.display, menu->titlebar);
+	XMapWindow(wm.display, menu->close_btn);
 
 	menu->leader = leader;
 	winupdatetitle(menu->obj.win, &menu->name);
@@ -195,7 +195,7 @@ manage(struct Object *app, struct Monitor *mon, int desk, Window win, Window lea
 	menuraise(menu);
 	if (menu->leader == None ||
 	    (wm.focused != NULL && focused_follows_leader(menu->leader))) {
-		XMapWindow(dpy, menu->frame);
+		XMapWindow(wm.display, menu->frame);
 		menufocus(menu);
 	}
 }
@@ -208,11 +208,11 @@ unmanage(struct Object *obj)
 	context_del(obj->win);
 	menudelraise(menu);
 	if (menu->pixtitlebar != None)
-		XFreePixmap(dpy, menu->pixtitlebar);
-	XReparentWindow(dpy, menu->obj.win, root, 0, 0);
-	XDestroyWindow(dpy, menu->frame);
-	XDestroyWindow(dpy, menu->titlebar);
-	XDestroyWindow(dpy, menu->close_btn);
+		XFreePixmap(wm.display, menu->pixtitlebar);
+	XReparentWindow(wm.display, menu->obj.win, wm.rootwin, 0, 0);
+	XDestroyWindow(wm.display, menu->frame);
+	XDestroyWindow(wm.display, menu->titlebar);
+	XDestroyWindow(wm.display, menu->close_btn);
 	free(menu->name);
 	free(menu);
 }
@@ -224,14 +224,14 @@ drag_move(struct Menu *menu, int xroot, int yroot)
 	int x, y;
 
 	if (XGrabPointer(
-		dpy, menu->frame, False,
+		wm.display, menu->frame, False,
 		ButtonReleaseMask|PointerMotionMask,
 		GrabModeAsync, GrabModeAsync,
 		None, wm.cursors[CURSOR_MOVE], CurrentTime
 	) != GrabSuccess)
 		return;
 	for (;;) {
-		XMaskEvent(dpy, ButtonReleaseMask|PointerMotionMask, &event);
+		XMaskEvent(wm.display, ButtonReleaseMask|PointerMotionMask, &event);
 		if (event.type == ButtonRelease)
 			break;
 		if (event.type != MotionNotify)
@@ -244,7 +244,7 @@ drag_move(struct Menu *menu, int xroot, int yroot)
 		xroot = event.xmotion.x_root;
 		yroot = event.xmotion.y_root;
 	}
-	XUngrabPointer(dpy, CurrentTime);
+	XUngrabPointer(wm.display, CurrentTime);
 }
 
 static void
@@ -300,7 +300,7 @@ drag_resize(struct Menu *menu, int direction, int xroot, int yroot)
 	else
 		y = 0;
 	if (XGrabPointer(
-		dpy, menu->frame, False,
+		wm.display, menu->frame, False,
 		ButtonReleaseMask|PointerMotionMask,
 		GrabModeAsync, GrabModeAsync,
 		None, cursor, CurrentTime
@@ -309,7 +309,7 @@ drag_resize(struct Menu *menu, int direction, int xroot, int yroot)
 	for (;;) {
 		int dx, dy;
 
-		XMaskEvent(dpy, ButtonReleaseMask|PointerMotionMask, &event);
+		XMaskEvent(wm.display, ButtonReleaseMask|PointerMotionMask, &event);
 		if (event.type == ButtonRelease)
 			break;
 		if (event.type != MotionNotify)
@@ -354,7 +354,7 @@ drag_resize(struct Menu *menu, int direction, int xroot, int yroot)
 		yroot = motion->y_root;
 		menumoveresize(menu);
 	}
-	XUngrabPointer(dpy, CurrentTime);
+	XUngrabPointer(wm.display, CurrentTime);
 }
 
 static void
@@ -384,8 +384,8 @@ btnpress(struct Object *self, XButtonPressedEvent *press)
 			press->x_root, press->y_root
 		);
 	} else if (press->window == menu->close_btn && press->button == Button1) {
-		if (released_inside(dpy, press))
-			window_close(dpy, menu->obj.win);
+		if (released_inside(wm.display, press))
+			window_close(wm.display, menu->obj.win);
 	}
 }
 
@@ -442,7 +442,7 @@ handle_property(struct Object *self, Atom property)
 {
 	struct Menu *menu = self->self;
 
-	if (property == XA_WM_NAME || property == atoms[_NET_WM_NAME]) {
+	if (property == XA_WM_NAME || property == wm.atoms[_NET_WM_NAME]) {
 		winupdatetitle(menu->obj.win, &menu->name);
 		menudecorate(menu);
 	}
@@ -453,7 +453,7 @@ handle_message(struct Object *self, Atom message, long int data[5])
 {
 	struct Menu *menu = self->self;
 
-	if (message == atoms[_NET_WM_MOVERESIZE]) {
+	if (message == wm.atoms[_NET_WM_MOVERESIZE]) {
 		/*
 		 * Client-side decorated Gtk3 windows emit this signal when being
 		 * dragged by their GtkHeaderBar
@@ -487,7 +487,7 @@ handle_message(struct Object *self, Atom message, long int data[5])
 			drag_move(menu, data[0], data[1]);
 			break;
 		default:
-			XUngrabPointer(dpy, CurrentTime);
+			XUngrabPointer(wm.display, CurrentTime);
 			break;
 		}
 	}
@@ -526,18 +526,18 @@ update_visibility(struct Menu *menu)
 {
 	if (!wm.showingdesk &&
 	    (menu->leader == None || focused_follows_leader(menu->leader))) {
-		XMapWindow(dpy, menu->frame);
+		XMapWindow(wm.display, menu->frame);
 		XChangeProperty(
-			dpy, menu->obj.win, atoms[WM_STATE], atoms[WM_STATE],
+			wm.display, menu->obj.win, wm.atoms[WM_STATE], wm.atoms[WM_STATE],
 			32, PropModeReplace, (void *)&(long[]){
 				[0] = NormalState,
 				[1] = None,
 			}, 2
 		);
 	} else {
-		XUnmapWindow(dpy, menu->frame);
+		XUnmapWindow(wm.display, menu->frame);
 		XChangeProperty(
-			dpy, menu->obj.win, atoms[WM_STATE], atoms[WM_STATE],
+			wm.display, menu->obj.win, wm.atoms[WM_STATE], wm.atoms[WM_STATE],
 			32, PropModeReplace, (void *)&(long[]){
 				[0] = IconicState,
 				[1] = None,
@@ -569,7 +569,7 @@ restack_all(void)
 			continue;
 		menu = obj->self;
 		wins[1] = menu->frame;
-		XRestackWindows(dpy, wins, 2);
+		XRestackWindows(wm.display, wins, 2);
 		wins[0] = menu->frame;
 	}
 }

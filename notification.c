@@ -16,8 +16,8 @@ notifdecorate(struct Notification *n)
 	/* (re)create pixmap */
 	if (n->pw != n->w || n->ph != n->h || n->pix == None) {
 		if (n->pix != None)
-			XFreePixmap(dpy, n->pix);
-		n->pix = XCreatePixmap(dpy, n->frame, n->w, n->h, depth);
+			XFreePixmap(wm.display, n->pix);
+		n->pix = XCreatePixmap(wm.display, n->frame, n->w, n->h, wm.depth);
 	}
 	n->pw = n->w;
 	n->ph = n->h;
@@ -90,14 +90,14 @@ monitor_reset(void)
 			y += h;
 		h += notif->h + config.notifgap + config.borderwidth * 2;
 
-		XMoveResizeWindow(dpy, notif->frame, x, y, notif->w, notif->h);
-		XMoveResizeWindow(dpy, notif->obj.win, config.borderwidth, config.borderwidth, notif->w - 2 * config.borderwidth, notif->h - 2 * config.borderwidth);
-		XMapWindow(dpy, notif->frame);
+		XMoveResizeWindow(wm.display, notif->frame, x, y, notif->w, notif->h);
+		XMoveResizeWindow(wm.display, notif->obj.win, config.borderwidth, config.borderwidth, notif->w - 2 * config.borderwidth, notif->h - 2 * config.borderwidth);
+		XMapWindow(wm.display, notif->frame);
 		if (notif->pw != notif->w || notif->ph != notif->h) {
 			notifdecorate(notif);
 		}
 		window_configure_notify(
-			dpy, notif->obj.win,
+			wm.display, notif->obj.win,
 			x + config.borderwidth,
 			y + config.borderwidth,
 			notif->w - 2 * config.borderwidth,
@@ -128,8 +128,8 @@ manage(struct Object *tab, struct Monitor *mon, int desk, Window win, Window lea
 	context_add(win, &notif->obj);
 	TAILQ_INSERT_TAIL(&managed_notifications, (struct Object *)notif, entry);
 	notif->frame = createframe((XRectangle){0, 0, 1, 1});
-	XReparentWindow(dpy, notif->obj.win, notif->frame, 0, 0);
-	XMapWindow(dpy, notif->obj.win);
+	XReparentWindow(wm.display, notif->obj.win, notif->frame, 0, 0);
+	XMapWindow(wm.display, notif->obj.win);
 	monitor_reset();
 }
 
@@ -141,9 +141,9 @@ unmanage(struct Object *obj)
 	context_del(obj->win);
 	TAILQ_REMOVE(&managed_notifications, (struct Object *)notif, entry);
 	if (notif->pix != None)
-		XFreePixmap(dpy, notif->pix);
-	XReparentWindow(dpy, notif->obj.win, root, 0, 0);
-	XDestroyWindow(dpy, notif->frame);
+		XFreePixmap(wm.display, notif->pix);
+	XReparentWindow(wm.display, notif->obj.win, wm.rootwin, 0, 0);
+	XDestroyWindow(wm.display, notif->frame);
 	free(notif);
 	monitor_reset();
 }

@@ -49,6 +49,12 @@
 	X(RES_MOVE_TIME,       "MoveTime",                  "moveTime"                  )\
 	X(RES_RESIZE_TIME,     "ResizeTime",                "resizeTime"                )
 
+/* for each class, call class method, if it exists */
+#define FOREACH_CLASS(method, ...) \
+	for (size_t i = 0; i < LEN(classes); i++) \
+		if (classes[i]->method != NULL) \
+			classes[i]->method(__VA_ARGS__)
+
 enum Resource {
 #define X(res, class, name) res,
 	RESOURCES
@@ -125,6 +131,7 @@ static struct Class *classes[] = {
 	&container_class,
 };
 
+static XrmDatabase xdb;
 static KeyCode altkey;
 static KeyCode tabkey;
 static XContext context;
@@ -134,16 +141,6 @@ static struct {
 	XrmName name;
 } application, resources[NRESOURCES];
 static XrmQuark anyresource;
-
-Display *dpy;
-Window root;
-Atom atoms[NATOMS];
-int screen;
-Visual *visual;
-Colormap colormap;
-unsigned int depth;
-XrmDatabase xdb = NULL;
-struct Theme theme;
 
 struct WM wm = { 0 };
 
@@ -181,7 +178,7 @@ is_userplaced(Window win)
 {
 	XSizeHints hints;
 
-	if (XGetWMNormalHints(dpy, win, &hints, &(long){0}))
+	if (XGetWMNormalHints(wm.display, win, &hints, &(long){0}))
 		return hints.flags&USPosition;
 	return False;
 }
@@ -208,23 +205,23 @@ getwinstate(Window win)
 
 	if (is_userplaced(win))
 		statemask |= USERPLACED;
-	nstates = getatomsprop(dpy, win, atoms[_NET_WM_STATE], &states);
+	nstates = getatomsprop(wm.display, win, wm.atoms[_NET_WM_STATE], &states);
 	for (long i = 0; i < nstates; i++) {
-		if (states[i] == atoms[_NET_WM_STATE_STICKY]) {
+		if (states[i] == wm.atoms[_NET_WM_STATE_STICKY]) {
 			statemask |= STICKY;
-		} else if (states[i] == atoms[_NET_WM_STATE_MAXIMIZED_VERT]) {
+		} else if (states[i] == wm.atoms[_NET_WM_STATE_MAXIMIZED_VERT]) {
 			statemask |= MAXIMIZED;
-		} else if (states[i] == atoms[_NET_WM_STATE_MAXIMIZED_HORZ]) {
+		} else if (states[i] == wm.atoms[_NET_WM_STATE_MAXIMIZED_HORZ]) {
 			statemask |= MAXIMIZED;
-		} else if (states[i] == atoms[_NET_WM_STATE_HIDDEN]) {
+		} else if (states[i] == wm.atoms[_NET_WM_STATE_HIDDEN]) {
 			statemask |= MINIMIZED;
-		} else if (states[i] == atoms[_NET_WM_STATE_SHADED]) {
+		} else if (states[i] == wm.atoms[_NET_WM_STATE_SHADED]) {
 			statemask |= SHADED;
-		} else if (states[i] == atoms[_NET_WM_STATE_FULLSCREEN]) {
+		} else if (states[i] == wm.atoms[_NET_WM_STATE_FULLSCREEN]) {
 			statemask |= FULLSCREEN;
-		} else if (states[i] == atoms[_NET_WM_STATE_ABOVE]) {
+		} else if (states[i] == wm.atoms[_NET_WM_STATE_ABOVE]) {
 			statemask |= ABOVE;
-		} else if (states[i] == atoms[_NET_WM_STATE_BELOW]) {
+		} else if (states[i] == wm.atoms[_NET_WM_STATE_BELOW]) {
 			statemask |= BELOW;
 		}
 	}
@@ -244,10 +241,10 @@ manageunknown(struct Object *app, struct Monitor *mon, int desk, Window win,
 	(void)leader;
 	(void)rect;
 	if (state & BELOW)
-		XLowerWindow(dpy, win);
+		XLowerWindow(wm.display, win);
 	else if (state & ABOVE)
-		XRaiseWindow(dpy, win);
-	XMapWindow(dpy, win);
+		XRaiseWindow(wm.display, win);
+	XMapWindow(wm.display, win);
 }
 
 static char *
@@ -294,8 +291,8 @@ get_motif_hints(Window window)
 	struct MwmHints hints = { 0 };
 
 	length = getprop(
-		dpy, window,
-		atoms[_MOTIF_WM_HINTS], atoms[_MOTIF_WM_HINTS], 32, 0,
+		wm.display, window,
+		wm.atoms[_MOTIF_WM_HINTS], wm.atoms[_MOTIF_WM_HINTS], 32, 0,
 		(void *)&data
 	);
 	if (length > 1 && FLAG(data[0], HAS_FUNCTIONS))
@@ -322,8 +319,8 @@ get_gnustep_hints(Window window)
 	struct GNUHints hints = { 0 };
 
 	length = getprop(
-		dpy, window,
-		atoms[_GNUSTEP_WM_ATTR], atoms[_GNUSTEP_WM_ATTR], 32, 0,
+		wm.display, window,
+		wm.atoms[_GNUSTEP_WM_ATTR], wm.atoms[_GNUSTEP_WM_ATTR], 32, 0,
 		(void *)&data
 	);
 	if (length > 1 && FLAG(data[0], HAS_WINDOW_STYLE))
@@ -352,7 +349,7 @@ manage(Window win, Window appwin, XRectangle rect)
 	struct Class *class = NULL;
 	enum State state = getwinstate(win);
 	Window dockapp = None;
-	Window leader = getwinprop(dpy, win, atoms[WM_CLIENT_LEADER]);
+	Window leader = getwinprop(wm.display, win, wm.atoms[WM_CLIENT_LEADER]);
 	int desk = wm.selmon->seldesk;
 
 	if (context_get(win) != NULL)
@@ -360,14 +357,14 @@ manage(Window win, Window appwin, XRectangle rect)
 
 	/* prepare window to be managed */
 	XSelectInput(
-		dpy, win,
+		wm.display, win,
 		StructureNotifyMask|PropertyChangeMask
 	);
-	XSetWindowBorderWidth(dpy, win, 0);
+	XSetWindowBorderWidth(wm.display, win, 0);
 
 	/* default settings for managed window, overwriten below */
-	XGetClassHint(dpy, win, &classh);
-	getprop(dpy, win, atoms[WM_WINDOW_ROLE], AnyPropertyType, 8, 0, (void *)&role);
+	XGetClassHint(wm.display, win, &classh);
+	getprop(wm.display, win, wm.atoms[WM_WINDOW_ROLE], AnyPropertyType, 8, 0, (void *)&role);
 	if (!FLAG(state, USERPLACED))
 		rect.x = rect.y = 0;
 	app = context_get(appwin);
@@ -376,7 +373,7 @@ manage(Window win, Window appwin, XRectangle rect)
 	{
 		XWMHints *wmhints;
 
-		wmhints = XGetWMHints(dpy, win);
+		wmhints = XGetWMHints(wm.display, win);
 		if (wmhints && FLAG(wmhints->flags, StateHint) &&
 		    wmhints->initial_state == WithdrawnState) {
 			if (FLAG(wmhints->flags, IconWindowHint))
@@ -473,7 +470,7 @@ manage(Window win, Window appwin, XRectangle rect)
 
 	/* guess window type (aka object class, in our OOP vocab) if unknown */
 	if (class == NULL) {
-		Atom prop = getatomprop(dpy, win, atoms[_NET_WM_WINDOW_TYPE]);
+		Atom prop = getatomprop(wm.display, win, wm.atoms[_NET_WM_WINDOW_TYPE]);
 		struct MwmHints mwmhints = get_motif_hints(win);
 		struct GNUHints gnuhints = get_gnustep_hints(win);
 
@@ -482,27 +479,27 @@ manage(Window win, Window appwin, XRectangle rect)
 		    gnuhints.window_style == GNU_STYLE_MINIWINDOW) {
 			win = dockapp;
 			class = &dockapp_class;
-		} else if (prop == atoms[_NET_WM_WINDOW_TYPE_DESKTOP]) {
+		} else if (prop == wm.atoms[_NET_WM_WINDOW_TYPE_DESKTOP]) {
 			state = BELOW;
 			class = &unknown_class;
-		} else if (prop == atoms[_NET_WM_WINDOW_TYPE_NOTIFICATION]) {
+		} else if (prop == wm.atoms[_NET_WM_WINDOW_TYPE_NOTIFICATION]) {
 			class = &notif_class;
-		} else if (prop == atoms[_NET_WM_WINDOW_TYPE_PROMPT]) {
+		} else if (prop == wm.atoms[_NET_WM_WINDOW_TYPE_PROMPT]) {
 			class = &prompt_class;
-		} else if (prop == atoms[_NET_WM_WINDOW_TYPE_SPLASH]) {
+		} else if (prop == wm.atoms[_NET_WM_WINDOW_TYPE_SPLASH]) {
 			class = &splash_class;
 		} else if (gnuhints.window_level == GNU_LEVEL_POPUP) {
 			state = ABOVE;
 			class = &unknown_class;
-		} else if (prop == atoms[_NET_WM_WINDOW_TYPE_MENU] ||
-			   prop == atoms[_NET_WM_WINDOW_TYPE_UTILITY] ||
-			   prop == atoms[_NET_WM_WINDOW_TYPE_TOOLBAR] ||
+		} else if (prop == wm.atoms[_NET_WM_WINDOW_TYPE_MENU] ||
+			   prop == wm.atoms[_NET_WM_WINDOW_TYPE_UTILITY] ||
+			   prop == wm.atoms[_NET_WM_WINDOW_TYPE_TOOLBAR] ||
 			   gnuhints.window_level == GNU_LEVEL_PANEL ||
 			   gnuhints.window_level == GNU_LEVEL_SUBMENU ||
 			   gnuhints.window_level == GNU_LEVEL_MAINMENU ||
 			   FLAG(mwmhints.status, MWM_TEAROFF_WINDOW)) {
 			class = &menu_class;
-		} else if (prop == atoms[_NET_WM_WINDOW_TYPE_DOCK]) {
+		} else if (prop == wm.atoms[_NET_WM_WINDOW_TYPE_DOCK]) {
 			class = &bar_class;
 		} else if (app != NULL) {
 			class = config.floatdialog ? &menu_class : &dialog_class;
@@ -530,12 +527,12 @@ setmod(void)
 		LockMask  | Mod2Mask  | Mod3Mask,
 	};
 
-	XUngrabKey(dpy, AnyKey, AnyModifier, root);
-	if ((altkey = XKeysymToKeycode(dpy, config.altkeysym)) == 0) {
+	XUngrabKey(wm.display, AnyKey, AnyModifier, wm.rootwin);
+	if ((altkey = XKeysymToKeycode(wm.display, config.altkeysym)) == 0) {
 		warnx("could not get keycode from keysym");
 		return;
 	}
-	if ((tabkey = XKeysymToKeycode(dpy, config.tabkeysym)) == 0) {
+	if ((tabkey = XKeysymToKeycode(wm.display, config.tabkeysym)) == 0) {
 		warnx("could not get keycode from keysym");
 		return;
 	}
@@ -544,20 +541,20 @@ setmod(void)
 	for (i = 0; i < LEN(lock_modifiers); i++) {
 		/* alt+tab */
 		XGrabKey(
-			dpy,
+			wm.display,
 			tabkey,
 			config.modifier | lock_modifiers[i],
-			root,
+			wm.rootwin,
 			False,
 			GrabModeAsync,
 			GrabModeAsync
 		);
 		/* alt+shift+tab */
 		XGrabKey(
-			dpy,
+			wm.display,
 			tabkey,
 			config.modifier | ShiftMask | lock_modifiers[i],
-			root,
+			wm.rootwin,
 			False,
 			GrabModeAsync,
 			GrabModeAsync
@@ -566,7 +563,7 @@ setmod(void)
 }
 
 static char *
-queryrdb(int res)
+queryrdb(XrmDatabase xdb, int res)
 {
 	XrmClass class[] = { application.class, resources[res].class, NULLQUARK };
 	XrmName name[] = { application.name, resources[res].name, NULLQUARK };
@@ -577,7 +574,7 @@ queryrdb(int res)
 static int
 alloccolor(const char *s, XftColor *color)
 {
-	if(!XftColorAllocName(dpy, visual, colormap, s, color)) {
+	if(!XftColorAllocName(wm.display, wm.visual, wm.colormap, s, color)) {
 		warnx("could not allocate color: %s", s);
 		return 0;
 	}
@@ -591,8 +588,8 @@ setcolor(char *value, int style, int ncolor)
 
 	if (!alloccolor(value, &color))
 		return;
-	XftColorFree(dpy, visual, colormap, &theme.colors[style][ncolor]);
-	theme.colors[style][ncolor] = color;
+	XftColorFree(wm.display, wm.visual, wm.colormap, &wm.theme.colors[style][ncolor]);
+	wm.theme.colors[style][ncolor] = color;
 }
 
 static XftFont *
@@ -600,8 +597,8 @@ openfont(const char *s)
 {
 	XftFont *font = NULL;
 
-	if ((font = XftFontOpenXlfd(dpy, screen, s)) == NULL)
-		if ((font = XftFontOpenName(dpy, screen, s)) == NULL)
+	if ((font = XftFontOpenXlfd(wm.display, wm.screen, s)) == NULL)
+		if ((font = XftFontOpenName(wm.display, wm.screen, s)) == NULL)
 			warnx("could not open font: %s", s);
 	return font;
 }
@@ -617,9 +614,9 @@ draw_close_btn(int style)
 		unsigned long fg;
 
 		if (focus)
-			fg = theme.colors[STYLE_OTHER][COLOR_FG].pixel;
+			fg = wm.theme.colors[STYLE_OTHER][COLOR_FG].pixel;
 		else
-			fg = theme.colors[style][COLOR_FG].pixel;
+			fg = wm.theme.colors[style][COLOR_FG].pixel;
 		updatepixmap(
 			&wm.close_btn[style][focus], NULL, NULL,
 			config.titlewidth, config.titlewidth
@@ -635,14 +632,14 @@ draw_close_btn(int style)
 			button_size, button_size,
 			style
 		);
-		XChangeGC(dpy, wm.gc, GCForeground|GCLineWidth|GCCapStyle,
+		XChangeGC(wm.display, wm.gc, GCForeground|GCLineWidth|GCCapStyle,
 			&(XGCValues){
 				.foreground = fg,
 				.line_width = 2,
 				.cap_style = CapProjecting,
 			}
 		);
-		XDrawSegments(dpy, wm.close_btn[style][focus], wm.gc,
+		XDrawSegments(wm.display, wm.close_btn[style][focus], wm.gc,
 			(XSegment[]){
 				[0] = {
 					.x1 = config.shadowthickness*2 + 1,
@@ -675,11 +672,11 @@ reload_theme(void)
 		config.shadowthickness = 1;     /* slim shadow */
 
 	pix = XCreatePixmap(
-		dpy,
+		wm.display,
 		wm.dragwin,
 		2 * config.borderwidth + config.titlewidth,
 		2 * config.borderwidth + config.titlewidth,
-		depth
+		wm.depth
 	);
 	drawbackground(
 		pix,
@@ -703,16 +700,16 @@ reload_theme(void)
 		FOCUSED
 	);
 	XMoveResizeWindow(
-		dpy,
+		wm.display,
 		wm.dragwin,
 		- (2 * config.borderwidth + config.titlewidth),
 		- (2 * config.borderwidth + config.titlewidth),
 		2 * config.borderwidth + config.titlewidth,
 		2 * config.borderwidth + config.titlewidth
 	);
-	XSetWindowBackgroundPixmap(dpy, wm.dragwin, pix);
-	XClearWindow(dpy, wm.dragwin);
-	XFreePixmap(dpy, pix);
+	XSetWindowBackgroundPixmap(wm.display, wm.dragwin, pix);
+	XClearWindow(wm.display, wm.dragwin);
+	XFreePixmap(wm.display, pix);
 
 	for (int style = 0; style < STYLE_LAST; style++)
 		draw_close_btn(style);
@@ -725,11 +722,14 @@ set_resources(char *xrm)
 {
 	enum Resource resource;
 
-	xdb = NULL;
+	if (xdb != NULL) {
+		XrmDestroyDatabase(xdb);
+		xdb = NULL;
+	}
 	if (xrm == NULL || (xdb = XrmGetStringDatabase(xrm)) == NULL)
 		return;
 	for (resource = 0; resource < NRESOURCES; resource++) {
-		char *value = queryrdb(resource);
+		char *value = queryrdb(xdb, resource);
 		XftFont *font;
 		long n;
 
@@ -738,8 +738,8 @@ set_resources(char *xrm)
 		switch (resource) {
 		case RES_FACE_NAME:
 			if ((font = openfont(value)) != NULL) {
-				XftFontClose(dpy, theme.font);
-				theme.font = font;
+				XftFontClose(wm.display, wm.theme.font);
+				wm.theme.font = font;
 			}
 			break;
 		case RES_FOREGROUND:
@@ -833,9 +833,9 @@ set_theme(void)
 {
 	for (int i = 0; i < STYLE_LAST; i++)
 		for (int j = 0; j < COLOR_LAST; j++)
-			if (!alloccolor(config.colors[i][j], &theme.colors[i][j]))
+			if (!alloccolor(config.colors[i][j], &wm.theme.colors[i][j]))
 				return False;
-	if ((theme.font = openfont(config.font)) == NULL)
+	if ((wm.theme.font = openfont(config.font)) == NULL)
 		return False;
 	reload_theme();
 	return True;
@@ -853,8 +853,8 @@ xeventbuttonpress(XEvent *event)
 	struct Object *obj = context_get(press->window);
 	struct Monitor *mon = getmon(press->x_root, press->y_root);
 
-	XAllowEvents(dpy, ReplayPointer, CurrentTime);
-	(void)XSync(dpy, False);
+	XAllowEvents(wm.display, ReplayPointer, CurrentTime);
+	(void)XSync(wm.display, False);
 
 	if (press->time - last_click_time < DOUBLE_CLICK_TIME &&
 	    press->button == last_click_button &&
@@ -872,7 +872,7 @@ xeventbuttonpress(XEvent *event)
 
 	if (obj != NULL) {
 		CALL_METHOD(btnpress, obj, press);
-	} else if (press->window == root && mon != NULL && (
+	} else if (press->window == wm.rootwin && mon != NULL && (
 		press->button == Button1 ||
 		press->button == Button2 ||
 		press->button == Button3
@@ -887,15 +887,15 @@ xeventclientmessage(XEvent *event)
 	XClientMessageEvent *message = &event->xclient;
 	struct Object *obj;
 
-	if (message->message_type == atoms[_NET_ACTIVE_WINDOW] &&
+	if (message->message_type == wm.atoms[_NET_ACTIVE_WINDOW] &&
 	    message->window == None) {
 		CALL_METHOD(
 			handle_message, wm.focused,
 			message->message_type, message->data.l
 		);
-	} else if (message->message_type == atoms[_NET_REQUEST_FRAME_EXTENTS]) {
+	} else if (message->message_type == wm.atoms[_NET_REQUEST_FRAME_EXTENTS]) {
 		XChangeProperty(
-			dpy, message->window, atoms[_NET_FRAME_EXTENTS],
+			wm.display, message->window, wm.atoms[_NET_FRAME_EXTENTS],
 			XA_CARDINAL, 32, PropModeReplace,
 			(void *)(long[]){
 				config.borderwidth,
@@ -904,14 +904,14 @@ xeventclientmessage(XEvent *event)
 				config.borderwidth,
 			}, 4
 		);
-	} else if (message->message_type == atoms[_NET_CURRENT_DESKTOP]) {
+	} else if (message->message_type == wm.atoms[_NET_CURRENT_DESKTOP]) {
 		deskfocus(wm.selmon, message->data.l[0]);
-	} else if (message->message_type == atoms[_SHOD_CYCLE]) {
+	} else if (message->message_type == wm.atoms[_SHOD_CYCLE]) {
 		alttab(altkey, tabkey, message->data.l[0]);
-	} else if (message->message_type == atoms[_NET_SHOWING_DESKTOP]) {
+	} else if (message->message_type == wm.atoms[_NET_SHOWING_DESKTOP]) {
 		deskshow(message->data.l[0]);
-	} else if (message->message_type == atoms[_NET_CLOSE_WINDOW]) {
-		window_close(dpy, message->window);
+	} else if (message->message_type == wm.atoms[_NET_CLOSE_WINDOW]) {
+		window_close(wm.display, message->window);
 	} else if ((obj = context_get(message->window)) != NULL &&
 	         obj->win == message->window) {
 		CALL_METHOD(
@@ -938,7 +938,7 @@ xeventconfigurerequest(XEvent *event)
 
 	if ((obj = context_get(configure->window)) == NULL) {
 		XConfigureWindow(
-			dpy,
+			wm.display,
 			configure->window, configure->value_mask,
 			&changes
 		);
@@ -990,7 +990,7 @@ xeventdestroynotify(XEvent *e)
 		return;
 	}
 	CALL_METHOD(unmanage, obj);
-	XDeleteProperty(dpy, obj->win, atoms[WM_STATE]);
+	XDeleteProperty(wm.display, obj->win, wm.atoms[WM_STATE]);
 }
 
 static void
@@ -1001,7 +1001,7 @@ xevententernotify(XEvent *e)
 	/* focus window when cursor enter it (only if there is no focus button) */
 	if (!config.sloppyfocus && !config.sloppytiles)
 		return;
-	while (XCheckTypedEvent(dpy, EnterNotify, e))
+	while (XCheckTypedEvent(wm.display, EnterNotify, e))
 		;
 	if ((obj = context_get(e->xcrossing.window)) == NULL)
 		return;
@@ -1011,7 +1011,7 @@ xevententernotify(XEvent *e)
 static void
 xeventfocusin(XEvent *event)
 {
-	if (event->xfocus.window == root)
+	if (event->xfocus.window == wm.rootwin)
 		CALL_METHOD(focus, wm.focused);
 }
 
@@ -1025,8 +1025,8 @@ xeventkeypress(XEvent *e)
 		alttab(altkey, tabkey, ev->state & ShiftMask);
 	}
 	if (ev->window == wm.checkwin) {
-		e->xkey.window = root;
-		XSendEvent(dpy, root, False, KeyPressMask, e);
+		e->xkey.window = wm.rootwin;
+		XSendEvent(wm.display, wm.rootwin, False, KeyPressMask, e);
 	}
 }
 
@@ -1038,11 +1038,11 @@ xeventmaprequest(XEvent *e)
 	Window appwin = None;
 
 	mapping = &e->xmaprequest;
-	if (!XGetWindowAttributes(dpy, mapping->window, &wa))
+	if (!XGetWindowAttributes(wm.display, mapping->window, &wa))
 		return;
 	if (wa.override_redirect)
 		return;
-	if (!XGetTransientForHint(dpy, mapping->window, &appwin))
+	if (!XGetTransientForHint(wm.display, mapping->window, &appwin))
 		appwin = None;
 	manage(
 		mapping->window, appwin,
@@ -1070,15 +1070,14 @@ xeventpropertynotify(XEvent *e)
 
 	if (event->state != PropertyNewValue)
 		return;
-	if (event->window == root && event->atom == XA_RESOURCE_MANAGER) {
+	if (event->window == wm.rootwin && event->atom == XA_RESOURCE_MANAGER) {
 		char *str = NULL;
 		getprop(
-			dpy, root, XA_RESOURCE_MANAGER, AnyPropertyType, 8,
+			wm.display, wm.rootwin, XA_RESOURCE_MANAGER, AnyPropertyType, 8,
 			0, (void *)&str
 		);
 		if (str == NULL)
 			return;
-		XrmDestroyDatabase(xdb);
 		set_resources(str);
 		XFree(str);
 		FOREACH_CLASS(redecorate_all);
@@ -1105,7 +1104,7 @@ xeventunmapnotify(XEvent *e)
 		 */
 		return;
 	}
-	if (ev->event == root) {
+	if (ev->event == wm.rootwin) {
 		/*
 		 * Ignore unmap notifications reported relative the root
 		 * window (if we have selected SubstructureNotifyMask on
@@ -1139,10 +1138,10 @@ scan(void)
 	XWindowAttributes wa;
 
 	/* no new window should be created while we scan for windows to manage */
-	XGrabServer(dpy);
+	XGrabServer(wm.display);
 
 	if (!XQueryTree(
-		dpy, root,
+		wm.display, wm.rootwin,
 		&(Window){0}, &(Window){0},
 		&toplvls, &ntoplvls)
 	) ntoplvls = 0;
@@ -1150,11 +1149,11 @@ scan(void)
 	/* first manage main/leader windows */
 	for (unsigned int i = 0; i < ntoplvls; i++) {
 		appwin = None;
-		if (!XGetWindowAttributes(dpy, toplvls[i], &wa))
+		if (!XGetWindowAttributes(wm.display, toplvls[i], &wa))
 			continue;
 		if (wa.override_redirect || wa.map_state != IsViewable)
 			continue;
-		if (XGetTransientForHint(dpy, toplvls[i], &appwin) && appwin != None)
+		if (XGetTransientForHint(wm.display, toplvls[i], &appwin) && appwin != None)
 			continue;
 		manage(toplvls[i], None, (XRectangle){
 			.x = wa.x,
@@ -1167,11 +1166,11 @@ scan(void)
 	/* now manage transient/dialog windows */
 	for (unsigned int i = 0; i < ntoplvls; i++) {
 		appwin = None;
-		if (!XGetWindowAttributes(dpy, toplvls[i], &wa))
+		if (!XGetWindowAttributes(wm.display, toplvls[i], &wa))
 			continue;
 		if (wa.override_redirect || wa.map_state != IsViewable)
 			continue;
-		if (!XGetTransientForHint(dpy, toplvls[i], &appwin) || appwin == None)
+		if (!XGetTransientForHint(wm.display, toplvls[i], &appwin) || appwin == None)
 			continue;
 		manage(toplvls[i], appwin, (XRectangle){
 			.x = wa.x,
@@ -1185,12 +1184,12 @@ scan(void)
 	 * The focus-holding window is mapped after managing already mapped
 	 * windows for it to not get managed.
 	 */
-	XMapWindow(dpy, wm.focuswin);
-	XSetInputFocus(dpy, wm.focuswin, RevertToPointerRoot, CurrentTime);
+	XMapWindow(wm.display, wm.focuswin);
+	XSetInputFocus(wm.display, wm.focuswin, RevertToPointerRoot, CurrentTime);
 
 	XFree(toplvls);
-	XSync(dpy, True);
-	XUngrabServer(dpy);
+	XSync(wm.display, True);
+	XUngrabServer(wm.display);
 }
 
 /* call execlp checking for error; exit on error */
@@ -1213,7 +1212,7 @@ execshell(char *filename)
 
 /* error handler */
 static int
-xerror(Display *dpy, XErrorEvent *error)
+xerror(Display *display, XErrorEvent *error)
 {
 	/*
 	 * Request names and error messages copied from the X Error
@@ -1375,7 +1374,7 @@ xerror(Display *dpy, XErrorEvent *error)
 		[17]	= "BadImplementation (server does not implement operation)",
 	};
 
-	(void)dpy;
+	(void)display;
 	/* There's no way to check accesses to destroyed windows, thus those
 	 * cases are ignored (especially on UnmapNotify's). */
 	if (error->error_code == BadWindow ||
@@ -1413,9 +1412,9 @@ xerror(Display *dpy, XErrorEvent *error)
 }
 
 static int
-xerrorstart(Display *dpy, XErrorEvent *error)
+xerrorstart(Display *display, XErrorEvent *error)
 {
-	(void)dpy;
+	(void)display;
 	(void)error;
 	errx(1, "another window manager is already running");
 }
@@ -1488,10 +1487,10 @@ monupdate(void)
 	def_monitor.geometry = def_monitor.window_area = (XRectangle){
 		.x = 0,
 		.y = 0,
-		.width = DisplayWidth(dpy, screen),
-		.height = DisplayHeight(dpy, screen),
+		.width = DisplayWidth(wm.display, wm.screen),
+		.height = DisplayHeight(wm.display, wm.screen),
 	};
-	infos = XRRGetMonitors(dpy, root, True, &nmonitors);
+	infos = XRRGetMonitors(wm.display, wm.rootwin, True, &nmonitors);
 	if (infos == NULL || nmonitors <= 0)
 		goto error;
 	monitors = reallocarray(NULL, nmonitors, sizeof(*monitors));
@@ -1542,37 +1541,37 @@ static void
 reset_hints(void)
 {
 	(void)XChangeProperty(
-		dpy, root, atoms[_NET_ACTIVE_WINDOW],
+		wm.display, wm.rootwin, wm.atoms[_NET_ACTIVE_WINDOW],
 		XA_WINDOW, 32, PropModeReplace, (void *)&(Window){None}, 0
 	);
 	(void)XChangeProperty(
-		dpy, root, atoms[_NET_CLIENT_LIST],
+		wm.display, wm.rootwin, wm.atoms[_NET_CLIENT_LIST],
 		XA_WINDOW, 32, PropModeReplace, NULL, 0
 	);
 	(void)XChangeProperty(
-		dpy, root, atoms[_NET_CLIENT_LIST_STACKING],
+		wm.display, wm.rootwin, wm.atoms[_NET_CLIENT_LIST_STACKING],
 		XA_WINDOW, 32, PropModeReplace, NULL, 0
 	);
 	(void)XChangeProperty(
-		dpy, root, atoms[_SHOD_CONTAINER_LIST],
+		wm.display, wm.rootwin, wm.atoms[_SHOD_CONTAINER_LIST],
 		XA_WINDOW, 32, PropModeReplace, NULL, 0
 	);
 	(void)XChangeProperty(
-		dpy, root, atoms[_SHOD_DOCK_LIST],
+		wm.display, wm.rootwin, wm.atoms[_SHOD_DOCK_LIST],
 		XA_WINDOW, 32, PropModeReplace, NULL, 0
 	);
 	(void)XChangeProperty(
-		dpy, root, atoms[_NET_CURRENT_DESKTOP],
+		wm.display, wm.rootwin, wm.atoms[_NET_CURRENT_DESKTOP],
 		XA_CARDINAL, 32, PropModeReplace,
 		(void *)&(unsigned long){0}, 1
 	);
 	(void)XChangeProperty(
-		dpy, root, atoms[_NET_SHOWING_DESKTOP],
+		wm.display, wm.rootwin, wm.atoms[_NET_SHOWING_DESKTOP],
 		XA_CARDINAL, 32, PropModeReplace,
 		(void *)&(unsigned long){0}, 1
 	);
 	(void)XChangeProperty(
-		dpy, root, atoms[_NET_NUMBER_OF_DESKTOPS],
+		wm.display, wm.rootwin, wm.atoms[_NET_NUMBER_OF_DESKTOPS],
 		XA_CARDINAL, 32, PropModeReplace,
 		(void *)&config.ndesktops, 1
 	);
@@ -1613,14 +1612,14 @@ setup(void)
 		warnx("warning: no locale support for X11");
 	if ((dpyname = XDisplayName(NULL)) == NULL || dpyname[0] == '\0')
 		errx(EXIT_FAILURE, "DISPLAY is not set");
-	if ((dpy = XOpenDisplay(NULL)) == NULL)
+	if ((wm.display = XOpenDisplay(NULL)) == NULL)
 		errx(EXIT_FAILURE, "%s: cannot open display", dpyname);
-	if (fcntl(XConnectionNumber(dpy), F_SETFD, FD_CLOEXEC) == -1)
+	if (fcntl(XConnectionNumber(wm.display), F_SETFD, FD_CLOEXEC) == -1)
 		err(EXIT_FAILURE, "connection to display \"%s\"", dpyname);
-	if (!XInternAtoms(dpy, atomnames, NATOMS, False, atoms))
-		errx(EXIT_FAILURE, "%s: cannot intern atoms", dpyname);
-	screen = DefaultScreen(dpy);
-	root = RootWindow(dpy, screen);
+	if (!XInternAtoms(wm.display, atomnames, NATOMS, False, wm.atoms))
+		errx(EXIT_FAILURE, "%s: cannot intern wm.atoms", dpyname);
+	wm.screen = DefaultScreen(wm.display);
+	wm.rootwin = RootWindow(wm.display, wm.screen);
 	context = XUniqueContext();
 
 	/* redirect to us all requests to map/configure top-level windows */
@@ -1632,22 +1631,22 @@ setup(void)
 		 * are requested to map, so selecting SubstructureNotifyMask on
 		 * the root window seems redundant.
 		 */
-		dpy, root,
+		wm.display, wm.rootwin,
 		SubstructureRedirectMask |  /* so clients request us to map */
 		StructureNotifyMask |       /* get changes on rootwin configuration */
 		PropertyChangeMask |        /* get changes on rootwin properties */
 		ButtonPressMask |           /* to change monitor on mouseclick */
 		FocusChangeMask
 	);
-	(void)XSync(dpy, False);
+	(void)XSync(wm.display, False);
 	(void)XSetErrorHandler(xerror);
-	(void)XSync(dpy, False);
+	(void)XSync(wm.display, False);
 
-	visual = NULL;
+	wm.visual = NULL;
 	infos = XGetVisualInfo(
-		dpy, VisualScreenMask | VisualDepthMask | VisualClassMask,
+		wm.display, VisualScreenMask | VisualDepthMask | VisualClassMask,
 		&(XVisualInfo){
-			.screen = screen,
+			.screen = wm.screen,
 			.depth = 32,
 			.class = TrueColor
 		}, &ninfos
@@ -1655,39 +1654,39 @@ setup(void)
 	for (int i = 0; i < ninfos; i++) {
 		XRenderPictFormat *fmt;
 
-		fmt = XRenderFindVisualFormat(dpy, infos[i].visual);
+		fmt = XRenderFindVisualFormat(wm.display, infos[i].visual);
 		if (fmt->type != PictTypeDirect)
 			continue;
 		if (!fmt->direct.alphaMask)
 			continue;
-		depth = infos[i].depth;
-		visual = infos[i].visual;
-		colormap = XCreateColormap(dpy, root, visual, AllocNone);
+		wm.depth = infos[i].depth;
+		wm.visual = infos[i].visual;
+		wm.colormap = XCreateColormap(wm.display, wm.rootwin, wm.visual, AllocNone);
 		break;
 	}
 	XFree(infos);
-	if (visual == NULL) {
-		depth = DefaultDepth(dpy, screen);
-		visual = DefaultVisual(dpy, screen);
-		colormap = DefaultColormap(dpy, screen);
+	if (wm.visual == NULL) {
+		wm.depth = DefaultDepth(wm.display, wm.screen);
+		wm.visual = DefaultVisual(wm.display, wm.screen);
+		wm.colormap = DefaultColormap(wm.display, wm.screen);
 	}
 
 	/* init cursors */
-	wm.cursors[CURSOR_NORMAL] = XCreateFontCursor(dpy, XC_left_ptr);
-	wm.cursors[CURSOR_MOVE] = XCreateFontCursor(dpy, XC_fleur);
-	wm.cursors[CURSOR_NW] = XCreateFontCursor(dpy, XC_top_left_corner);
-	wm.cursors[CURSOR_NE] = XCreateFontCursor(dpy, XC_top_right_corner);
-	wm.cursors[CURSOR_SW] = XCreateFontCursor(dpy, XC_bottom_left_corner);
-	wm.cursors[CURSOR_SE] = XCreateFontCursor(dpy, XC_bottom_right_corner);
-	wm.cursors[CURSOR_N] = XCreateFontCursor(dpy, XC_top_side);
-	wm.cursors[CURSOR_S] = XCreateFontCursor(dpy, XC_bottom_side);
-	wm.cursors[CURSOR_W] = XCreateFontCursor(dpy, XC_left_side);
-	wm.cursors[CURSOR_E] = XCreateFontCursor(dpy, XC_right_side);
-	wm.cursors[CURSOR_V] = XCreateFontCursor(dpy, XC_sb_v_double_arrow);
-	wm.cursors[CURSOR_H] = XCreateFontCursor(dpy, XC_sb_h_double_arrow);
-	wm.cursors[CURSOR_HAND] = XCreateFontCursor(dpy, XC_hand2);
-	wm.cursors[CURSOR_PIRATE] = XCreateFontCursor(dpy, XC_pirate);
-	XDefineCursor(dpy, root, wm.cursors[CURSOR_NORMAL]);
+	wm.cursors[CURSOR_NORMAL] = XCreateFontCursor(wm.display, XC_left_ptr);
+	wm.cursors[CURSOR_MOVE] = XCreateFontCursor(wm.display, XC_fleur);
+	wm.cursors[CURSOR_NW] = XCreateFontCursor(wm.display, XC_top_left_corner);
+	wm.cursors[CURSOR_NE] = XCreateFontCursor(wm.display, XC_top_right_corner);
+	wm.cursors[CURSOR_SW] = XCreateFontCursor(wm.display, XC_bottom_left_corner);
+	wm.cursors[CURSOR_SE] = XCreateFontCursor(wm.display, XC_bottom_right_corner);
+	wm.cursors[CURSOR_N] = XCreateFontCursor(wm.display, XC_top_side);
+	wm.cursors[CURSOR_S] = XCreateFontCursor(wm.display, XC_bottom_side);
+	wm.cursors[CURSOR_W] = XCreateFontCursor(wm.display, XC_left_side);
+	wm.cursors[CURSOR_E] = XCreateFontCursor(wm.display, XC_right_side);
+	wm.cursors[CURSOR_V] = XCreateFontCursor(wm.display, XC_sb_v_double_arrow);
+	wm.cursors[CURSOR_H] = XCreateFontCursor(wm.display, XC_sb_h_double_arrow);
+	wm.cursors[CURSOR_HAND] = XCreateFontCursor(wm.display, XC_hand2);
+	wm.cursors[CURSOR_PIRATE] = XCreateFontCursor(wm.display, XC_pirate);
+	XDefineCursor(wm.display, wm.rootwin, wm.cursors[CURSOR_NORMAL]);
 
 	/* init list of monitors */
 	wm.monitors = NULL;
@@ -1698,46 +1697,46 @@ setup(void)
 	/* create windows used for controlling focus and stack order */
 	for (size_t i = 0; i < LEN(wm.layertop); i++) {
 		wm.layertop[i] = XCreateSimpleWindow(
-			dpy, root, 0, 0, 1, 1, 0, 0, 0
+			wm.display, wm.rootwin, 0, 0, 1, 1, 0, 0, 0
 		);
-		XRaiseWindow(dpy, wm.layertop[i]);
+		XRaiseWindow(wm.display, wm.layertop[i]);
 	}
 	wm.checkwin = wm.focuswin = wm.dragwin = wm.restackwin = XCreateWindow(
-		dpy, root,
+		wm.display, wm.rootwin,
 		- (2 * config.borderwidth + config.titlewidth),
 		- (2 * config.borderwidth + config.titlewidth),
 		2 * config.borderwidth + config.titlewidth,
 		2 * config.borderwidth + config.titlewidth,
-		0, depth, InputOutput, visual,
+		0, wm.depth, InputOutput, wm.visual,
 		CWEventMask | CWColormap | CWBorderPixel | CWBackPixel,
 		&(XSetWindowAttributes){
 			.event_mask = StructureNotifyMask | MOUSE_EVENTS | KeyPressMask,
-			.colormap = colormap,
-			.border_pixel = BlackPixel(dpy, screen),
-			.background_pixel = BlackPixel(dpy, screen),
+			.colormap = wm.colormap,
+			.border_pixel = BlackPixel(wm.display, wm.screen),
+			.background_pixel = BlackPixel(wm.display, wm.screen),
 		}
 	);
 
 	/* set properties declaring that we are EWMH compliant */
 	(void)XChangeProperty(
-		dpy, wm.checkwin, atoms[_NET_SUPPORTING_WM_CHECK],
+		wm.display, wm.checkwin, wm.atoms[_NET_SUPPORTING_WM_CHECK],
 		XA_WINDOW, 32, PropModeReplace,
 		(void *)&wm.checkwin, 1
 	);
 	(void)XChangeProperty(
-		dpy, wm.checkwin, atoms[_NET_WM_NAME],
-		atoms[UTF8_STRING], 8, PropModeReplace,
+		wm.display, wm.checkwin, wm.atoms[_NET_WM_NAME],
+		wm.atoms[UTF8_STRING], 8, PropModeReplace,
 		(void *)"shod", strlen("shod")
 	);
 	(void)XChangeProperty(
-		dpy, root, atoms[_NET_SUPPORTING_WM_CHECK],
+		wm.display, wm.rootwin, wm.atoms[_NET_SUPPORTING_WM_CHECK],
 		XA_WINDOW, 32, PropModeReplace,
 		(void *)&wm.checkwin, 1
 	);
 	(void)XChangeProperty(
-		dpy, root, atoms[_NET_SUPPORTED],
+		wm.display, wm.rootwin, wm.atoms[_NET_SUPPORTED],
 		XA_ATOM, 32, PropModeReplace,
-		(void *)atoms, NATOMS
+		(void *)wm.atoms, NATOMS
 	);
 	reset_hints();
 
@@ -1751,43 +1750,37 @@ setup(void)
 		resources[i].name = XrmPermStringToQuark(resourceids[i].name);
 	}
 	wm.gc = XCreateGC(
-		dpy, wm.dragwin,
+		wm.display, wm.dragwin,
 		GCFillStyle, &(XGCValues){.fill_style = FillSolid}
 	);
 
 	if (!set_theme())
 		exit(EXIT_FAILURE);
-	set_resources(XResourceManagerString(dpy));
 
 	/* set modifier key and grab alt key */
 	setmod();
-
-	/* initialize classes */
-	for (size_t i = 0; i < LEN(classes); i++)
-		if (classes[i]->init != NULL)
-			classes[i]->init();
 }
 
 static void
 cleanup(void)
 {
-	XftFontClose(dpy, theme.font);
+	XftFontClose(wm.display, wm.theme.font);
 	for (int style = 0; style < STYLE_LAST; style++) {
 		for (int focus = 0; focus < 2; focus++)
-			XFreePixmap(dpy, wm.close_btn[style][focus]);
+			XFreePixmap(wm.display, wm.close_btn[style][focus]);
 		for (int color = 0; color < COLOR_LAST; color++) {
 			XftColorFree(
-				dpy, visual, colormap,
-				&theme.colors[style][color]
+				wm.display, wm.visual, wm.colormap,
+				&wm.theme.colors[style][color]
 			);
 		}
 	}
-	XFreeGC(dpy, wm.gc);
-	XDestroyWindow(dpy, wm.checkwin);
+	XFreeGC(wm.display, wm.gc);
+	XDestroyWindow(wm.display, wm.checkwin);
 	for (size_t layer = 0; layer < LEN(wm.layertop); layer++)
-		XDestroyWindow(dpy, wm.layertop[layer]);
+		XDestroyWindow(wm.display, wm.layertop[layer]);
 	for (size_t cursor = 0; cursor < CURSOR_LAST; cursor++)
-		XFreeCursor(dpy, wm.cursors[cursor]);
+		XFreeCursor(wm.display, wm.cursors[cursor]);
 	FOREACH_CLASS(clean);
 	for (int mon = 0; mon < wm.nmonitors; mon++)
 		free(wm.monitors[mon]);
@@ -1795,9 +1788,9 @@ cleanup(void)
 		free(wm.monitors[mon]);
 	free(wm.monitors);
 	reset_hints();
-	XUngrabPointer(dpy, CurrentTime);
-	XUngrabKeyboard(dpy, CurrentTime);
-	XCloseDisplay(dpy);
+	XUngrabPointer(wm.display, CurrentTime);
+	XUngrabKeyboard(wm.display, CurrentTime);
+	XCloseDisplay(wm.display);
 }
 
 void
@@ -1812,7 +1805,7 @@ deskupdate(struct Monitor *mon, long desk)
 	wm.selmon = mon;
 	wm.selmon->seldesk = desk;
 	XChangeProperty(
-		dpy, root, atoms[_NET_CURRENT_DESKTOP],
+		wm.display, wm.rootwin, wm.atoms[_NET_CURRENT_DESKTOP],
 		XA_CARDINAL, 32, PropModeReplace,
 		(void *)&desk, 1
 	);
@@ -1861,14 +1854,14 @@ fitmonitor(struct Monitor *mon, XRectangle *geometry, float factor)
 void
 context_add(XID id, struct Object *data)
 {
-	if (XSaveContext(dpy, id, context, (void *)data))
+	if (XSaveContext(wm.display, id, context, (void *)data))
 		err(EXIT_FAILURE, "cannot save context");
 }
 
 void
 context_del(XID id)
 {
-	XDeleteContext(dpy, id, context);
+	XDeleteContext(wm.display, id, context);
 }
 
 struct Object *
@@ -1876,7 +1869,7 @@ context_get(XID id)
 {
 	XPointer data;
 
-	if (XFindContext(dpy, id, context, &data))
+	if (XFindContext(wm.display, id, context, &data))
 		return NULL;
 	return (void *)data;
 }
@@ -1895,10 +1888,10 @@ window_close(Display *display, Window window)
 			.type = ClientMessage,
 			.serial = 0,
 			.send_event = True,
-			.message_type = atoms[WM_PROTOCOLS],
+			.message_type = wm.atoms[WM_PROTOCOLS],
 			.window = window,
 			.format = 32,
-			.data.l[0] = atoms[WM_DELETE_WINDOW],
+			.data.l[0] = wm.atoms[WM_DELETE_WINDOW],
 			.data.l[1] = CurrentTime,
 			.data.l[2] = 0,
 			.data.l[3] = 0,
@@ -1910,12 +1903,12 @@ window_close(Display *display, Window window)
 void
 winupdatetitle(Window win, char **name)
 {
-	Atom properties[] = {atoms[_NET_WM_NAME], XA_WM_NAME};
+	Atom properties[] = {wm.atoms[_NET_WM_NAME], XA_WM_NAME};
 
 	free(*name);
 	for (size_t i = 0; i < LEN(properties); i++) {
 		if (getprop(
-			dpy, win, properties[i],
+			wm.display, win, properties[i],
 			AnyPropertyType, 8, 0,
 			(void *)name
 		) > 0)
@@ -1938,7 +1931,7 @@ deskshow(Bool show)
 		FOREACH_CLASS(hide_desktop);
 	wm.showingdesk = show;
 	XChangeProperty(
-		dpy, root, atoms[_NET_SHOWING_DESKTOP],
+		wm.display, wm.rootwin, wm.atoms[_NET_SHOWING_DESKTOP],
 		XA_CARDINAL, 32, PropModeReplace,
 		(void *)&show, 1
 	);
@@ -1953,9 +1946,11 @@ main(int argc, char *argv[])
 
 	filename = setoptions(argc, argv);
 	setup();
+	set_resources(XResourceManagerString(wm.display));
+	FOREACH_CLASS(init);
 	autostart(filename);
-	if ((has_xrandr = XRRQueryExtension(dpy, &screen_change_event, &(int){0})))
-		XRRSelectInput(dpy, root, RRScreenChangeNotifyMask);
+	if ((has_xrandr = XRRQueryExtension(wm.display, &screen_change_event, &(int){0})))
+		XRRSelectInput(wm.display, wm.rootwin, RRScreenChangeNotifyMask);
 	screen_change_event += RRScreenChangeNotify;
 	scan();
 	while (running) {
@@ -1974,11 +1969,11 @@ main(int argc, char *argv[])
 			[UnmapNotify]      = xeventunmapnotify,
 		};
 
-		XNextEvent(dpy, &event);
+		XNextEvent(wm.display, &event);
 		if (event.type < LASTEvent && event_handlers[event.type] != NULL) {
 			(*event_handlers[event.type])(&event);
 		} else if (has_xrandr && event.type == screen_change_event) {
-			if (((XRRScreenChangeNotifyEvent *)&event)->root == root) {
+			if (((XRRScreenChangeNotifyEvent *)&event)->root == wm.rootwin) {
 				(void)XRRUpdateConfiguration(&event);
 				monupdate();
 			}
