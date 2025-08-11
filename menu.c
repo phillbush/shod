@@ -363,7 +363,6 @@ btnpress(struct Object *self, XButtonPressedEvent *press)
 	struct Menu *menu = self->self;
 
 	menufocusraise(menu);
-#warning TODO: implement menu button presses
 	if (press->window == menu->titlebar && press->button == Button1) {
 		drag_move(menu, press->x_root, press->y_root);
 	} else if (isvalidstate(press->state) && press->button == Button1) {

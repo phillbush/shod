@@ -37,11 +37,8 @@ enum {
 	FOCUSED    = 0,
 	UNFOCUSED  = 1,
 	URGENT     = 2,
-	PRESSED    = 3,
+	STYLE_OTHER = 3,
 	STYLE_LAST = 4,
-
-#warning TODO: implement pressed state
-	STYLE_OTHER = PRESSED,
 };
 
 enum {
@@ -324,10 +321,3 @@ extern struct Class container_class;
 	context_del((win)); \
 	XDestroyWindow((dpy), (win)); \
 } while(0)
-
-/* call instance method, if it exists */
-#define ARG1(arg, ...) (arg)
-#define CALL_METHOD(method, ...) \
-	if (ARG1(__VA_ARGS__, 0) != NULL) \
-		if (ARG1(__VA_ARGS__, 0)->class->method != NULL) \
-			ARG1(__VA_ARGS__, 0)->class->method(__VA_ARGS__)

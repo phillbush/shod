@@ -933,12 +933,45 @@ dialog_focus(struct Dialog *dial)
 }
 
 static void
+restack(struct Object *obj)
+{
+	struct Container *container = obj->self;
+	struct Object *prev = TAILQ_PREV(&container->obj, Queue, entry);
+	Window above;
+
+	if (&container->obj == wm.focused &&
+	    (container->state & FULLSCREEN))
+		above = wm.layertop[LAYER_FULLSCREEN];
+	else if (prev != NULL)
+		above = prev->win;
+	else if (container->state & ABOVE)
+		above = wm.layertop[LAYER_ABOVE];
+	else if (container->state & BELOW)
+		above = wm.layertop[LAYER_BELOW];
+	else
+		above = wm.layertop[LAYER_NORMAL];
+	XRestackWindows(wm.display, (Window[]){
+		above,
+		container->obj.win,
+	}, 2);
+}
+
+static void
 tabfocus(struct Tab *tab, int gotodesk)
 {
-	static struct Object *prevfocused;
 	struct Container *container;
 
-	prevfocused = wm.focused;
+	if (wm.focused != NULL &&
+	    (tab == NULL || tab->row->col->c != wm.focused->self)) {
+		if (wm.focused->class->redecorate != NULL)
+			wm.focused->class->redecorate(wm.focused);
+		if (wm.focused->class == &container_class) {
+			struct Container *c = wm.focused->self;
+			setstate_recursive(c);
+			if (c->state & FULLSCREEN)
+				restack(wm.focused);
+		}
+	}
 	if (tab == NULL) {
 		if (wm.focused == NULL)
 			return;
@@ -982,15 +1015,6 @@ tabfocus(struct Tab *tab, int gotodesk)
 		set_container_group(container);
 		setstate_recursive(container);
 		menu_class.restack_all();
-	}
-	if (prevfocused != NULL && prevfocused != wm.focused) {
-		CALL_METHOD(redecorate, prevfocused);
-		if (prevfocused->class == &container_class) {
-			setstate_recursive(prevfocused->self);
-			if (((struct Container *)prevfocused)->state &
-			    FULLSCREEN)
-				CALL_METHOD(restack, prevfocused);
-		}
 	}
 	if (wm.showingdesk)
 		menu_class.show_desktop();
@@ -1469,30 +1493,6 @@ containerdelraise(struct Container *container)
 		return;
 	TAILQ_REMOVE(container->layer, &container->obj, z_entry);
 	container->layer = NULL;
-}
-
-static void
-restack(struct Object *obj)
-{
-	struct Container *container = obj->self;
-	struct Object *prev = TAILQ_PREV(&container->obj, Queue, entry);
-	Window above;
-
-	if (&container->obj == wm.focused &&
-	    (container->state & FULLSCREEN))
-		above = wm.layertop[LAYER_FULLSCREEN];
-	else if (prev != NULL)
-		above = prev->win;
-	else if (container->state & ABOVE)
-		above = wm.layertop[LAYER_ABOVE];
-	else if (container->state & BELOW)
-		above = wm.layertop[LAYER_BELOW];
-	else
-		above = wm.layertop[LAYER_NORMAL];
-	XRestackWindows(wm.display, (Window[]){
-		above,
-		container->obj.win,
-	}, 2);
 }
 
 static void containerstick(struct Container *c, int stick);

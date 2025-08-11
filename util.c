@@ -206,8 +206,8 @@ released_inside(Display *display, XButtonPressedEvent const *press)
 		dummy, dummy, &width, &height, dummy, dummy
 	)) return (
 		release->button == press->button &&
-		release->x >= 0 && release->x < width &&
-		release->y >= 0 && release->y < height
+		release->x >= 0 && release->x < (int)width &&
+		release->y >= 0 && release->y < (int)height
 	);
 	return False;
 }

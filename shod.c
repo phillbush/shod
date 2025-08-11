@@ -49,11 +49,24 @@
 	X(RES_MOVE_TIME,       "MoveTime",                  "moveTime"                  )\
 	X(RES_RESIZE_TIME,     "ResizeTime",                "resizeTime"                )
 
+/* call instance method, if it exists */
+#define ARG1(arg, ...) (arg)
+#define CALL_METHOD(method, ...) do {\
+	if (ARG1(__VA_ARGS__, 0) != NULL) {\
+		if (ARG1(__VA_ARGS__, 0)->class->method != NULL) {\
+			ARG1(__VA_ARGS__, 0)->class->method(__VA_ARGS__); \
+		}\
+	}\
+}while(0)
+
 /* for each class, call class method, if it exists */
-#define FOREACH_CLASS(method, ...) \
-	for (size_t i = 0; i < LEN(classes); i++) \
-		if (classes[i]->method != NULL) \
-			classes[i]->method(__VA_ARGS__)
+#define FOREACH_CLASS(method, ...) do {\
+	for (size_t i = 0; i < LEN(classes); i++) {\
+		if (classes[i]->method != NULL) {\
+			classes[i]->method(__VA_ARGS__); \
+		}\
+	}\
+}while(0)
 
 enum Resource {
 #define X(res, class, name) res,
@@ -604,7 +617,7 @@ openfont(const char *s)
 }
 
 static void
-draw_close_btn(int style)
+draw_close_btn(void)
 {
 	int button_size = max(1, config.titlewidth - config.shadowthickness*2);
 	int cross_size = max(1, button_size - config.shadowthickness * 2);
@@ -711,8 +724,7 @@ reload_theme(void)
 	XClearWindow(wm.display, wm.dragwin);
 	XFreePixmap(wm.display, pix);
 
-	for (int style = 0; style < STYLE_LAST; style++)
-		draw_close_btn(style);
+	draw_close_btn();
 
 	FOREACH_CLASS(reload_theme);
 }
