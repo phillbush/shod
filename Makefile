@@ -11,15 +11,15 @@ MANS        = shod.1
 PROGS       = shod shodc
 
 PROG_CPPFLAGS = \
-	-D_POSIX_C_SOURCE=200809L -D_BSD_SOURCE -D_GNU_SOURCE -D_DEFAULT_SOURCE \
+	-D_POSIX_C_SOURCE=202405L -D_BSD_SOURCE -D_GNU_SOURCE -D_DEFAULT_SOURCE \
 	-I/usr{,/local,/X11R6}/include{,/freetype2} \
 	${CPPFLAGS}
 
-PROG_CFLAGS = -std=c99 -pedantic ${PROG_CPPFLAGS} ${CFLAGS}
+PROG_CFLAGS = -std=c99 ${PROG_CPPFLAGS} ${CFLAGS}
 
 PROG_LDFLAGS = -L/usr{,/local,/X11R6}/lib ${LDLIBS} ${LDFLAGS}
 
-DEBUG_FLAGS = -g -O0 -DDEBUG -Wall -Wextra -Wpedantic
+DEBUG_FLAGS = -g -O0 -DDEBUG -Wall -Wextra ${DEBUG}
 
 all: ${PROGS}
 
