@@ -529,9 +529,6 @@ tab_update_geometry(struct Tab *tab)
 	}
 	XResizeWindow(wm.display, tab->frame, tab->winw, tab->winh);
 	XResizeWindow(wm.display, tab->obj.win, tab->winw, tab->winh);
-	XMoveResizeWindow(wm.display, tab->title, tab->x, 0, tab->w, config.titlewidth);
-	if (tab->ptw != tab->w)
-		tabdecorate(tab, tabgetstyle(tab));
 	window_configure_notify(
 		wm.display, tab->obj.win,
 		container->geometry.current.x + tab->row->col->x,
@@ -749,7 +746,18 @@ update_tiles(struct Container *c)
 			}
 			rowy += config.titlewidth;
 			TAILQ_FOREACH(t, &row->tabq, entry) {
-				tab_update_geometry(t->self);
+				struct Tab *tab = t->self;
+
+				XMoveResizeWindow(
+					wm.display, tab->title,
+					tab->x, 0,
+					tab->w, config.titlewidth
+				);
+				if (tab->ptw != tab->w)
+					tabdecorate(tab, tabgetstyle(tab));
+				if (tab == row->seltab) {
+					tab_update_geometry(tab);
+				}
 			}
 		}
 	}
@@ -937,6 +945,7 @@ tabfocus(struct Tab *tab, int gotodesk)
 		tab->row->seltab = tab;
 		tab->row->col->selrow = tab->row;
 		tab->row->col->c->selcol = tab->row->col;
+		tab_update_geometry(tab);
 		deskshow(False);
 		if (gotodesk) {
 			deskupdate(
