@@ -334,56 +334,6 @@ container_setdesk(struct Container *container)
 	}
 }
 
-static void
-snaptoedge(int *x, int *y, int w, int h)
-{
-	struct Object *obj;
-
-	if (config.snap <= 0)
-		return;
-	if (abs(*y - wm.selmon->window_area.y) < config.snap)
-		*y = wm.selmon->window_area.y;
-	if (abs(*y + h - wm.selmon->window_area.y - wm.selmon->window_area.height) < config.snap)
-		*y = wm.selmon->window_area.y + wm.selmon->window_area.height - h;
-	if (abs(*x - wm.selmon->window_area.x) < config.snap)
-		*x = wm.selmon->window_area.x;
-	if (abs(*x + w - wm.selmon->window_area.x - wm.selmon->window_area.width) < config.snap)
-		*x = wm.selmon->window_area.x + wm.selmon->window_area.width - w;
-	TAILQ_FOREACH(obj, &focus_history, entry) {
-		struct Container *container = obj->self;
-		if (is_visible(container, wm.selmon, wm.selmon->seldesk)) {
-			if (*x + w >= container->geometry.current.x && *x <= container->geometry.current.x + container->geometry.current.width) {
-				if (abs(*y + h - container->geometry.current.y) < config.snap) {
-					*y = container->geometry.current.y - h;
-				}
-				if (abs(*y - container->geometry.current.y) < config.snap) {
-					*y = container->geometry.current.y;
-				}
-				if (abs(*y + h - container->geometry.current.y - container->geometry.current.height) < config.snap) {
-					*y = container->geometry.current.y + container->geometry.current.height - h;
-				}
-				if (abs(*y - container->geometry.current.y - container->geometry.current.height) < config.snap) {
-					*y = container->geometry.current.y + container->geometry.current.height;
-				}
-			}
-			if (*y + h >= container->geometry.current.y && *y <= container->geometry.current.y + container->geometry.current.height) {
-				if (abs(*x + w - container->geometry.current.x) < config.snap) {
-					*x = container->geometry.current.x - w;
-				}
-				if (abs(*x - container->geometry.current.x) < config.snap) {
-					*x = container->geometry.current.x;
-				}
-				if (abs(*x + w - container->geometry.current.x - container->geometry.current.width) < config.snap) {
-					*x = container->geometry.current.x + container->geometry.current.width - w;
-				}
-				if (abs(*x - container->geometry.current.x - container->geometry.current.width) < config.snap) {
-					*x = container->geometry.current.x + container->geometry.current.width;
-				}
-			}
-		}
-	}
-}
-
 /* increment number of clients */
 static void
 clientsincr(void)
@@ -2129,10 +2079,128 @@ done:
 	wm.setclientlist = True;
 }
 
+static Bool
+snappable(int a, int b)
+{
+	return abs(a - b) < config.snap;
+}
+
+static XRectangle
+snap(XRectangle potential)
+{
+	struct Object *obj;
+	XRectangle final = potential;
+
+	if (config.snap <= 0)
+		return final;
+	TAILQ_FOREACH(obj, &focus_history, entry) {
+		struct Container *container = obj->self;
+		XRectangle *barrier = &container->geometry.current;
+
+		if (!is_visible(container, wm.selmon, wm.selmon->seldesk))
+			continue;
+
+		/*
+		 * If projections intersect vertically, snap north/south edge
+		 * of final rectangle to the opposite edge (south/north) of
+		 * barrier rectangle if they are close enough.
+		 *                     ┌────────┐
+		 *                     │        │
+		 *                     │        │
+		 *                     │        │
+		 *                     └───╼━━━━┙
+		 *                         ┆    ┆
+		 *                         ┆    ┆
+		 *                         ┍━━━━╾─┐
+		 *                         │      │
+		 *                         │      │
+		 *                         └──────┘
+		 */
+		if (final.x + final.width >= barrier->x &&
+		    final.x <= barrier->x + barrier->width) {
+			if (snappable(potential.y + potential.height, barrier->y))
+				final.y = barrier->y - final.height;
+			if (snappable(potential.y, barrier->y + barrier->height))
+				final.y = barrier->y + barrier->height;
+		}
+
+		/*
+		 * If projections intersect horizontally, snap west/east edge
+		 * of final rectangle to the opposite edge (east/west) of
+		 * barrier rectangle if they are close enough.
+		 *                ┌────────┐
+		 *                │        │
+		 *                │        ╽┄┄┄┎──────┐
+		 *                │        ┃   ┃      │
+		 *                └────────┚┄┄┄╿      │
+		 *                             └──────┘
+		 */
+		if (final.y + final.height >= barrier->y &&
+		    final.y <= barrier->y + barrier->height) {
+			if (snappable(potential.x + potential.width, barrier->x))
+				final.x = barrier->x - final.width;
+			if (snappable(potential.x, barrier->x + barrier->width))
+				final.x = barrier->x + barrier->width;
+		}
+
+		/*
+		 * If rectangles touch vertically, snap their west edges
+		 * together (or their east edges) if they are close enough.
+		 *                     ┌────────┐
+		 *                     │        │
+		 *                     │        │
+		 *                     │        │
+		 *                     └───┮━━━━┵─┐
+		 *                         │      │
+		 *                         │      │
+		 *                         └──────┘
+		 */
+		if (final.y == barrier->y + barrier->height ||
+		    final.y + final.height == barrier->y) {
+			if (snappable(potential.x, barrier->x))
+				final.x = barrier->x;
+			if (snappable(potential.x + potential.width, barrier->x + barrier->width))
+				final.x = barrier->x + barrier->width - final.width;
+		}
+
+		/*
+		 * If rectangles touch vertically, snap their north edges
+		 * together (or their south edges) if they are close enough.
+		 *                 ┌────────┐
+		 *                 │        │
+		 *                 │        ┟──────┐
+		 *                 │        ┃      │
+		 *                 └────────┦      │
+		 *                          └──────┘
+		 */
+		if (final.x == barrier->x + barrier->width ||
+		    final.x + final.width == barrier->x) {
+			if (snappable(potential.y, barrier->y))
+				final.y = barrier->y;
+			if (snappable(potential.y + potential.height, barrier->y + barrier->height))
+				final.y = barrier->y + barrier->height - final.height;
+		}
+	}
+
+	/* snap rectangle to monitor edges */
+	if (snappable(potential.x, wm.selmon->window_area.x))
+		final.x = wm.selmon->window_area.x;
+	if (snappable(potential.x + potential.width, wm.selmon->window_area.x + wm.selmon->window_area.width))
+		final.x = wm.selmon->window_area.x +
+		wm.selmon->window_area.width - final.width;
+	if (snappable(potential.y, wm.selmon->window_area.y))
+		final.y = wm.selmon->window_area.y;
+	if (snappable(potential.y + potential.height, wm.selmon->window_area.y + wm.selmon->window_area.height))
+		final.y = wm.selmon->window_area.y +
+		wm.selmon->window_area.height - final.height;
+	return final;
+}
+
 static void
 drag_move(struct Container *container, int xroot, int yroot)
 {
 	XEvent event;
+	XRectangle geometry;
 
 	if (container->state & (FULLSCREEN|MINIMIZED))
 		return;
@@ -2143,6 +2211,7 @@ drag_move(struct Container *container, int xroot, int yroot)
 		None, wm.cursors[CURSOR_MOVE], CurrentTime
 	) != GrabSuccess)
 		return;
+	geometry = container->geometry.saved;
 	for (;;) {
 		XMaskEvent(wm.display, ButtonReleaseMask|PointerMotionMask, &event);
 		if (event.type == ButtonRelease)
@@ -2152,13 +2221,10 @@ drag_move(struct Container *container, int xroot, int yroot)
 		if (!(container->state & MAXIMIZED) && event.xmotion.y_root <= 0) {
 			containersetstate(&container->obj, MAXIMIZED, ADD);
 		} else if (!(container->state & MAXIMIZED)) {
-			//snaptoedge(
-			//	&container->geometry.saved.x, &container->geometry.saved.y,
-			//	container->geometry.saved.width, container->geometry.saved.height
-			//);
-			container->geometry.saved.x += event.xmotion.x_root - xroot,
-			container->geometry.saved.y += event.xmotion.y_root - yroot,
-			containermoveresize(container, container->geometry.saved);
+			container->geometry.saved.x += event.xmotion.x_root - xroot;
+			container->geometry.saved.y += event.xmotion.y_root - yroot;
+			geometry = snap(container->geometry.saved);
+			containermoveresize(container, geometry);
 		} else if (event.xmotion.y_root > config.titlewidth) {
 			container->geometry.saved.x = event.xmotion.x_root - container->geometry.saved.width / 2;
 			container->geometry.saved.y = 0;
@@ -2167,6 +2233,7 @@ drag_move(struct Container *container, int xroot, int yroot)
 		xroot = event.xmotion.x_root;
 		yroot = event.xmotion.y_root;
 	}
+	container->geometry.saved = container->geometry.current;
 	XUngrabPointer(wm.display, CurrentTime);
 }
 
