@@ -41,7 +41,7 @@ createframe(XRectangle geom)
 	frame = createwindow(
 		wm.rootwin, geom,
 		CWEventMask, &(XSetWindowAttributes){
-			.event_mask = EnterWindowMask,
+			.event_mask = EnterWindowMask | SubstructureRedirectMask,
 		}
 	);
 	XGrabButton(
