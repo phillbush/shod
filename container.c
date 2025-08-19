@@ -3002,6 +3002,7 @@ handle_property(struct Object *self, Atom property)
 
 	if (property == XA_WM_NAME || property == wm.atoms[_NET_WM_NAME]) {
 		winupdatetitle(tab->obj.win, &tab->name);
+		tabdecorate(tab, get_style(tab->row->col->c));
 	} else if (property == XA_WM_HINTS) {
 		tabupdateurgency(tab, isurgent(tab->obj.win));
 	}
