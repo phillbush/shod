@@ -225,6 +225,12 @@ is_focused(struct Container *container)
 	return container == ((struct Tab *)wm.focused->self)->row->col->c;
 }
 
+static int
+get_style(struct Container *container)
+{
+	return is_focused(container)?FOCUSED:UNFOCUSED;
+}
+
 static void
 set_active_window(Window window)
 {
@@ -361,17 +367,12 @@ clientsdecr(void)
 }
 
 static void
-tabdecorate(struct Tab *t)
+tabdecorate(struct Tab *t, int style)
 {
 	int drawlines = 0;
-	int style;
 
 	if (t->isurgent)
 		style = URGENT;
-	else if (is_focused(t->row->col->c))
-		style = FOCUSED;
-	else
-		style = UNFOCUSED;
 	if (t->row != NULL && t != t->row->col->c->selcol->selrow->seltab)
 		drawlines = 0;
 	else
@@ -431,7 +432,7 @@ container_decorate(struct Container *container, int style)
 			drawcommit(decorations[style].bar_horz, row->obj.win);
 			backgroundcommit(row->bar, style);
 			TAILQ_FOREACH(t, &row->tabq, entry) {
-				tabdecorate(t->self);
+				tabdecorate(t->self, style);
 				TAILQ_FOREACH(d, &((struct Tab *)t)->dialq, entry) {
 					dialogdecorate(d->self);
 				}
@@ -451,7 +452,7 @@ redecorate(struct Object *obj)
 		container = obj->self;
 	else
 		return;
-	container_decorate(container, is_focused(container)?FOCUSED:UNFOCUSED);
+	container_decorate(container, get_style(container));
 }
 
 /* clear window urgency */
@@ -754,7 +755,7 @@ update_tiles(struct Container *c)
 					tab->w, config.titlewidth
 				);
 				if (tab->ptw != tab->w)
-					tabdecorate(tab);
+					tabdecorate(tab, get_style(c));
 				if (tab == row->seltab) {
 					tab_update_geometry(tab);
 				}
@@ -903,7 +904,7 @@ restack(struct Object *obj)
 		container = obj->self;
 	else
 		return;
-	prev = TAILQ_PREV(&container->obj, Queue, entry);
+	prev = TAILQ_PREV(&container->obj, Queue, z_entry);
 	if (is_focused(container) && (container->state & FULLSCREEN))
 		above = wm.layertop[LAYER_FULLSCREEN];
 	else if (prev != NULL)
@@ -1592,23 +1593,29 @@ containerstick(struct Container *c, int stick)
 }
 
 static void
+raise(struct Container *container)
+{
+	containerdelraise(container);
+	if (container->state & ABOVE)
+		container->layer = &stack_order.above;
+	else if (container->state & BELOW)
+		container->layer = &stack_order.below;
+	else
+		container->layer = &stack_order.middle;
+	TAILQ_INSERT_HEAD(container->layer, &container->obj, z_entry);
+	restack(&container->obj);
+}
+
+static void
 container_changelayer(struct Container *container, enum State state, int action)
 {
 	if (action == REMOVE && !(container->state & state))
 		return;         /* already unset */
 	if (action == ADD    &&  (container->state & state))
 		return;         /* already set */
-	containerdelraise(container);
-	container->state &= ~(ABOVE|BELOW);
+	container->state &= ABOVE|BELOW;
 	container->state |= state;
-	if (state & ABOVE)
-		container->layer = &stack_order.above;
-	else if (state & BELOW)
-		container->layer = &stack_order.below;
-	else
-		container->layer = &stack_order.middle;
-	TAILQ_INSERT_TAIL(container->layer, &container->obj, z_entry);
-	restack(&container->obj);
+	raise(container);
 }
 
 static void
@@ -1712,7 +1719,7 @@ containernew(int x, int y, int w, int h, enum State state)
 		context_add(c->borders[table[i].window], &c->obj);
 		XMapRaised(wm.display, c->borders[table[i].window]);
 	}
-	TAILQ_INSERT_TAIL(c->layer, &c->obj, z_entry);
+	TAILQ_INSERT_HEAD(c->layer, &c->obj, z_entry);
 	containerinsertfocus(c);
 	return c;
 }
@@ -1911,7 +1918,7 @@ found:
 	else
 		rowcalctabs(row);
 	tabfocus(det);
-	restack(&c->obj);
+	raise(c);
 	XMapSubwindows(wm.display, c->obj.win);
 	/* no need to call set_container_group(); tabfocus() already calls them */
 	set_window_desktop(det->obj.win, c->desk);
@@ -1978,7 +1985,7 @@ containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle r
 	containerplace(c, mon, desk, (state & USERPLACED));
 	container_update_geometry(c);
 	if (is_visible(c, wm.selmon, wm.selmon->seldesk)) {
-		restack(&c->obj);
+		raise(c);
 		containerhide(c, 0);
 		tabfocus(tab);
 	}
@@ -2475,7 +2482,7 @@ tab_btnpress(struct Object *self, XButtonPressedEvent *press)
 	if (press->button == Button1 && press->window != tab->close_btn &&
 	    (&tab->obj != wm.focused)) {
 		tabfocus(tab);
-		restack(&container->obj);
+		raise(container);
 	}
 	if (press->window == tab->title && press->button == Button1 && press->serial == 2) {
 		rowstretch(tab->row->col, tab->row);
@@ -2609,7 +2616,7 @@ container_btnpress(struct Object *self, XButtonPressedEvent *press)
 		return;
 	if (press->button == Button1) {
 		tabfocus(container->selcol->selrow->seltab);
-		restack(&container->obj);
+		raise(container);
 	}
 	if (isvalidstate(press->state) && press->button == Button1) {
 		drag_move(container, press->x_root, press->y_root);
@@ -2995,7 +3002,6 @@ handle_property(struct Object *self, Atom property)
 
 	if (property == XA_WM_NAME || property == wm.atoms[_NET_WM_NAME]) {
 		winupdatetitle(tab->obj.win, &tab->name);
-		tabdecorate(tab);
 	} else if (property == XA_WM_HINTS) {
 		tabupdateurgency(tab, isurgent(tab->obj.win));
 	}
@@ -3161,7 +3167,7 @@ handle_message(struct Object *self, Atom message, long int data[5])
 			break;
 		default:
 			tabfocus(tab);
-			restack(&container->obj);
+			raise(container);
 			break;
 		}
 	} else if (message == wm.atoms[_NET_WM_MOVERESIZE]) {
@@ -3259,7 +3265,7 @@ list_clients(void)
 	n = 0;
 	wins = ecalloc(nclients, sizeof(*wins));
 	for (size_t i = 0; i < LEN(layers); i++) {
-		TAILQ_FOREACH(c, layers[i], z_entry) {
+		TAILQ_FOREACH_REVERSE(c, layers[i], Queue, z_entry) {
 			TAILQ_FOREACH(l, &((struct Container *)c)->colq, entry) {
 				struct Column *col = l->self;
 				TAILQ_FOREACH(r, &((struct Column *)l)->rowq, entry)
@@ -3285,7 +3291,7 @@ list_clients(void)
 
 	n = 0;
 	for (size_t i = 0; i < LEN(layers); i++) {
-		TAILQ_FOREACH(c, layers[i], z_entry) {
+		TAILQ_FOREACH_REVERSE(c, layers[i], Queue, z_entry) {
 			struct Container *container = c->self;
 			wins[n++] = container->selcol->selrow->seltab->obj.win;
 		}
@@ -3432,7 +3438,7 @@ done:
 		return;
 	}
 	tabfocus(c->selcol->selrow->seltab);
-	restack(&c->obj);
+	raise(c);
 }
 
 void
@@ -3444,7 +3450,7 @@ focusnext(struct Monitor *mon, int desk)
 		struct Container *container = obj->self;
 		if (is_visible(container, mon, desk)) {
 			tabfocus(container->selcol->selrow->seltab);
-			restack(&container->obj);
+			raise(container);
 			return;
 		}
 	}
