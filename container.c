@@ -2254,7 +2254,6 @@ drag_move(struct Container *container, int xroot, int yroot)
 		xroot = event.xmotion.x_root;
 		yroot = event.xmotion.y_root;
 	}
-	container->geometry.saved = container->geometry.current;
 	XUngrabPointer(wm.display, CurrentTime);
 }
 
