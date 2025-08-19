@@ -753,7 +753,7 @@ update_tiles(struct Container *c)
 					tab->x, 0,
 					tab->w, config.titlewidth
 				);
-				if (tab->ptw < tab->w)
+				if (tab->ptw != tab->w)
 					tabdecorate(tab);
 				if (tab == row->seltab) {
 					tab_update_geometry(tab);
@@ -932,8 +932,6 @@ tabfocus(struct Tab *tab)
 		wm.focused = NULL;
 		XSetInputFocus(wm.display, wm.focuswin, RevertToPointerRoot, CurrentTime);
 		set_active_window(None);
-	} else if (&tab->obj == wm.focused) {
-		return;
 	} else {
 		container = tab->row->col->c;
 		wm.focused = &tab->obj;
@@ -2474,7 +2472,8 @@ tab_btnpress(struct Object *self, XButtonPressedEvent *press)
 		return;
 	container = tab->row->col->c;
 
-	if (press->button == Button1 && press->window != tab->close_btn) {
+	if (press->button == Button1 && press->window != tab->close_btn &&
+	    (&tab->obj != wm.focused)) {
 		tabfocus(tab);
 		restack(&container->obj);
 	}
