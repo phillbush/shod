@@ -194,7 +194,7 @@ manage(struct Object *app, struct Monitor *mon, int desk, Window win, Window lea
 	menudecorate(menu);
 	menuraise(menu);
 	if (menu->leader == None ||
-	    (wm.focused != NULL && focused_follows_leader(menu->leader))) {
+	    (focused_follows_leader(menu->leader))) {
 		XMapWindow(wm.display, menu->frame);
 		menufocus(menu);
 	}
