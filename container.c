@@ -3350,7 +3350,7 @@ alttab_raise(struct Container *prevc, Bool backward)
 		}
 	}
 	if (newc == NULL)
-		newc = prevc;
+		return NULL;
 
 	/*
 	 * put back temporarily raised container for alttab;
