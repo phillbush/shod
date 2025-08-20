@@ -5,7 +5,6 @@ struct Splash {
 	struct Monitor *mon;
 	int desk;
 	XRectangle geometry;
-	Window frame;
 	Pixmap pixmap;
 	int pixwidth, pixheight;
 };
@@ -17,19 +16,23 @@ static void
 hide(struct Splash *splash, int hide)
 {
 	if (hide)
-		XUnmapWindow(wm.display, splash->frame);
+		XUnmapWindow(wm.display, splash->obj.frame);
 	else
-		XMapWindow(wm.display, splash->frame);
+		XMapWindow(wm.display, splash->obj.frame);
 }
 
 static void
-rise(struct Object *obj)
+raise(struct Splash *splash)
 {
-	struct Splash *splash = obj->self;
-
+	TAILQ_REMOVE(&wm.stacking_order, &splash->obj, z_entry);
+	TAILQ_INSERT_AFTER(
+		&wm.stacking_order,
+		&wm.layers[LAYER_NORMAL], &splash->obj,
+		z_entry
+	);
 	XRestackWindows(wm.display, (Window[]){
-		[0] = wm.layertop[LAYER_NORMAL],
-		[1] = splash->frame,
+		[0] = wm.layers[LAYER_NORMAL].frame,
+		[1] = splash->obj.frame,
 	}, 2);
 }
 
@@ -42,10 +45,10 @@ center(struct Monitor *mon, struct Splash *splash)
 	splash->geometry.y = mon->window_area.y
 	                   + (mon->window_area.height - splash->geometry.height) / 2;
 	XMoveWindow(
-		wm.display, splash->frame,
+		wm.display, splash->obj.frame,
 		splash->geometry.x, splash->geometry.y
 	);
-	rise(&splash->obj);
+	raise(splash);
 }
 
 static void
@@ -64,7 +67,7 @@ redecorate(struct Object *obj)
 		0, 0, splash->geometry.width, splash->geometry.height,
 		UNFOCUSED
 	);
-	drawcommit(splash->pixmap, splash->frame);
+	drawcommit(splash->pixmap, splash->obj.frame);
 }
 
 static void
@@ -84,21 +87,26 @@ manage(struct Object *tab, struct Monitor *mon, int desk, Window win,
 		.obj.self = splash,
 		.obj.class = &splash_class,
 		.geometry = geometry,
-		.frame = createframe(geometry),
+		.obj.frame = createframe(geometry),
 		.pixmap = None,
 		.pixwidth = 0,
 		.pixheight = 0,
 	};
 	context_add(splash->obj.win, &splash->obj);
-	context_add(splash->frame, &splash->obj);
+	context_add(splash->obj.frame, &splash->obj);
 	redecorate(&splash->obj);
 	XReparentWindow(
-		wm.display, splash->obj.win, splash->frame,
+		wm.display, splash->obj.win, splash->obj.frame,
 		config.shadowthickness, config.shadowthickness
 	);
 	XMapWindow(wm.display, splash->obj.win);
-	XMapWindow(wm.display, splash->frame);
+	XMapWindow(wm.display, splash->obj.frame);
 	TAILQ_INSERT_HEAD(&managed_splashs, (struct Object *)splash, entry);
+	TAILQ_INSERT_AFTER(
+		&wm.stacking_order,
+		&wm.layers[LAYER_NORMAL], &splash->obj,
+		z_entry
+	);
 	splash->mon = mon;
 	splash->desk = desk;
 	center(mon, splash);
@@ -111,9 +119,10 @@ unmanage(struct Object *obj)
 	struct Splash *splash = obj->self;
 
 	context_del(splash->obj.win);
-	XDestroyWindow(wm.display, splash->frame);
+	XDestroyWindow(wm.display, splash->obj.frame);
 	XFreePixmap(wm.display, splash->pixmap);
 	TAILQ_REMOVE(&managed_splashs, (struct Object *)splash, entry);
+	TAILQ_REMOVE(&wm.stacking_order, &splash->obj, z_entry);
 	free(splash);
 }
 
@@ -139,7 +148,7 @@ btnpress(struct Object *obj, XButtonPressedEvent *press)
 
 	if (press->button != Button1)
 		return;
-	rise(&splash->obj);
+	raise(splash);
 }
 
 static void

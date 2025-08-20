@@ -16,7 +16,6 @@ struct Menu {
 
 	Window titlebar;
 	Window close_btn;
-	Window frame;                           /* frame window */
 	Pixmap pixtitlebar;                     /* pixmap to draw the titlebar */
 	int pw, ph;                             /* pixmap size */
 	int tw;                                 /* titlebar pixmap size */
@@ -27,15 +26,6 @@ struct Menu {
 };
 
 static struct Queue managed_menus;
-
-/* remove menu from the menu list */
-static void
-menudelraise(struct Menu *menu)
-{
-	if (TAILQ_EMPTY(&managed_menus))
-		return;
-	TAILQ_REMOVE(&managed_menus, (struct Object *)menu, entry);
-}
 
 static void
 menudecorate(struct Menu *menu)
@@ -62,7 +52,7 @@ static void
 menumoveresize(struct Menu *menu)
 {
 	XMoveResizeWindow(
-		wm.display, menu->frame,
+		wm.display, menu->obj.frame,
 		menu->frame_geometry.x, menu->frame_geometry.y,
 		menu->frame_geometry.width, menu->frame_geometry.height
 	);
@@ -95,8 +85,12 @@ menufocus(struct Menu *menu)
 static void
 menufocusraise(struct Menu *menu)
 {
-	menudelraise(menu);
-	TAILQ_INSERT_HEAD(&managed_menus, (struct Object *)menu, entry);
+	TAILQ_REMOVE(&wm.stacking_order, &menu->obj, z_entry);
+	TAILQ_INSERT_AFTER(
+		&wm.stacking_order,
+		&wm.layers[LAYER_MENU], &menu->obj,
+		z_entry
+	);
 	menufocus(menu);
 }
 
@@ -112,11 +106,10 @@ menuplace(struct Monitor *mon, struct Menu *menu)
 static void
 menuraise(struct Menu *menu)
 {
-	Window wins[2];
-
-	wins[1] = menu->frame;
-	wins[0] = wm.layertop[LAYER_MENU];
-	XRestackWindows(wm.display, wins, 2);
+	XRestackWindows(wm.display, (Window[]){
+		[0] = wm.layers[LAYER_MENU].frame,
+		[1] = menu->obj.frame,
+	}, 2);
 }
 
 static void
@@ -142,12 +135,12 @@ manage(struct Object *app, struct Monitor *mon, int desk, Window win, Window lea
 		.obj.win = win,
 		.obj.self = menu,
 		.obj.class = &menu_class,
+		.obj.frame = createframe(rect),
 		.pixtitlebar = None,
 		.frame_geometry = rect,
 	};
-	menu->frame = createframe(menu->frame_geometry);
 	menu->titlebar = createdecoration(
-		menu->frame,
+		menu->obj.frame,
 		(XRectangle){0, 0, menu->frame_geometry.width, config.titlewidth},
 		None, NorthWestGravity
 	);
@@ -160,17 +153,17 @@ manage(struct Object *app, struct Monitor *mon, int desk, Window win, Window lea
 	);
 	XGrabButton(
 		wm.display, AnyButton, AnyModifier,
-		menu->frame, False, MOUSE_EVENTS,
+		menu->obj.frame, False, MOUSE_EVENTS,
 		GrabModeSync, GrabModeAsync, None, None
 	);
 	drawcommit(wm.close_btn[FOCUSED][1], menu->close_btn);
 	context_add(win, &menu->obj);
-	context_add(menu->frame, &menu->obj);
+	context_add(menu->obj.frame, &menu->obj);
 	context_add(menu->titlebar, &menu->obj);
 	context_add(menu->close_btn, &menu->obj);
 	XReparentWindow(
 		wm.display,
-		menu->obj.win, menu->frame,
+		menu->obj.win, menu->obj.frame,
 		BORDER, config.titlewidth
 	);
 	XChangeProperty(
@@ -190,12 +183,17 @@ manage(struct Object *app, struct Monitor *mon, int desk, Window win, Window lea
 	menu->leader = leader;
 	winupdatetitle(menu->obj.win, &menu->name);
 	TAILQ_INSERT_HEAD(&managed_menus, (struct Object *)menu, entry);
+	TAILQ_INSERT_AFTER(
+		&wm.stacking_order,
+		&wm.layers[LAYER_MENU], &menu->obj,
+		z_entry
+	);
 	menuplace(mon, menu);           /* this will set menu->mon for us */
 	menudecorate(menu);
 	menuraise(menu);
 	if (menu->leader == None ||
 	    (focused_follows_leader(menu->leader))) {
-		XMapWindow(wm.display, menu->frame);
+		XMapWindow(wm.display, menu->obj.frame);
 		menufocus(menu);
 	}
 }
@@ -206,11 +204,12 @@ unmanage(struct Object *obj)
 	struct Menu *menu = obj->self;
 
 	context_del(obj->win);
-	menudelraise(menu);
+	TAILQ_REMOVE(&managed_menus, &menu->obj, entry);
+	TAILQ_REMOVE(&wm.stacking_order, &menu->obj, z_entry);
 	if (menu->pixtitlebar != None)
 		XFreePixmap(wm.display, menu->pixtitlebar);
 	XReparentWindow(wm.display, menu->obj.win, wm.rootwin, 0, 0);
-	XDestroyWindow(wm.display, menu->frame);
+	XDestroyWindow(wm.display, menu->obj.frame);
 	XDestroyWindow(wm.display, menu->titlebar);
 	XDestroyWindow(wm.display, menu->close_btn);
 	free(menu->name);
@@ -224,7 +223,7 @@ drag_move(struct Menu *menu, int xroot, int yroot)
 	int x, y;
 
 	if (XGrabPointer(
-		wm.display, menu->frame, False,
+		wm.display, menu->obj.frame, False,
 		ButtonReleaseMask|PointerMotionMask,
 		GrabModeAsync, GrabModeAsync,
 		None, wm.cursors[CURSOR_MOVE], CurrentTime
@@ -300,7 +299,7 @@ drag_resize(struct Menu *menu, int direction, int xroot, int yroot)
 	else
 		y = 0;
 	if (XGrabPointer(
-		wm.display, menu->frame, False,
+		wm.display, menu->obj.frame, False,
 		ButtonReleaseMask|PointerMotionMask,
 		GrabModeAsync, GrabModeAsync,
 		None, cursor, CurrentTime
@@ -525,7 +524,7 @@ update_visibility(struct Menu *menu)
 {
 	if (!wm.showingdesk &&
 	    (menu->leader == None || focused_follows_leader(menu->leader))) {
-		XMapWindow(wm.display, menu->frame);
+		XMapWindow(wm.display, menu->obj.frame);
 		XChangeProperty(
 			wm.display, menu->obj.win, wm.atoms[WM_STATE], wm.atoms[WM_STATE],
 			32, PropModeReplace, (void *)&(long[]){
@@ -534,7 +533,7 @@ update_visibility(struct Menu *menu)
 			}, 2
 		);
 	} else {
-		XUnmapWindow(wm.display, menu->frame);
+		XUnmapWindow(wm.display, menu->obj.frame);
 		XChangeProperty(
 			wm.display, menu->obj.win, wm.atoms[WM_STATE], wm.atoms[WM_STATE],
 			32, PropModeReplace, (void *)&(long[]){
@@ -560,16 +559,16 @@ restack_all(void)
 	Window wins[2];
 	struct Object *obj;
 
-	wins[0] = wm.layertop[LAYER_MENU];
+	wins[0] = wm.layers[LAYER_MENU].frame;
 	TAILQ_FOREACH(obj, &managed_menus, entry) {
 		struct Menu *menu = (obj->self);
 		update_visibility(menu);
 		if (!focused_follows_leader(menu->leader))
 			continue;
 		menu = obj->self;
-		wins[1] = menu->frame;
+		wins[1] = menu->obj.frame;
 		XRestackWindows(wm.display, wins, 2);
-		wins[0] = menu->frame;
+		wins[0] = menu->obj.frame;
 	}
 }
 

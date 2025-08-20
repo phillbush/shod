@@ -97,7 +97,7 @@ TAILQ_HEAD(Queue, Object);
 struct Object {
 	TAILQ_ENTRY(Object) entry;
 	TAILQ_ENTRY(Object) z_entry;
-	Window win;
+	Window win, frame;
 	struct Class *class;
 	void *self;
 };
@@ -165,7 +165,9 @@ struct WM {
 	struct Monitor **monitors;
 	struct Monitor *selmon;
 
-	Window layertop[LAYER_LAST];
+	struct Queue stacking_order;
+	struct Object layers[LAYER_LAST];
+
 	struct Object *focused;                 /* pointer to focused container */
 
 	Cursor cursors[CURSOR_LAST];            /* cursors for the mouse pointer */

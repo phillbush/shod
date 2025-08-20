@@ -155,6 +155,16 @@ static struct {
 } application, resources[NRESOURCES];
 static XrmQuark anyresource;
 
+static void
+manageunknown(struct Object *app, struct Monitor *mon, int desk, Window win,
+	Window leader, XRectangle rect, enum State state);
+
+static struct Class unknown_class = {
+	.setstate       = NULL,
+	.manage         = &manageunknown,
+	.unmanage       = NULL,
+};
+
 struct WM wm = { 0 };
 
 /* default/hardcoded rules */
@@ -348,11 +358,6 @@ static void
 manage(Window win, Window appwin, XRectangle rect)
 {
 	enum { I_APP, I_CLASS, I_INSTANCE, I_ROLE, I_RESOURCE, I_NULL, I_LAST };
-	static struct Class unknown_class = {
-		.setstate       = NULL,
-		.manage         = &manageunknown,
-		.unmanage       = NULL,
-	};
 	XrmClass winclass[I_LAST];
 	XrmName winname[I_LAST];
 	XClassHint classh = { NULL, NULL };
@@ -1707,11 +1712,16 @@ setup(void)
 	wm.selmon = wm.monitors[0];
 
 	/* create windows used for controlling focus and stack order */
-	for (size_t i = 0; i < LEN(wm.layertop); i++) {
-		wm.layertop[i] = XCreateSimpleWindow(
-			wm.display, wm.rootwin, 0, 0, 1, 1, 0, 0, 0
-		);
-		XRaiseWindow(wm.display, wm.layertop[i]);
+	TAILQ_INIT(&wm.stacking_order);
+	for (size_t i = 0; i < LEN(wm.layers); i++) {
+		wm.layers[i] = (struct Object){
+			.frame = XCreateSimpleWindow(
+				wm.display, wm.rootwin, 0, 0, 1, 1, 0, 0, 0
+			),
+			.class = &unknown_class,
+		};
+		XRaiseWindow(wm.display, wm.layers[i].frame);
+		TAILQ_INSERT_HEAD(&wm.stacking_order, &wm.layers[i], z_entry);
 	}
 	wm.checkwin = wm.focuswin = wm.dragwin = wm.restackwin = XCreateWindow(
 		wm.display, wm.rootwin,
@@ -1789,8 +1799,8 @@ cleanup(void)
 	}
 	XFreeGC(wm.display, wm.gc);
 	XDestroyWindow(wm.display, wm.checkwin);
-	for (size_t layer = 0; layer < LEN(wm.layertop); layer++)
-		XDestroyWindow(wm.display, wm.layertop[layer]);
+	for (size_t layer = 0; layer < LEN(wm.layers); layer++)
+		XDestroyWindow(wm.display, wm.layers[layer].frame);
 	for (size_t cursor = 0; cursor < CURSOR_LAST; cursor++)
 		XFreeCursor(wm.display, wm.cursors[cursor]);
 	FOREACH_CLASS(clean);

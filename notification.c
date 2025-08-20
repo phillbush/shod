@@ -2,7 +2,6 @@
 
 struct Notification {
 	struct Object obj;
-	Window frame;                           /* window to reparent the actual client window */
 	Pixmap pix;                             /* pixmap to draw the frame */
 	int w, h;                               /* geometry of the entire thing (content + decoration) */
 	int pw, ph;                             /* pixmap width and height */
@@ -17,14 +16,14 @@ notifdecorate(struct Notification *n)
 	if (n->pw != n->w || n->ph != n->h || n->pix == None) {
 		if (n->pix != None)
 			XFreePixmap(wm.display, n->pix);
-		n->pix = XCreatePixmap(wm.display, n->frame, n->w, n->h, wm.depth);
+		n->pix = XCreatePixmap(wm.display, n->obj.frame, n->w, n->h, wm.depth);
 	}
 	n->pw = n->w;
 	n->ph = n->h;
 
 	drawborders(n->pix, n->w, n->h, FOCUSED);
 
-	drawcommit(n->pix, n->frame);
+	drawcommit(n->pix, n->obj.frame);
 }
 
 static void
@@ -90,9 +89,9 @@ monitor_reset(void)
 			y += h;
 		h += notif->h + config.notifgap + config.borderwidth * 2;
 
-		XMoveResizeWindow(wm.display, notif->frame, x, y, notif->w, notif->h);
+		XMoveResizeWindow(wm.display, notif->obj.frame, x, y, notif->w, notif->h);
 		XMoveResizeWindow(wm.display, notif->obj.win, config.borderwidth, config.borderwidth, notif->w - 2 * config.borderwidth, notif->h - 2 * config.borderwidth);
-		XMapWindow(wm.display, notif->frame);
+		XMapWindow(wm.display, notif->obj.frame);
 		if (notif->pw != notif->w || notif->ph != notif->h) {
 			notifdecorate(notif);
 		}
@@ -116,19 +115,21 @@ manage(struct Object *tab, struct Monitor *mon, int desk, Window win, Window lea
 	(void)desk;
 	(void)leader;
 	(void)state;
+	rect.width += 2 * config.borderwidth;
+	rect.height += 2 * config.borderwidth;
 	notif = emalloc(sizeof(*notif));
 	*notif = (struct Notification){
-		.w = rect.width + 2 * config.borderwidth,
-		.h = rect.height + 2 * config.borderwidth,
+		.w = rect.width,
+		.h = rect.height,
 		.pix = None,
 		.obj.win = win,
 		.obj.self = notif,
 		.obj.class = &notif_class,
+		.obj.frame = createframe(rect),
 	};
 	context_add(win, &notif->obj);
 	TAILQ_INSERT_TAIL(&managed_notifications, (struct Object *)notif, entry);
-	notif->frame = createframe((XRectangle){0, 0, 1, 1});
-	XReparentWindow(wm.display, notif->obj.win, notif->frame, 0, 0);
+	XReparentWindow(wm.display, notif->obj.win, notif->obj.frame, 0, 0);
 	XMapWindow(wm.display, notif->obj.win);
 	monitor_reset();
 }
@@ -143,7 +144,7 @@ unmanage(struct Object *obj)
 	if (notif->pix != None)
 		XFreePixmap(wm.display, notif->pix);
 	XReparentWindow(wm.display, notif->obj.win, wm.rootwin, 0, 0);
-	XDestroyWindow(wm.display, notif->frame);
+	XDestroyWindow(wm.display, notif->obj.frame);
 	free(notif);
 	monitor_reset();
 }

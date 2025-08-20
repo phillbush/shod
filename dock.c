@@ -29,9 +29,9 @@ restack_all(void)
 	Window wins[2];
 
 	if (dock.state & BELOW)
-		wins[0] = wm.layertop[LAYER_DESK];
+		wins[0] = wm.layers[LAYER_DESK].frame;
 	else
-		wins[0] = wm.layertop[LAYER_DOCK];
+		wins[0] = wm.layers[LAYER_DOCK].frame;
 	wins[1] = dock.obj.win;
 	XRestackWindows(wm.display, wins, 2);
 }
