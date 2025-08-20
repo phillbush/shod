@@ -801,9 +801,10 @@ containermoveresize(struct Container *container, XRectangle geometry)
 
 		if (monto != NULL && monto != container->mon) {
 			container->mon = monto;
-			if (is_focused(container)) {
+			container->desk = monto->seldesk;
+			container_setdesk(container);
+			if (is_focused(container))
 				deskupdate(monto, monto->seldesk);
-			}
 		}
 	}
 	update_tiles(container);
@@ -1482,7 +1483,6 @@ containersendtodesk(struct Container *c, struct Monitor *mon, unsigned long desk
 	}
 	wm.setclientlist = True;
 	container_setdesk(c);
-	setstate_recursive(c);
 	return 1;
 }
 
