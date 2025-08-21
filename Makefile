@@ -15,11 +15,11 @@ PROG_CPPFLAGS = \
 	-I/usr{,/local,/X11R6}/include{,/freetype2} \
 	${CPPFLAGS}
 
-PROG_CFLAGS = -std=c99 ${PROG_CPPFLAGS} ${CFLAGS}
+PROG_CFLAGS = -std=c2x ${PROG_CPPFLAGS} ${CFLAGS}
 
 PROG_LDFLAGS = -L/usr{,/local,/X11R6}/lib ${LDLIBS} ${LDFLAGS}
 
-DEBUG_FLAGS = -g -O0 -DDEBUG -Wall -Wextra ${DEBUG}
+DEBUG_FLAGS = -g -O0 -DDEBUG -Wall -Wextra -Wpedantic ${DEBUG}
 
 all: ${PROGS}
 
