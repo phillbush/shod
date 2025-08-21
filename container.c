@@ -3325,8 +3325,7 @@ alttab_raise(struct Container *prevc, Bool backward)
 			}
 		}
 		if (newc == NULL) TAILQ_FOREACH_REVERSE(obj, &focus_history, Queue, entry) {
-			if (obj->self != prevc &&
-			    is_visible(obj->self, prevc->mon, prevc->desk)) {
+			if (is_visible(obj->self, prevc->mon, prevc->desk)) {
 				newc = obj->self;
 				break;
 			}
@@ -3340,8 +3339,7 @@ alttab_raise(struct Container *prevc, Bool backward)
 			}
 		}
 		if (newc == NULL) TAILQ_FOREACH(obj, &focus_history, entry) {
-			if (obj->self != prevc &&
-			    is_visible(obj->self, prevc->mon, prevc->desk)) {
+			if (is_visible(obj->self, prevc->mon, prevc->desk)) {
 				newc = obj->self;
 				break;
 			}
