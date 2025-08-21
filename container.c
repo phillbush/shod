@@ -3395,7 +3395,7 @@ alttab(KeyCode altkey, KeyCode tabkey, Bool shift)
 		None, None, CurrentTime
 	) != GrabSuccess)
 		goto done;
-	wm.focused = NULL;
+	tabfocus(NULL);
 	c = alttab_raise(c, shift);
 	for (;;) {
 		XMaskEvent(wm.display, KeyPressMask|KeyReleaseMask, &ev);
