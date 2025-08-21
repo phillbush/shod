@@ -11,7 +11,7 @@ MANS        = shod.1
 PROGS       = shod shodc
 
 PROG_CPPFLAGS = \
-	-D_POSIX_C_SOURCE=202405L -D_BSD_SOURCE -D_GNU_SOURCE -D_DEFAULT_SOURCE \
+	-D_POSIX_C_SOURCE=202405L \
 	-I/usr{,/local,/X11R6}/include{,/freetype2} \
 	${CPPFLAGS}
 

@@ -966,13 +966,11 @@ tabfocus(struct Tab *tab)
 		set_container_group(container);
 		setstate_recursive(container);
 		menu_class.restack_all();
-		if (is_visible(container, wm.selmon, wm.selmon->seldesk)) {
-			deskupdate(
-				container->mon,
-				container->state & STICKY ?
-				container->mon->seldesk : container->desk
-			);
-		}
+		deskupdate(
+			container->mon,
+			container->state & STICKY ?
+			container->mon->seldesk : container->desk
+		);
 	}
 	if (prevfocused != NULL && (tab == NULL || tab != prevfocused->self)) {
 		if (prevfocused->class->redecorate != NULL)
