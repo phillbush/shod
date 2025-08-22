@@ -1111,10 +1111,11 @@ tabnew(Window win, Window leader)
 	return tab;
 }
 
-/* remove tab from row's tab queue */
 static void
-tabremove(struct Row *row, struct Tab *tab)
+tab_unlist(struct Tab *tab)
 {
+	struct Row *row = tab->row;
+
 	if (row->seltab == tab) {
 		row->seltab = (void *)TAILQ_NEXT((struct Object *)tab, entry);
 		if (row->seltab == NULL) {
@@ -1123,7 +1124,6 @@ tabremove(struct Row *row, struct Tab *tab)
 	}
 	row->ntabs--;
 	TAILQ_REMOVE(&row->tabq, (struct Object *)tab, entry);
-	tab->row = NULL;
 }
 
 static void
@@ -1135,7 +1135,7 @@ tabdel(struct Tab *tab)
 		XDestroyWindow(wm.display, dial->win);
 		unmanagedialog((struct Object *)dial);
 	}
-	tabremove(tab->row, tab);
+	tab_unlist(tab);
 	if (tab->pixtitle != None)
 		XFreePixmap(wm.display, tab->pixtitle);
 	if (tab->pix != None)
@@ -1432,9 +1432,6 @@ coladdrow(struct Column *col, struct Row *row, struct Row *prev)
 static void
 rowaddtab(struct Row *row, struct Tab *tab, struct Tab *prev)
 {
-	struct Row *oldrow;
-
-	oldrow = tab->row;
 	tab->row = row;
 	row->ntabs++;
 	if (prev == NULL || TAILQ_EMPTY(&row->tabq))
@@ -1446,13 +1443,6 @@ rowaddtab(struct Row *row, struct Tab *tab, struct Tab *prev)
 	XReparentWindow(wm.display, tab->obj.frame, row->tab_area, 0, 0);
 	XMapWindow(wm.display, tab->obj.frame);
 	XMapWindow(wm.display, tab->title);
-	if (oldrow != NULL) {           /* deal with the row this tab came from */
-		if (oldrow->ntabs == 0) {
-			rowdel(oldrow);
-		} else {
-			rowcalctabs(oldrow);
-		}
-	}
 }
 
 static void containerstick(struct Container *c, int stick);
@@ -1910,37 +1900,27 @@ found:
 static void
 containerdelrow(struct Row *row)
 {
-	struct Container *c;
+	struct Container *container;
 	struct Column *col;
 	int recalc;
 
 	/* delete row; then column if empty; then container if empty */
 	col = row->col;
-	c = col->c;
+	container = col->c;
 	recalc = 1;
 	if (row->ntabs == 0)
 		rowdel(row);
 	if (col->nrows == 0)
 		coldel(col);
-	if (c->ncols == 0) {
-		containerdel(&c->obj);
+	if (container->ncols == 0) {
+		containerdel(&container->obj);
 		recalc = 0;
 	}
 	if (recalc) {
-		update_tiles(c);
-		set_container_group(c);
+		update_tiles(container);
+		redecorate(&container->obj);
+		set_container_group(container);
 	}
-}
-
-static void
-tabdetach(struct Tab *tab, int x, int y)
-{
-	struct Row *row;
-
-	row = tab->row;
-	tabremove(row, tab);
-	XReparentWindow(wm.display, tab->title, wm.rootwin, x, y);
-	rowcalctabs(row);
 }
 
 static void
@@ -2055,26 +2035,10 @@ unmanagetab(struct Object *obj)
 	struct Row *row = tab->row;
 	struct Column *col = row->col;
 	struct Container *container = col->c;
-	Bool refocus = False;
+	Bool refocus = is_focused(container);
 
-	refocus = False;
 	tabdel(tab);
-	if (row->ntabs == 0) {
-		rowdel(row);
-		if (col->nrows == 0) {
-			coldel(col);
-			if (container->ncols == 0) {
-				if (is_focused(container))
-					refocus = True;
-				containerdel(&container->obj);
-				goto done;
-			}
-		}
-	}
-	update_tiles(container);
-	redecorate(&container->obj);
-	set_container_group(container);
-done:
+	containerdelrow(row);
 	if (refocus)
 		focusnext(container->mon, container->desk);
 	wm.setclientlist = True;
@@ -2382,7 +2346,12 @@ drag_tab(struct Tab *tab, int xroot, int yroot, int x, int y)
 		None, None, CurrentTime
 	) != GrabSuccess)
 		return;
-	tabdetach(tab, xroot - x, yroot - y);
+	tab_unlist(tab);
+	XReparentWindow(
+		wm.display,
+		tab->title, wm.rootwin,
+		xroot - x, yroot - y
+	);
 	update_tiles(container);
 	XUnmapWindow(wm.display, tab->title);
 	XMoveWindow(
