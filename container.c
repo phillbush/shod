@@ -2165,7 +2165,7 @@ static void
 drag_move(struct Container *container, int xroot, int yroot)
 {
 	XEvent event;
-	XRectangle geometry;
+	XRectangle unsnapped;
 
 	if (container->state & (FULLSCREEN|MINIMIZED))
 		return;
@@ -2176,7 +2176,7 @@ drag_move(struct Container *container, int xroot, int yroot)
 		None, wm.cursors[CURSOR_MOVE], CurrentTime
 	) != GrabSuccess)
 		return;
-	geometry = container->geometry.saved;
+	unsnapped = container->geometry.saved;
 	for (;;) {
 		XMaskEvent(wm.display, ButtonReleaseMask|PointerMotionMask, &event);
 		if (event.type == ButtonRelease)
@@ -2186,10 +2186,10 @@ drag_move(struct Container *container, int xroot, int yroot)
 		if (!(container->state & MAXIMIZED) && event.xmotion.y_root <= 0) {
 			containersetstate(&container->obj, MAXIMIZED, ADD);
 		} else if (!(container->state & MAXIMIZED)) {
-			container->geometry.saved.x += event.xmotion.x_root - xroot;
-			container->geometry.saved.y += event.xmotion.y_root - yroot;
-			geometry = snap(container->geometry.saved);
-			containermoveresize(container, geometry);
+			unsnapped.x += event.xmotion.x_root - xroot;
+			unsnapped.y += event.xmotion.y_root - yroot;
+			container->geometry.saved = snap(unsnapped);
+			containermoveresize(container, container->geometry.saved);
 		} else if (event.xmotion.y_root > config.titlewidth) {
 			container->geometry.saved.x = event.xmotion.x_root - container->geometry.saved.width / 2;
 			container->geometry.saved.y = 0;
