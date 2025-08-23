@@ -1,3 +1,4 @@
+#include <err.h>
 #include "shod.h"
 
 #define BORDER          1       /* pixel size of decoration around menus */
@@ -16,9 +17,9 @@ struct Menu {
 
 	Window titlebar;
 	Window close_btn;
-	Pixmap pixtitlebar;                     /* pixmap to draw the titlebar */
-	int pw, ph;                             /* pixmap size */
-	int tw;                                 /* titlebar pixmap size */
+	Window edge, corner_left, corner_right;
+	Pixmap pixmap;
+	int pw, ph;
 
 	XRectangle frame_geometry;
 	int ignoreunmap;                        /* number of unmapnotifys to ignore */
@@ -27,27 +28,44 @@ struct Menu {
 
 static struct Queue managed_menus;
 
+static struct {
+	Pixmap edge;
+	Pixmap corner_left;
+	Pixmap corner_right;
+} decorations;
+
 static void
-menudecorate(struct Menu *menu)
+redecorate(struct Object *obj)
 {
+	struct Menu *menu = obj->self;
+
 	updatepixmap(
-		&menu->pixtitlebar, &menu->tw, NULL,
-		menu->frame_geometry.width, config.titlewidth
+		&menu->pixmap, &menu->pw, &menu->ph,
+		menu->frame_geometry.width,
+		menu->frame_geometry.height
 	);
 	drawshadow(
-		menu->pixtitlebar, 0, 0,
+		menu->pixmap, 0, 0,
+		menu->frame_geometry.width,
+		menu->frame_geometry.height,
+		UNFOCUSED
+	);
+	drawshadow(
+		menu->pixmap, 0, 0,
 		menu->frame_geometry.width,
 		config.titlewidth, FOCUSED
 	);
 	drawtitle(
-		menu->pixtitlebar, menu->name,
-		menu->frame_geometry.width, 0,
-		FOCUSED, 0, 1
+		menu->pixmap, menu->name,
+		menu->frame_geometry.width,
+		wm.focused == &menu->obj,
+		FOCUSED, False,
+		wm.focused == &menu->obj
 	);
-	drawcommit(menu->pixtitlebar, menu->titlebar);
+	drawcommit(menu->pixmap, menu->obj.frame);
+	drawcommit(menu->pixmap, menu->titlebar);
 }
 
-/* commit menu geometry */
 static void
 menumoveresize(struct Menu *menu)
 {
@@ -63,22 +81,37 @@ menumoveresize(struct Menu *menu)
 	XResizeWindow(
 		wm.display, menu->obj.win,
 		max(1, menu->frame_geometry.width - 2 * BORDER),
-		max(1, menu->frame_geometry.height - BORDER - config.titlewidth)
+		max(1, menu->frame_geometry.height - BORDER - config.titlewidth - config.borderwidth)
+	);
+	XResizeWindow(
+		wm.display, menu->edge,
+		menu->frame_geometry.width, config.borderwidth
 	);
 	menu->mon = getmon(menu->frame_geometry.x, menu->frame_geometry.y);
+	redecorate(&menu->obj);
 	window_configure_notify(
 		wm.display, menu->obj.win,
 		menu->frame_geometry.x + BORDER,
 		menu->frame_geometry.y + config.titlewidth,
 		menu->frame_geometry.width - 2 * BORDER,
-		menu->frame_geometry.height - BORDER - config.titlewidth
+		menu->frame_geometry.height - BORDER - config.titlewidth - config.borderwidth
 	);
 }
 
 static void
 menufocus(struct Menu *menu)
 {
+	struct Object *prevfocused = wm.focused;
+
+	if (wm.focused == &menu->obj)
+		return;
 	XSetInputFocus(wm.display, menu->obj.win, RevertToPointerRoot, CurrentTime);
+	wm.focused = &menu->obj;
+	if (prevfocused != NULL && prevfocused->self != menu) {
+		if (prevfocused->class->redecorate != NULL)
+			prevfocused->class->redecorate(prevfocused);
+	}
+	redecorate(&menu->obj);
 }
 
 /* put menu on beginning of menu list */
@@ -116,6 +149,7 @@ static void
 manage(struct Object *app, struct Monitor *mon, int desk, Window win, Window leader, XRectangle rect, enum State state)
 {
 	struct Menu *menu;
+	int cornerwidth = config.titlewidth + config.borderwidth;
 
 	(void)mon;
 	(void)desk;
@@ -125,7 +159,7 @@ manage(struct Object *app, struct Monitor *mon, int desk, Window win, Window lea
 	rect.x -= BORDER;
 	rect.y -= config.titlewidth;
 	rect.width += 2 * BORDER;
-	rect.height += BORDER + config.titlewidth;
+	rect.height += BORDER + config.titlewidth + config.borderwidth;
 
 	if (leader == None)
 		leader = app->win;
@@ -136,7 +170,7 @@ manage(struct Object *app, struct Monitor *mon, int desk, Window win, Window lea
 		.obj.self = menu,
 		.obj.class = &menu_class,
 		.obj.frame = createframe(rect),
-		.pixtitlebar = None,
+		.pixmap = None,
 		.frame_geometry = rect,
 	};
 	menu->titlebar = createdecoration(
@@ -151,16 +185,43 @@ manage(struct Object *app, struct Monitor *mon, int desk, Window win, Window lea
 		},
 		wm.cursors[CURSOR_PIRATE], NorthEastGravity
 	);
-	XGrabButton(
-		wm.display, AnyButton, AnyModifier,
-		menu->obj.frame, False, MOUSE_EVENTS,
-		GrabModeSync, GrabModeAsync, None, None
+	menu->corner_left = createdecoration(
+		menu->obj.frame,
+		(XRectangle){
+			0, menu->frame_geometry.height - config.borderwidth,
+			cornerwidth + config.shadowthickness,
+			config.borderwidth
+		},
+		wm.cursors[CURSOR_SW], SouthWestGravity
+	);
+	menu->corner_right = createdecoration(
+		menu->obj.frame,
+		(XRectangle){
+			menu->frame_geometry.width - cornerwidth - config.shadowthickness,
+			menu->frame_geometry.height - config.borderwidth,
+			cornerwidth + config.shadowthickness,
+			config.borderwidth
+		},
+		wm.cursors[CURSOR_SE], SouthEastGravity
+	);
+	menu->edge = createdecoration(
+		menu->obj.frame,
+		(XRectangle){
+			0, menu->frame_geometry.height - config.borderwidth,
+			menu->frame_geometry.width, config.borderwidth
+		},
+		None, SouthGravity
 	);
 	drawcommit(wm.close_btn[FOCUSED][1], menu->close_btn);
+	drawcommit(decorations.edge, menu->edge);
+	drawcommit(decorations.corner_left, menu->corner_left);
+	drawcommit(decorations.corner_right, menu->corner_right);
 	context_add(win, &menu->obj);
 	context_add(menu->obj.frame, &menu->obj);
 	context_add(menu->titlebar, &menu->obj);
 	context_add(menu->close_btn, &menu->obj);
+	context_add(menu->corner_left, &menu->obj);
+	context_add(menu->corner_right, &menu->obj);
 	XReparentWindow(
 		wm.display,
 		menu->obj.win, menu->obj.frame,
@@ -179,6 +240,9 @@ manage(struct Object *app, struct Monitor *mon, int desk, Window win, Window lea
 	XMapWindow(wm.display, menu->obj.win);
 	XMapWindow(wm.display, menu->titlebar);
 	XMapWindow(wm.display, menu->close_btn);
+	XMapWindow(wm.display, menu->edge);
+	XMapRaised(wm.display, menu->corner_left);
+	XMapRaised(wm.display, menu->corner_right);
 
 	menu->leader = leader;
 	winupdatetitle(menu->obj.win, &menu->name);
@@ -189,13 +253,13 @@ manage(struct Object *app, struct Monitor *mon, int desk, Window win, Window lea
 		z_entry
 	);
 	menuplace(mon, menu);           /* this will set menu->mon for us */
-	menudecorate(menu);
 	menuraise(menu);
 	if (menu->leader == None ||
 	    (focused_follows_leader(menu->leader))) {
 		XMapWindow(wm.display, menu->obj.frame);
 		menufocus(menu);
 	}
+	redecorate(&menu->obj);
 }
 
 static void
@@ -206,12 +270,17 @@ unmanage(struct Object *obj)
 	context_del(obj->win);
 	TAILQ_REMOVE(&managed_menus, &menu->obj, entry);
 	TAILQ_REMOVE(&wm.stacking_order, &menu->obj, z_entry);
-	if (menu->pixtitlebar != None)
-		XFreePixmap(wm.display, menu->pixtitlebar);
+	if (wm.focused == &menu->obj)
+		wm.focused = NULL;
+	if (menu->pixmap != None)
+		XFreePixmap(wm.display, menu->pixmap);
 	XReparentWindow(wm.display, menu->obj.win, wm.rootwin, 0, 0);
 	XDestroyWindow(wm.display, menu->obj.frame);
 	XDestroyWindow(wm.display, menu->titlebar);
 	XDestroyWindow(wm.display, menu->close_btn);
+	XDestroyWindow(wm.display, menu->edge);
+	XDestroyWindow(wm.display, menu->corner_left);
+	XDestroyWindow(wm.display, menu->corner_right);
 	free(menu->name);
 	free(menu);
 }
@@ -381,6 +450,10 @@ btnpress(struct Object *self, XButtonPressedEvent *press)
 			menu, direction,
 			press->x_root, press->y_root
 		);
+	} else if (press->window == menu->corner_left && press->button == Button1) {
+		drag_resize(menu, BOTTOM|LEFT, press->x_root, press->y_root);
+	} else if (press->window == menu->corner_right && press->button == Button1) {
+		drag_resize(menu, BOTTOM|RIGHT, press->x_root, press->y_root);
 	} else if (press->window == menu->close_btn && press->button == Button1) {
 		if (released_inside(wm.display, press))
 			window_close(wm.display, menu->obj.win);
@@ -400,6 +473,9 @@ clean(void)
 
 	while ((obj = TAILQ_FIRST(&managed_menus)) != NULL)
 		unmanage(obj);
+	XFreePixmap(wm.display, decorations.edge);
+	XFreePixmap(wm.display, decorations.corner_left);
+	XFreePixmap(wm.display, decorations.corner_right);
 }
 
 static void
@@ -432,7 +508,7 @@ redecorate_all(void)
 	struct Object *obj;
 
 	TAILQ_FOREACH(obj, &managed_menus, entry)
-		menudecorate(obj->self);
+		redecorate(obj);
 }
 
 static void
@@ -442,7 +518,7 @@ handle_property(struct Object *self, Atom property)
 
 	if (property == XA_WM_NAME || property == wm.atoms[_NET_WM_NAME]) {
 		winupdatetitle(menu->obj.win, &menu->name);
-		menudecorate(menu);
+		redecorate(&menu->obj);
 	}
 }
 
@@ -507,7 +583,7 @@ handle_configure(struct Object *self, unsigned int valuemask, XWindowChanges *wc
 	if (valuemask & CWHeight)
 		menu->frame_geometry.height = wc->height + BORDER + config.titlewidth;
 	menumoveresize(menu);
-	menudecorate(menu);
+	redecorate(&menu->obj);
 }
 
 static void
@@ -554,6 +630,61 @@ hide_desktop(void)
 }
 
 static void
+reload_theme(void)
+{
+	int cornerwidth = config.titlewidth + config.borderwidth;
+
+	updatepixmap(
+		&decorations.edge,
+		NULL, NULL, 1, config.borderwidth
+	);
+	drawshadow(
+		decorations.edge,
+		-config.shadowthickness, 0,
+		config.borderwidth, config.borderwidth, FOCUSED
+	);
+
+	/*
+	 * In addition to the corner's shadows, the shadows of the edge
+	 * are part of the corner.  That is a optimization hack so we do
+	 * not need to redraw the borders whenever the menu is resized.
+	 * The tip of the edge is then "anchored" to the corners.
+	 */
+
+	updatepixmap(
+		&decorations.corner_left, NULL, NULL,
+		cornerwidth + config.shadowthickness,
+		config.borderwidth
+	);
+	drawshadow(
+		decorations.corner_left,
+		0, 0,
+		cornerwidth, config.borderwidth, FOCUSED
+	);
+	drawshadow(
+		decorations.corner_left,
+		cornerwidth, 0,
+		2*config.shadowthickness, config.borderwidth, FOCUSED
+	);
+
+	updatepixmap(
+		&decorations.corner_right, NULL, NULL,
+		cornerwidth + config.shadowthickness,
+		config.borderwidth
+	);
+	drawshadow(
+		decorations.corner_right,
+		config.shadowthickness, 0,
+		cornerwidth, config.borderwidth, FOCUSED
+	);
+	drawshadow(
+		decorations.corner_right,
+		-config.shadowthickness, 0,
+		2*config.shadowthickness, config.borderwidth, FOCUSED
+	);
+}
+
+static void
 restack_all(void)
 {
 	Window wins[2];
@@ -563,8 +694,6 @@ restack_all(void)
 	TAILQ_FOREACH(obj, &managed_menus, entry) {
 		struct Menu *menu = (obj->self);
 		update_visibility(menu);
-		if (!focused_follows_leader(menu->leader))
-			continue;
 		menu = obj->self;
 		wins[1] = menu->obj.frame;
 		XRestackWindows(wm.display, wins, 2);
@@ -581,6 +710,7 @@ struct Class menu_class = {
 	.clean          = clean,
 	.monitor_delete = monitor_delete,
 	.monitor_reset  = monitor_reset,
+	.redecorate     = redecorate,
 	.redecorate_all = redecorate_all,
 	.handle_property = handle_property,
 	.handle_configure = handle_configure,
@@ -588,5 +718,6 @@ struct Class menu_class = {
 	.handle_message = handle_message,
 	.hide_desktop   = hide_desktop,
 	.show_desktop   = hide_desktop,
+	.reload_theme   = reload_theme,
 	.restack_all    = restack_all,
 };

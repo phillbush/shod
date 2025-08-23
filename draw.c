@@ -1,4 +1,3 @@
-#include <err.h>
 #include <stdlib.h>
 
 #include "shod.h"
@@ -134,7 +133,7 @@ draw_titlebar_lines(Drawable pix, int width, int style, Bool pressed)
 }
 
 void
-drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int pressed, int ismenu)
+drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int pressed, int active)
 {
 	XGlyphInfo box;
 	XftColor *color;
@@ -144,7 +143,7 @@ drawtitle(Drawable pix, const char *text, int w, int drawlines, int style, int p
 
 	if (text == NULL)
 		return;
-	if (ismenu || drawlines)
+	if (active)
 		color = &wm.theme.colors[STYLE_OTHER][COLOR_LIGHT];
 	else
 		color = &wm.theme.colors[style][COLOR_LIGHT];

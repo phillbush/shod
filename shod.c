@@ -870,9 +870,6 @@ xeventbuttonpress(XEvent *event)
 	struct Object *obj = context_get(press->window);
 	struct Monitor *mon = getmon(press->x_root, press->y_root);
 
-	XAllowEvents(wm.display, ReplayPointer, CurrentTime);
-	(void)XSync(wm.display, False);
-
 	if (press->time - last_click_time < DOUBLE_CLICK_TIME &&
 	    press->button == last_click_button &&
 	    press->window == last_click_window) {
@@ -896,6 +893,9 @@ xeventbuttonpress(XEvent *event)
 	)) {
 		deskfocus(mon, mon->seldesk);
 	}
+
+	XAllowEvents(wm.display, ReplayPointer, CurrentTime);
+	(void)XSync(wm.display, False);
 }
 
 static void

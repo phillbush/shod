@@ -179,6 +179,7 @@ struct Container {
 
 static int nclients = 0;
 static struct Queue focus_history;
+static struct Tab *active_tab = NULL;
 
 static struct {
 	Pixmap bar_vert;
@@ -205,19 +206,17 @@ is_visible(struct Container *container, struct Monitor *mon, int desk)
 }
 
 static Bool
-is_focused(struct Container *container)
+is_active(struct Container *container)
 {
-	if (wm.focused == NULL)
+	if (active_tab == NULL)
 		return False;
-	if (wm.focused->class != &tab_class)
-		return False;
-	return container == ((struct Tab *)wm.focused->self)->row->col->c;
+	return container == active_tab->row->col->c;
 }
 
 static int
 get_style(struct Container *container)
 {
-	return is_focused(container)?FOCUSED:UNFOCUSED;
+	return is_active(container)?FOCUSED:UNFOCUSED;
 }
 
 static void
@@ -358,23 +357,20 @@ clientsdecr(void)
 static void
 tabdecorate(struct Tab *t, int style)
 {
-	int drawlines = 0;
-
 	if (t->isurgent)
 		style = URGENT;
-	if (t->row != NULL && t != t->row->col->c->selcol->selrow->seltab)
-		drawlines = 0;
-	else
-		drawlines = 1;
 
 	updatepixmap(&t->pixtitle, &t->ptw, NULL, t->w, config.titlewidth);
 	updatepixmap(&t->pix, &t->pw, &t->ph, t->winw, t->winh);
 	drawbackground(t->pixtitle, 0, 0, t->w, config.titlewidth, style);
 	drawshadow(t->pixtitle, 0, 0, t->w, config.titlewidth, style);
 
-	/* write tab title */
-	if (t->name != NULL)
-		drawtitle(t->pixtitle, t->name, t->w, drawlines, style, False, 0);
+	drawtitle(
+		t->pixtitle, t->name, t->w,
+		t == t->row->seltab,
+		style, False,
+		t == t->row->col->c->selcol->selrow->seltab
+	);
 
 	/* draw frame background */
 	drawbackground(t->pix, 0, 0, t->winw, t->winh, style);
@@ -803,7 +799,7 @@ containermoveresize(struct Container *container, XRectangle geometry)
 			container->mon = monto;
 			container->desk = monto->seldesk;
 			container_setdesk(container);
-			if (is_focused(container))
+			if (is_active(container))
 				deskupdate(monto, monto->seldesk);
 		}
 	}
@@ -910,7 +906,7 @@ static void
 raise(struct Container *container)
 {
 	containerdelraise(container);
-	if (is_focused(container) && (container->state & FULLSCREEN))
+	if (is_active(container) && (container->state & FULLSCREEN))
 		container->layertop = &wm.layers[LAYER_FULLSCREEN];
 	else if (container->state & ABOVE)
 		container->layertop = &wm.layers[LAYER_ABOVE];
@@ -931,7 +927,9 @@ tabfocus(struct Tab *tab)
 {
 	struct Container *container;
 	struct Object *prevfocused = wm.focused;
+	struct Tab *prevactive = active_tab;
 
+	active_tab = tab;
 	if (tab == NULL) {
 		if (wm.focused == NULL)
 			return;
@@ -957,6 +955,7 @@ tabfocus(struct Tab *tab)
 		} else {
 			XSetInputFocus(wm.display, tab->obj.win, RevertToPointerRoot, CurrentTime);
 		}
+		XAllowEvents(wm.display, ReplayPointer, CurrentTime);
 		set_active_window(tab->obj.win);
 		tabclearurgency(tab);
 		containeraddfocus(container);
@@ -972,17 +971,19 @@ tabfocus(struct Tab *tab)
 			container->mon->seldesk : container->desk
 		);
 	}
-	if (prevfocused != NULL && (tab == NULL || tab != prevfocused->self)) {
+	if (prevactive != NULL && tab != prevactive) {
+		struct Container *c = prevactive->row->col->c;
+
+		setstate_recursive(c);
+		redecorate(&c->obj);
+		if (c->state & FULLSCREEN)
+			restack(&c->obj);
+	}
+	if (prevfocused != NULL &&
+	    prevfocused->self != prevactive &&
+	    prevfocused->self != tab) {
 		if (prevfocused->class->redecorate != NULL)
 			prevfocused->class->redecorate(prevfocused);
-		if (prevfocused->class == &tab_class) {
-			struct Container *c;
-
-			c = ((struct Tab *)prevfocused->self)->row->col->c;
-			setstate_recursive(c);
-			if (c->state & FULLSCREEN)
-				restack(prevfocused);
-		}
 	}
 	if (wm.showingdesk)
 		menu_class.show_desktop();
@@ -1140,6 +1141,8 @@ tabdel(struct Tab *tab)
 		XFreePixmap(wm.display, tab->pixtitle);
 	if (tab->pix != None)
 		XFreePixmap(wm.display, tab->pix);
+	if (active_tab == tab)
+		active_tab = NULL;
 	if (&tab->obj == wm.focused)
 		wm.focused = NULL;
 	XReparentWindow(wm.display, tab->obj.win, wm.rootwin, 0, 0);
@@ -1558,7 +1561,7 @@ containershade(struct Container *c, int shade)
 	c->state ^= SHADED;
 	container_update_geometry(c);
 	redecorate(&c->obj);
-	if (is_focused(c)) {
+	if (is_active(c)) {
 		tabfocus(c->selcol->selrow->seltab);
 	}
 }
@@ -1582,7 +1585,7 @@ container_changelayer(struct Container *container, enum State state, int action)
 		return;         /* already unset */
 	if (action == ADD    &&  (container->state & state))
 		return;         /* already set */
-	container->state &= ABOVE|BELOW;
+	container->state &= ~(ABOVE|BELOW);
 	container->state |= state;
 	raise(container);
 }
@@ -1627,52 +1630,51 @@ containeraddcol(struct Container *c, struct Column *col, struct Column *prev)
 }
 
 static struct Container *
-containernew(int x, int y, int w, int h, enum State state)
+containernew(XRectangle geometry, enum State state)
 {
 	struct Container *c;
 	int corner = config.corner + config.shadowthickness;
 	int border = config.borderwidth - 1;
 	struct border_tab { int window, cursor, gravity, x, y; } *table;
 
+	geometry.x -= config.borderwidth;
+	geometry.y -= config.borderwidth;
+	geometry.width  += 2*config.borderwidth;
+	geometry.height += 2*config.borderwidth + config.titlewidth;
 	c = emalloc(sizeof *c);
 	*c = (struct Container) {
 		.state = state,
 		.layertop = &wm.layers[LAYER_NORMAL],
 		.ishidden = 0,
+		.geometry.saved = geometry,
+		.geometry.current = geometry,
 		.obj.self = c,
 		.obj.class = &container_class,
+		.obj.frame = createwindow(
+			wm.rootwin, geometry,
+			CWEventMask, &(XSetWindowAttributes){
+				.event_mask = EnterWindowMask,
+			}
+		),
 	};
-	w += 2 * config.borderwidth;
-	h += 2 * config.borderwidth + config.titlewidth;
-	c->geometry.saved = c->geometry.current = (XRectangle){
-		.x = x - config.borderwidth,
-		.y = y - config.borderwidth,
-		.width = w,
-		.height = h,
-	};
-	table = (struct border_tab[BORDER_LAST]){
-		{ BORDER_N,  CURSOR_N,  NorthWestGravity, 0, 0,                           },
-		{ BORDER_W,  CURSOR_W,  NorthWestGravity, 0, border,                      },
-		{ BORDER_S,  CURSOR_S,  SouthWestGravity, 0, h - config.borderwidth,      },
-		{ BORDER_E,  CURSOR_E,  NorthEastGravity, w - config.borderwidth, border, },
-		{ BORDER_SW, CURSOR_SW, SouthWestGravity, 0, h - corner,                  },
-		{ BORDER_SE, CURSOR_SE, SouthEastGravity, w - corner, h - corner,         },
-		{ BORDER_NW, CURSOR_NW, NorthWestGravity, 0, 0,                           },
-		{ BORDER_NE, CURSOR_NE, NorthEastGravity, w - corner, 0,                  },
-	};
-	c->obj.frame = createwindow(
-		wm.rootwin, c->geometry.current,
-		CWEventMask, &(XSetWindowAttributes){
-			.event_mask = EnterWindowMask,
-		}
-	);
-	c->obj.frame = c->obj.frame;
 	XGrabButton(
 		wm.display, AnyButton, config.modifier,
 		c->obj.frame, False, MOUSE_EVENTS,
-		GrabModeSync, GrabModeAsync, None, None
+		GrabModeAsync, GrabModeAsync, None, None
 	);
+
+	c->obj.win = c->obj.frame;
 	context_add(c->obj.frame, &c->obj);
+	table = (struct border_tab[BORDER_LAST]){
+		{ BORDER_N,  CURSOR_N,  NorthWestGravity, 0, 0,                           },
+		{ BORDER_W,  CURSOR_W,  NorthWestGravity, 0, border,                      },
+		{ BORDER_S,  CURSOR_S,  SouthWestGravity, 0, geometry.height - config.borderwidth,      },
+		{ BORDER_E,  CURSOR_E,  NorthEastGravity, geometry.width - config.borderwidth, border, },
+		{ BORDER_SW, CURSOR_SW, SouthWestGravity, 0, geometry.height - corner,                  },
+		{ BORDER_SE, CURSOR_SE, SouthEastGravity, geometry.width - corner, geometry.height - corner,         },
+		{ BORDER_NW, CURSOR_NW, NorthWestGravity, 0, 0,                           },
+		{ BORDER_NE, CURSOR_NE, NorthEastGravity, geometry.width - corner, 0,                  },
+	};
 	TAILQ_INIT(&c->colq);
 	for (size_t i = 0; i < BORDER_LAST; i++) {
 		c->borders[table[i].window] = createdecoration(
@@ -1790,7 +1792,7 @@ containersetstate(struct Object *obj, enum State state, int set)
 	if (state & STICKY)
 		containerstick(container, set);
 	if (state & MINIMIZED)
-		containerminimize(container, set, is_focused(container));
+		containerminimize(container, set, is_active(container));
 	if (state & ABOVE)
 		container_changelayer(container, ABOVE, set);
 	if (state & BELOW)
@@ -1932,7 +1934,7 @@ containernewwithtab(struct Tab *tab, struct Monitor *mon, int desk, XRectangle r
 
 	if (tab == NULL)
 		return;
-	c = containernew(rect.x, rect.y, rect.width, rect.height, state);
+	c = containernew(rect, state);
 	c->mon = mon;
 	c->desk = desk;
 	row = rownew();
@@ -1962,11 +1964,9 @@ getleaderof(Window leader)
 
 	if (leader == None)
 		return NULL;
-	if (wm.focused != NULL && wm.focused->class == &tab_class) {
-		tab = wm.focused->self;
-		if (tab->obj.win == leader || tab->leader == leader)
-			return tab;
-	}
+	if (active_tab != NULL &&
+	    (active_tab->obj.win == leader || active_tab->leader == leader))
+		return active_tab;
 	if ((obj = context_get(leader)) != NULL && obj->class == &tab_class) {
 		tab = obj->self;
 		return TAILQ_LAST(&tab->row->tabq, Queue)->self;
@@ -1986,11 +1986,8 @@ gettabfrompid(unsigned long pid)
 
 	if (pid <= 1)
 		return NULL;
-	if (wm.focused != NULL && wm.focused->class == &tab_class) {
-		tab = wm.focused->self;
-		if (tab->pid == pid)
-			return tab;
-	}
+	if (active_tab != NULL && active_tab->pid == pid)
+		return active_tab;
 	TAILQ_FOREACH(c, &focus_history, entry)
 		TAB_FOREACH((struct Container *)c, tab)
 			if (pid == tab->pid)
@@ -2022,7 +2019,7 @@ managecontainer(struct Object *app, struct Monitor *mon, int desk, Window win, W
 		update_tiles(c);
 		redecorate(&c->obj);
 		XMapSubwindows(wm.display, c->obj.frame);
-		if (is_focused(c)) {
+		if (is_active(c)) {
 			tabfocus(tab);
 		}
 	}
@@ -2035,7 +2032,7 @@ unmanagetab(struct Object *obj)
 	struct Row *row = tab->row;
 	struct Column *col = row->col;
 	struct Container *container = col->c;
-	Bool refocus = is_focused(container);
+	Bool refocus = is_active(container);
 
 	tabdel(tab);
 	containerdelrow(row);
@@ -2446,7 +2443,6 @@ tab_btnpress(struct Object *self, XButtonPressedEvent *press)
 	} else if (press->window == tab->close_btn && press->button == Button1) {
 		if (released_inside(wm.display, press))
 			window_close(wm.display, tab->obj.win);
-		return;
 	}
 }
 
@@ -2664,7 +2660,7 @@ monitor_reset(void)
 	TAILQ_FOREACH(obj, &focus_history, entry) {
 		struct Container *container = obj->self;
 		if (!(container->state & MINIMIZED) && container->mon == NULL) {
-			if (is_focused(container))
+			if (is_active(container))
 				refocus = container;
 			container->mon = wm.selmon;
 			container->desk = wm.selmon->seldesk;
@@ -2972,9 +2968,9 @@ handle_enter(struct Object *self)
 	else
 		return;
 	container = tab->row->col->c;
-	if (is_focused(container) && config.sloppytiles)
+	if (is_active(container) && config.sloppytiles)
 		tabfocus(tab);
-	if (!is_focused(container) && config.sloppyfocus)
+	if (!is_active(container) && config.sloppyfocus)
 		tabfocus(container->selcol->selrow->seltab);
 }
 
@@ -3408,14 +3404,9 @@ focusnext(struct Monitor *mon, int desk)
 Bool
 focused_follows_leader(Window leader)
 {
-	struct Tab *tab;
-
-	if (wm.focused == NULL)
+	if (active_tab == NULL)
 		return False;
-	if (wm.focused->class != &tab_class)
-		return False;
-	tab = wm.focused->self;
-	return (leader == tab->obj.win || leader == tab->leader);
+	return (leader == active_tab->obj.win || leader == active_tab->leader);
 }
 
 struct Class container_class = {
